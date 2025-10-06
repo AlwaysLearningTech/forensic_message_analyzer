@@ -33,25 +33,41 @@ threat_patterns:
     confidence_boost: 0.3
 
 behavioral_patterns:
-  - name: "Emotional Manipulation"
-    pattern: "(guilt|blame|fault|deserve|made me|force me to)"
-    category: "manipulation"
+  emotional_manipulation:
+    patterns:
+      - "(guilt|blame|fault|deserve|made me|force me to)"
+    weight: 0.7
+    description: "Emotional manipulation tactics"
     
-  - name: "Gaslighting"
-    pattern: "(never said|didn't happen|imagining|crazy|overreacting)"
-    category: "manipulation"
+  gaslighting:
+    patterns:
+      - "(never said|didn't happen|imagining)"
+      - "(crazy|paranoid|overreacting)"
+      - "(remember it wrong|confused)"
+    weight: 0.9
+    description: "Psychological manipulation"
     
-  - name: "Control"
-    pattern: "(can't|won't let|forbid|not allowed|permission|must)"
-    category: "control"
+  control:
+    patterns:
+      - "(can't|won't let|forbid|not allowed|permission|must)"
+    weight: 0.8
+    description: "Controlling behavior"
     
-  - name: "Isolation"
-    pattern: "(don't talk|stay away from|no friends|only me|don't need)"
-    category: "control"
+  isolation:
+    patterns:
+      - "(don't talk|stay away from)"
+      - "(no friends|only me)"
+      - "(don't need.*friends|shouldn't see)"
+    weight: 0.8
+    description: "Attempts to isolate from support network"
     
-  - name: "Love Bombing"
-    pattern: "(love you so much|can't live without|need you|perfect|soulmate)"
-    category: "manipulation"
+  love_bombing:
+    patterns:
+      - "(love|adore|worship|obsessed).*you"
+      - "(perfect|amazing|incredible|best thing)"
+      - "(can't live without|need you|only one|soulmate)"
+    weight: 0.7
+    description: "Excessive affection or attention"
 
 sentiment_keywords:
   positive:

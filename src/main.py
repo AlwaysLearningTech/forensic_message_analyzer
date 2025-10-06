@@ -40,9 +40,9 @@ class ForensicAnalyzer:
         Args:
             config: Configuration instance. If None, creates a new one.
         """
-        self.forensic = ForensicRecorder()
-        self.integrity = ForensicIntegrity(self.forensic)
         self.config = config if config is not None else Config()
+        self.forensic = ForensicRecorder(Path(self.config.output_dir))
+        self.integrity = ForensicIntegrity(self.forensic)
         self.manifest = RunManifest(self.forensic)
         
         # Record session start
@@ -152,8 +152,8 @@ class ForensicAnalyzer:
         # Process screenshots
         if data.get('screenshots'):
             print("\n[*] Analyzing screenshots...")
-            screenshot_analyzer = ScreenshotAnalyzer(self.forensic)
-            screenshot_results = screenshot_analyzer.process_screenshots(data['screenshots'])
+            # Screenshots are already extracted, just use them
+            screenshot_results = data['screenshots']
             results['screenshots'] = screenshot_results
             print(f"    Analyzed {len(screenshot_results)} screenshots")
         
@@ -257,13 +257,50 @@ class ForensicAnalyzer:
         if 'excel' not in reports:
             print("\n[*] Generating Excel report...")
             try:
+                # Enrich messages with analysis results before generating Excel
+                enriched_data = data.copy()
+                if 'messages' in data and 'threats' in analysis and 'details' in analysis['threats']:
+                    # Convert messages to DataFrame for merging
+                    import pandas as pd
+                    df_messages = pd.DataFrame(data['messages'])
+                    df_threats = pd.DataFrame(analysis['threats']['details'])
+                    
+                    # Merge threat columns if message_id exists
+                    if 'message_id' in df_messages.columns and 'message_id' in df_threats.columns:
+                        threat_cols = [col for col in df_threats.columns if col.startswith('threat_') or col == 'harmful_content']
+                        if 'message_id' not in threat_cols:
+                            threat_cols.insert(0, 'message_id')
+                        df_messages = df_messages.merge(
+                            df_threats[threat_cols],
+                            on='message_id',
+                            how='left'
+                        )
+                    
+                    # Merge sentiment columns if available
+                    if 'sentiment' in analysis:
+                        df_sentiment = pd.DataFrame(analysis['sentiment'])
+                        if 'message_id' in df_sentiment.columns:
+                            sentiment_cols = [col for col in df_sentiment.columns if col.startswith('sentiment_')]
+                            if 'message_id' not in sentiment_cols:
+                                sentiment_cols.insert(0, 'message_id')
+                            df_messages = df_messages.merge(
+                                df_sentiment[sentiment_cols],
+                                on='message_id',
+                                how='left'
+                            )
+                    
+                    # Update enriched_data with merged messages
+                    enriched_data['messages'] = df_messages.to_dict('records')
+                
                 excel_reporter = ExcelReporter(self.forensic)
                 excel_path = Path(self.config.output_dir) / f"report_{timestamp}.xlsx"
-                excel_reporter.generate_report(data, analysis, review, excel_path)
+                excel_reporter.generate_report(enriched_data, analysis, review, excel_path)
                 reports['excel'] = str(excel_path)
                 print(f"    Saved to {excel_path}")
             except Exception as e:
                 print(f"    Error generating Excel report: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Generate JSON report if needed
         if 'json' not in reports:

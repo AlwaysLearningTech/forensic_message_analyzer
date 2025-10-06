@@ -65,7 +65,9 @@ class ForensicReporter:
             reports['word'] = word_path
             logger.info(f"Generated Word report: {word_path}")
         except Exception as e:
+            import traceback
             logger.error(f"Failed to generate Word report: {e}")
+            logger.error(traceback.format_exc())
             self.forensic.record_action(
                 "report_generation_error",
                 f"Word report generation failed: {str(e)}"
@@ -125,27 +127,88 @@ class ForensicReporter:
         
         # Data Extraction Summary
         doc.add_heading('Data Extraction', 1)
-        doc.add_paragraph(f"Total messages extracted: {extracted_data.get('total_messages', 0)}")
-        doc.add_paragraph(f"Date range: {extracted_data.get('date_range', 'N/A')}")
-        doc.add_paragraph(f"Sources: {', '.join(extracted_data.get('sources', []))}")
+        
+        # Calculate metadata from extracted_data structure
+        messages = extracted_data.get('messages', extracted_data.get('combined', []))
+        total_messages = len(messages) if isinstance(messages, list) else 0
+        
+        # Calculate date range if we have messages
+        date_range = 'N/A'
+        sources = set()
+        if messages and total_messages > 0:
+            # Filter out None timestamps first
+            timestamps = [msg.get('timestamp') for msg in messages if msg.get('timestamp') is not None]
+            if timestamps:
+                # Convert string timestamps to datetime if needed
+                dt_timestamps = []
+                for ts in timestamps:
+                    try:
+                        if isinstance(ts, str):
+                            parsed = pd.to_datetime(ts)
+                            if not pd.isna(parsed):
+                                dt_timestamps.append(parsed)
+                        elif hasattr(ts, 'year') and not pd.isna(ts):
+                            dt_timestamps.append(ts)
+                    except Exception:
+                        pass
+                
+                if dt_timestamps:
+                    min_date = min(dt_timestamps)
+                    max_date = max(dt_timestamps)
+                    date_range = f"{min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}"
+            
+            # Get unique sources
+            for msg in messages:
+                if msg.get('source'):
+                    sources.add(msg['source'])
+        
+        doc.add_paragraph(f"Total messages extracted: {total_messages}")
+        doc.add_paragraph(f"Date range: {date_range}")
+        doc.add_paragraph(f"Sources: {', '.join(sources) if sources else 'N/A'}")
+        
+        # Add screenshot count
+        screenshots = extracted_data.get('screenshots', [])
+        if screenshots:
+            doc.add_paragraph(f"Screenshots cataloged: {len(screenshots)}")
         
         # Threat Analysis
         doc.add_heading('Threat Analysis', 1)
         threats = analysis_results.get('threats', {})
-        doc.add_paragraph(f"Threats detected: {threats.get('count', 0)}")
-        if threats.get('high_priority'):
-            doc.add_heading('High Priority Threats', 2)
-            for threat in threats['high_priority'][:5]:  # Top 5
-                doc.add_paragraph(f"• {threat.get('content', '')[:100]}...")
+        threat_summary = threats.get('summary', {})
+        threat_details = threats.get('details', [])
+        
+        messages_with_threats = threat_summary.get('messages_with_threats', 0)
+        doc.add_paragraph(f"Threats detected: {messages_with_threats}")
+        
+        # Show high priority threats if available
+        if threat_details and isinstance(threat_details, list):
+            high_priority = [t for t in threat_details if t.get('threat_detected')][:5]
+            if high_priority:
+                doc.add_heading('High Priority Threats', 2)
+                for threat in high_priority:
+                    content = threat.get('content', '')[:100]
+                    doc.add_paragraph(f"• {content}...")
         
         # Sentiment Analysis
         doc.add_heading('Sentiment Analysis', 1)
-        sentiment = analysis_results.get('sentiment', {})
-        doc.add_paragraph(f"Overall sentiment: {sentiment.get('overall', 'N/A')}")
-        doc.add_paragraph(f"Sentiment distribution:")
-        doc.add_paragraph(f"  • Positive: {sentiment.get('positive_count', 0)}")
-        doc.add_paragraph(f"  • Neutral: {sentiment.get('neutral_count', 0)}")
-        doc.add_paragraph(f"  • Negative: {sentiment.get('negative_count', 0)}")
+        sentiment = analysis_results.get('sentiment', [])
+        
+        # Calculate sentiment distribution if we have data
+        if sentiment and isinstance(sentiment, list):
+            positive = sum(1 for s in sentiment 
+                         if isinstance(s.get('sentiment_polarity'), (int, float)) 
+                         and s.get('sentiment_polarity', 0) > 0.1)
+            negative = sum(1 for s in sentiment 
+                         if isinstance(s.get('sentiment_polarity'), (int, float)) 
+                         and s.get('sentiment_polarity', 0) < -0.1)
+            neutral = len(sentiment) - positive - negative
+            
+            doc.add_paragraph(f"Sentiment distribution:")
+            doc.add_paragraph(f"  • Positive: {positive}")
+            doc.add_paragraph(f"  • Neutral: {neutral}")
+            doc.add_paragraph(f"  • Negative: {negative}")
+        else:
+            doc.add_paragraph("Sentiment analysis data not available")
         
         # Manual Review Summary
         doc.add_heading('Manual Review', 1)
@@ -217,12 +280,45 @@ class ForensicReporter:
         
         # Data Overview Table
         elements.append(Paragraph("Data Overview", styles['Heading1']))
+        
+        # Calculate metadata from extracted_data structure
+        messages = extracted_data.get('messages', extracted_data.get('combined', []))
+        total_messages = len(messages) if isinstance(messages, list) else 0
+        
+        # Calculate date range
+        date_range = 'N/A'
+        sources = set()
+        if messages and total_messages > 0:
+            # Filter out None timestamps first
+            timestamps = [msg.get('timestamp') for msg in messages if msg.get('timestamp') is not None]
+            if timestamps:
+                dt_timestamps = []
+                for ts in timestamps:
+                    try:
+                        if isinstance(ts, str):
+                            parsed = pd.to_datetime(ts)
+                            if not pd.isna(parsed):
+                                dt_timestamps.append(parsed)
+                        elif hasattr(ts, 'year') and not pd.isna(ts):
+                            dt_timestamps.append(ts)
+                    except Exception:
+                        pass
+                
+                if dt_timestamps:
+                    min_date = min(dt_timestamps)
+                    max_date = max(dt_timestamps)
+                    date_range = f"{min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}"
+            
+            for msg in messages:
+                if msg.get('source'):
+                    sources.add(msg['source'])
+        
         overview_data = [
             ['Metric', 'Value'],
-            ['Total Messages', str(extracted_data.get('total_messages', 0))],
-            ['Date Range', extracted_data.get('date_range', 'N/A')],
-            ['Sources', ', '.join(extracted_data.get('sources', []))],
-            ['Threats Detected', str(analysis_results.get('threats', {}).get('count', 0))],
+            ['Total Messages', str(total_messages)],
+            ['Date Range', date_range],
+            ['Sources', ', '.join(sources) if sources else 'N/A'],
+            ['Threats Detected', str(analysis_results.get('threats', {}).get('summary', {}).get('messages_with_threats', 0))],
             ['Items Reviewed', str(review_decisions.get('total_reviewed', 0))]
         ]
         
@@ -238,6 +334,69 @@ class ForensicReporter:
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))
         elements.append(overview_table)
+        elements.append(Spacer(1, 20))
+        
+        # Add Screenshots count if available
+        screenshots = extracted_data.get('screenshots', [])
+        if screenshots:
+            elements.append(Paragraph(f"<b>Screenshots cataloged:</b> {len(screenshots)}", styles['Normal']))
+            elements.append(Spacer(1, 12))
+        
+        # Threat Analysis Section
+        elements.append(Paragraph("Threat Analysis", styles['Heading1']))
+        threats = analysis_results.get('threats', {})
+        threat_summary = threats.get('summary', {})
+        threat_details = threats.get('details', [])
+        
+        messages_with_threats = threat_summary.get('messages_with_threats', 0)
+        elements.append(Paragraph(f"<b>Threats detected:</b> {messages_with_threats}", styles['Normal']))
+        elements.append(Spacer(1, 12))
+        
+        # Show high priority threats if available
+        if threat_details and isinstance(threat_details, list):
+            high_priority = [t for t in threat_details if t.get('threat_detected')][:5]
+            if high_priority:
+                elements.append(Paragraph("High Priority Threats", styles['Heading2']))
+                for threat in high_priority:
+                    content = threat.get('content', '')[:100]
+                    elements.append(Paragraph(f"• {content}...", styles['Normal']))
+                elements.append(Spacer(1, 12))
+        
+        # Sentiment Analysis Section
+        elements.append(Paragraph("Sentiment Analysis", styles['Heading1']))
+        sentiment = analysis_results.get('sentiment', [])
+        
+        # Calculate sentiment distribution if we have data
+        if sentiment and isinstance(sentiment, list):
+            positive = sum(1 for s in sentiment 
+                         if isinstance(s.get('sentiment_polarity'), (int, float)) 
+                         and s.get('sentiment_polarity', 0) > 0.1)
+            negative = sum(1 for s in sentiment 
+                         if isinstance(s.get('sentiment_polarity'), (int, float)) 
+                         and s.get('sentiment_polarity', 0) < -0.1)
+            neutral = len(sentiment) - positive - negative
+            
+            elements.append(Paragraph("<b>Sentiment distribution:</b>", styles['Normal']))
+            elements.append(Paragraph(f"• Positive: {positive}", styles['Normal']))
+            elements.append(Paragraph(f"• Neutral: {neutral}", styles['Normal']))
+            elements.append(Paragraph(f"• Negative: {negative}", styles['Normal']))
+            elements.append(Spacer(1, 12))
+        else:
+            elements.append(Paragraph("Sentiment analysis data not available", styles['Normal']))
+            elements.append(Spacer(1, 12))
+        
+        # Manual Review Section
+        elements.append(Paragraph("Manual Review", styles['Heading1']))
+        elements.append(Paragraph(f"<b>Items reviewed:</b> {review_decisions.get('total_reviewed', 0)}", styles['Normal']))
+        elements.append(Paragraph(f"<b>Relevant:</b> {review_decisions.get('relevant', 0)}", styles['Normal']))
+        elements.append(Paragraph(f"<b>Not relevant:</b> {review_decisions.get('not_relevant', 0)}", styles['Normal']))
+        elements.append(Paragraph(f"<b>Uncertain:</b> {review_decisions.get('uncertain', 0)}", styles['Normal']))
+        elements.append(Spacer(1, 20))
+        
+        # Chain of Custody Section
+        elements.append(Paragraph("Chain of Custody", styles['Heading1']))
+        elements.append(Paragraph("See accompanying chain_of_custody.json for detailed forensic trail.", styles['Normal']))
+        elements.append(Spacer(1, 12))
         
         # Build PDF
         doc.build(elements)

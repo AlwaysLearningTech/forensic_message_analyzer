@@ -31,9 +31,10 @@ class ForensicRecorder:
         else:
             # Import config here to avoid circular imports
             try:
-                from src.config import config
-                self.output_dir = config.output_dir
-            except ImportError:
+                from src.config import Config
+                cfg = Config()
+                self.output_dir = Path(cfg.output_dir)
+            except (ImportError, Exception):
                 # Fallback to current directory if config not available
                 self.output_dir = Path('./output')
         

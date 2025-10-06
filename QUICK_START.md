@@ -85,13 +85,24 @@ This will:
 
 All outputs are saved to `~/workspace/output/forensic_message_analyzer/`:
 
-- `extracted_data_YYYYMMDD_HHMMSS.json` - Raw extracted messages
-- `forensic_report_YYYYMMDD_HHMMSS.xlsx` - Excel report
-- `forensic_report_YYYYMMDD_HHMMSS.docx` - Word report
-- `forensic_report_YYYYMMDD_HHMMSS.pdf` - PDF report
+- `extracted_data_YYYYMMDD_HHMMSS.json` - Raw extracted messages with sender, recipient, content, timestamp
+- `analysis_results_YYYYMMDD_HHMMSS.json` - Analysis findings (threats, sentiment, patterns, metrics)
+- `report_YYYYMMDD_HHMMSS.xlsx` - Excel report with person-organized tabs (only configured persons, excludes random numbers)
+- `forensic_report_YYYYMMDD_HHMMSS.docx` - Word report with full analysis
+- `forensic_report_YYYYMMDD_HHMMSS.pdf` - PDF report for court submission
 - `chain_of_custody_YYYYMMDD_HHMMSS.json` - Complete audit trail
 - `run_manifest_YYYYMMDD_HHMMSS.json` - Analysis documentation
 - `timeline_YYYYMMDD_HHMMSS.html` - Interactive timeline
+
+**Excel Report Structure:**
+- **Overview**: Summary statistics
+- **[Person Name]**: Individual tabs for each configured person (e.g., "Marcia Snyder")
+  - Only messages where that person is the recipient
+  - Integrated threat and sentiment columns
+- **All Messages**: Complete dataset filtered to only configured persons
+- **Manual Review**: Review decisions (if applicable)
+
+Note: The Excel report only includes conversations with legally relevant parties (configured persons). Random phone numbers and chat IDs are automatically excluded.
 
 ## Common Tasks
 

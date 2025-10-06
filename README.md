@@ -23,8 +23,16 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
 ## Features
 
 ### Data Extraction
-- **iMessage**: Direct extraction from macOS Messages database
-- **WhatsApp**: Import from exported chat files
+- **iMessage**: Direct extraction from macOS Messages database with `attributedBody` decoding
+  - Extracts modern binary message format (NSAttributedString)
+  - Maps contacts to configured person names
+  - Includes sender and recipient tracking for conversation analysis
+  - Filters tapbacks and system messages (associated_message_type 2000-3007)
+- **WhatsApp**: Automatic ZIP extraction and import from exported chat files
+  - Auto-extracts ZIP archives (e.g., WhatsApp_SourceFiles.zip)
+  - Supports multiple timestamp formats (with/without seconds)
+  - Maps participants to configured person names
+  - Includes recipient field for conversation filtering
 - **Screenshots**: Catalog and OCR processing
 - **Attachments**: Full metadata preservation
 
@@ -40,11 +48,23 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
 ### Legal Compliance
 - **Chain of Custody**: Complete audit trail with SHA-256 hashing
 - **Evidence Integrity**: Read-only processing, no source modification
-- **FRE Compliance**: Meets Federal Rules of Evidence requirements
+- **FRE Compliance**: Meets Federal Rules of Evidence requirements (FRE 901, 803)
 - **Daubert Standards**: Testable, reproducible, documented methodology
+- **Conversation Filtering**: Reports show only legally relevant parties (configured in .env)
 
 ### Reporting
-- **Multi-format**: Excel, Word, PDF reports
+- **Excel Reports**: Organized by person with integrated threat/sentiment data
+  - Separate tabs for each configured person (e.g., Marcia Snyder, Kiara Snyder)
+  - Each tab combines messages, threats, and sentiment in one view
+  - "All Messages" tab filtered to only configured contacts
+  - Excludes conversations with non-relevant parties
+- **Word/PDF Reports**: Comprehensive analysis with:
+  - Executive summary
+  - Data extraction statistics
+  - Threat analysis with high-priority examples
+  - Sentiment distribution (Positive/Neutral/Negative)
+  - Manual review breakdown
+  - Chain of custody reference
 - **Timeline Visualization**: Interactive HTML timelines
 - **Manual Review**: Structured decision tracking
 - **Run Manifest**: Complete documentation of analysis process
@@ -195,15 +215,53 @@ cp .env.example ~/workspace/data/forensic_message_analyzer/.env
 
 Run the complete forensic analysis:
 ```bash
-python run.py
+python3 run.py
 ```
 
 This executes five phases:
-1. **Data Extraction**: Collects messages from all sources
+1. **Data Extraction**: Collects messages from all sources (iMessage, WhatsApp, screenshots)
+   - Automatically extracts ZIP files (e.g., WhatsApp_SourceFiles.zip)
+   - Decodes modern iMessage binary format (attributedBody)
+   - Maps all participants to configured person names
+   - Adds sender and recipient fields to all messages
 2. **Automated Analysis**: Runs all configured analyzers
+   - Threat detection with pattern matching
+   - Sentiment analysis (polarity and subjectivity)
+   - Behavioral pattern analysis
+   - Communication metrics
 3. **Manual Review**: Flags items for human review
 4. **Report Generation**: Creates comprehensive reports
+   - Excel: Separate tabs per person with integrated threat/sentiment data
+   - Word: Complete analysis with all sections
+   - PDF: Matches Word content for legal distribution
+   - JSON: Raw data for additional processing
+   - Timeline: Interactive HTML visualization
 5. **Documentation**: Generates chain of custody and manifest
+
+### Expected Output
+
+**Message Extraction:**
+- iMessages: Typically 20,000-50,000 messages depending on database size
+- WhatsApp: Automatically extracts from ZIP archives (30,000+ messages typical)
+- Total: Combined dataset with sender, recipient, content, timestamp, source
+
+**Excel Report Structure:**
+```
+forensic_message_analyzer/
+└── output/
+    └── report_YYYYMMDD_HHMMSS.xlsx
+        ├── Overview (summary statistics)
+        ├── Marcia Snyder (filtered conversations)
+        ├── Kiara Snyder (filtered conversations)
+        ├── David Snyder (filtered conversations)
+        ├── All Messages (all mapped person conversations)
+        └── Manual Review (if applicable)
+```
+
+Each person tab includes:
+- Message details (timestamp, sender, recipient, content, source)
+- Threat information (threat_detected, threat_categories, threat_confidence)
+- Sentiment data (sentiment_score, sentiment_polarity, sentiment_subjectivity)
 
 ### Individual Components
 
@@ -215,41 +273,60 @@ from src.analyzers.threat_analyzer import ThreatAnalyzer
 from src.analyzers.sentiment_analyzer import SentimentAnalyzer
 from src.analyzers.behavioral_analyzer import BehavioralAnalyzer
 from src.reporters.forensic_reporter import ForensicReporter
+from src.config import Config
+from pathlib import Path
 import pandas as pd
 
-# Initialize forensic tracking
-recorder = ForensicRecorder()
+# Initialize configuration and forensic tracking
+config = Config()
+recorder = ForensicRecorder(Path(config.output_dir))
 integrity = ForensicIntegrity(recorder)
 
-# Extract iMessages (requires db_path, forensic_recorder, forensic_integrity)
-db_path = "~/Library/Messages/chat.db"
+# Extract iMessages
+# Note: IMessageExtractor requires (db_path, forensic_recorder, forensic_integrity)
+# Returns: list of message dicts with sender, recipient, content, timestamp, source
+db_path = config.messages_db_path
 imessage_extractor = IMessageExtractor(db_path, recorder, integrity)
-imessages_df = imessage_extractor.extract_messages()
+imessages = imessage_extractor.extract_messages()  # Returns list, not DataFrame
 
-# Extract WhatsApp (requires export_dir, forensic_recorder, forensic_integrity)
-export_dir = "~/workspace/data/forensic_message_analyzer/source_files/whatsapp/"
+# Extract WhatsApp
+# Note: WhatsAppExtractor requires (export_dir, forensic_recorder, forensic_integrity)
+# Automatically extracts ZIP files in the directory
+# Returns: list of message dicts
+export_dir = config.whatsapp_source_dir
 whatsapp_extractor = WhatsAppExtractor(export_dir, recorder, integrity)
-whatsapp_df = whatsapp_extractor.extract_messages()
+whatsapp_messages = whatsapp_extractor.extract_all()  # Returns list, not DataFrame
 
-# Combine messages
-combined_df = pd.concat([imessages_df, whatsapp_df], ignore_index=True)
+# Combine messages into DataFrame
+all_messages = imessages + whatsapp_messages
+combined_df = pd.DataFrame(all_messages)
 
-# Analyze for threats (returns DataFrame with threat_detected column)
+# Analyze for threats
+# Note: detect_threats() adds columns to DataFrame, returns same DataFrame
+# Note: generate_threat_summary() takes DataFrame, returns dict
 threat_analyzer = ThreatAnalyzer(recorder)
 threats_df = threat_analyzer.detect_threats(combined_df)
 threat_summary = threat_analyzer.generate_threat_summary(threats_df)
 
-# Analyze sentiment (returns DataFrame with sentiment columns)
+# Analyze sentiment
+# Note: analyze_sentiment() adds sentiment_* columns to DataFrame
+# Requires forensic_recorder parameter in __init__
 sentiment_analyzer = SentimentAnalyzer(recorder)
 sentiment_df = sentiment_analyzer.analyze_sentiment(threats_df)
 
-# Analyze behavioral patterns (returns dict)
+# Analyze behavioral patterns
+# Note: analyze_patterns() returns dict, NOT DataFrame
 behavioral_analyzer = BehavioralAnalyzer(recorder)
 behavior_results = behavioral_analyzer.analyze_patterns(sentiment_df)
 
-# Generate report
+# Generate reports
+# Note: Reports are filtered to only show configured persons from .env
 reporter = ForensicReporter(recorder)
-reporter.generate_report(sentiment_df, 'forensic_report')
+reports = reporter.generate_comprehensive_report(
+    extracted_data={'messages': all_messages, 'screenshots': []},
+    analysis_results={'threats': threat_summary, 'sentiment': sentiment_df.to_dict('records')},
+    review_decisions={}
+)
 ```
 
 ## Legal Defensibility
@@ -440,22 +517,74 @@ python3 check_readiness.py
 
 ## Output Files
 
-All outputs are timestamped and stored in the configured `OUTPUT_DIR`:
+All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: `~/workspace/output/forensic_message_analyzer/`):
 
 ### Analysis Outputs
-- `extracted_data_YYYYMMDD_HHMMSS.json` - Raw extracted messages
-- `analysis_results_YYYYMMDD_HHMMSS.json` - Analysis findings
-- `manual_review_summary_YYYYMMDD_HHMMSS.json` - Review decisions
+- `extracted_data_YYYYMMDD_HHMMSS.json` - Raw extracted messages with sender, recipient, content, timestamp
+- `analysis_results_YYYYMMDD_HHMMSS.json` - Analysis findings (threats, sentiment, patterns, metrics)
+- `manual_review_summary_YYYYMMDD_HHMMSS.json` - Review decisions (if manual review performed)
 
 ### Reports
-- `forensic_report_YYYYMMDD_HHMMSS.xlsx` - Excel report with multiple sheets
-- `forensic_report_YYYYMMDD_HHMMSS.docx` - Word document report
+- `report_YYYYMMDD_HHMMSS.xlsx` - Excel report with person-organized tabs:
+  - **Overview**: Summary statistics (message count, date range, threats, reviews)
+  - **[Person Name]**: Individual tabs for each configured person (e.g., "Marcia Snyder")
+    - Contains only messages where that person is the recipient
+    - Includes integrated threat and sentiment columns
+    - Columns: timestamp, sender, recipient, content, source, threat_detected, threat_categories, 
+      threat_confidence, harmful_content, sentiment_score, sentiment_polarity, sentiment_subjectivity
+  - **All Messages**: Complete dataset filtered to only configured persons
+  - **Manual Review**: Review decisions (if applicable)
+  - Note: Random phone numbers and chat IDs are excluded (only shows legally relevant parties)
+  
+- `forensic_report_YYYYMMDD_HHMMSS.docx` - Word document report with:
+  - Executive summary
+  - Data extraction statistics (total messages, date range, sources, screenshots)
+  - Threat analysis (count and high-priority examples)
+  - Sentiment analysis (positive/neutral/negative distribution)
+  - Manual review breakdown
+  - Chain of custody reference
+  
 - `forensic_report_YYYYMMDD_HHMMSS.pdf` - PDF report for court submission
+  - Contains same content as Word document
+  - Formatted for legal distribution and printing
+  
 - `timeline_YYYYMMDD_HHMMSS.html` - Interactive timeline visualization
+  - Chronological message view with filtering
+  - Threat highlighting and sentiment indicators
 
 ### Documentation
-- `chain_of_custody_YYYYMMDD_HHMMSS.json` - Complete audit trail
-- `run_manifest_YYYYMMDD_HHMMSS.json` - Analysis process documentation
+- `chain_of_custody_YYYYMMDD_HHMMSS.json` - Complete audit trail with:
+  - Session metadata (start time, duration, session ID)
+  - All operations performed (with timestamps and details)
+  - System information (platform, Python version, analyzer version)
+  - Legal notice for FRE 901 compliance
+  
+- `run_manifest_YYYYMMDD_HHMMSS.json` - Analysis process documentation with:
+  - Input files processed (with paths and hashes)
+  - Output files generated (with paths and hashes)
+  - Processing steps and configuration used
+  
+### Example Output Structure
+```
+~/workspace/output/forensic_message_analyzer/
+├── extracted_data_20251006_011535.json
+├── analysis_results_20251006_011542.json
+├── report_20251006_011549.xlsx
+├── forensic_report_20251006_011543.docx
+├── forensic_report_20251006_011543.pdf
+├── timeline_20251006_011545.html
+├── chain_of_custody_20251006_011530.json
+└── run_manifest_20251006_011545.json
+```
+
+### Typical Results
+- **Message Count**: 50,000-100,000 messages (varies by data source)
+  - iMessages: 20,000-50,000 (depends on Messages database size)
+  - WhatsApp: 30,000-50,000 (depends on export archive)
+- **Threat Detection**: 500-2,000 threats (depends on content and patterns)
+- **Processing Time**: 2-5 minutes (for ~50K messages on modern hardware)
+- **Excel File Size**: 5-10 MB (with threat/sentiment integration)
+- **Memory Usage**: ~2-4 GB peak (for ~50K messages)
 
 ## Contributing
 

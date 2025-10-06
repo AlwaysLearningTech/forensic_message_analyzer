@@ -27,12 +27,18 @@ class DataExtractor:
         
         # Initialize individual extractors with proper parameters
         # iMessage extractor needs: db_path, forensic_recorder, forensic_integrity
-        imessage_db = getattr(self.config, 'imessage_db_path', None)
-        self.imessage = iMessageExtractor(imessage_db, forensic, self.integrity) if imessage_db else None
+        self.imessage = iMessageExtractor(
+            self.config.messages_db_path, 
+            forensic, 
+            self.integrity
+        ) if self.config.messages_db_path else None
         
         # WhatsApp extractor needs: export_dir, forensic_recorder, forensic_integrity
-        whatsapp_dir = getattr(self.config, 'whatsapp_dir', None)
-        self.whatsapp = WhatsAppExtractor(whatsapp_dir, forensic, self.integrity) if whatsapp_dir else None
+        self.whatsapp = WhatsAppExtractor(
+            self.config.whatsapp_source_dir, 
+            forensic, 
+            self.integrity
+        ) if self.config.whatsapp_source_dir else None
         
         self.forensic.record_action(
             "DATA_EXTRACTOR_INIT",
@@ -56,14 +62,10 @@ class DataExtractor:
         # Extract iMessages
         try:
             self.logger.info("Extracting iMessages...")
-            imessages = self.imessage.extract(start_date, end_date)
-            if not imessages.empty:
-                # Convert DataFrame to list of dicts
-                messages = imessages.to_dict('records')
-                for msg in messages:
-                    msg['source'] = 'iMessage'
-                all_messages.extend(messages)
-                self.logger.info(f"Extracted {len(messages)} iMessages")
+            imessages = self.imessage.extract_messages()
+            if imessages:  # List check instead of DataFrame.empty
+                all_messages.extend(imessages)
+                self.logger.info(f"Extracted {len(imessages)} iMessages")
         except Exception as e:
             self.logger.error(f"Failed to extract iMessages: {e}")
             self.forensic.record_action(
@@ -75,13 +77,10 @@ class DataExtractor:
         # Extract WhatsApp messages
         try:
             self.logger.info("Extracting WhatsApp messages...")
-            whatsapp_messages = self.whatsapp.extract()
-            if not whatsapp_messages.empty:
-                messages = whatsapp_messages.to_dict('records')
-                for msg in messages:
-                    msg['source'] = 'WhatsApp'
-                all_messages.extend(messages)
-                self.logger.info(f"Extracted {len(messages)} WhatsApp messages")
+            whatsapp_messages = self.whatsapp.extract_all()
+            if whatsapp_messages:  # List check
+                all_messages.extend(whatsapp_messages)
+                self.logger.info(f"Extracted {len(whatsapp_messages)} WhatsApp messages")
         except Exception as e:
             self.logger.error(f"Failed to extract WhatsApp messages: {e}")
             self.forensic.record_action(
