@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Main forensic analyzer module - CORRECTED VERSION
-Only imports classes that actually exist in the codebase.
+Main forensic analyzer module 
 """
 
 import os
@@ -19,12 +18,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.config import Config
 from src.forensic_utils import ForensicIntegrity  # Corrected from ForensicUtils
 
-# Extractor imports - only existing ones
+# Extractor imports - ensure correct class names
 from src.extractors.imessage_extractor import iMessageExtractor
 from src.extractors.whatsapp_extractor import WhatsAppExtractor
 from src.extractors.data_extractor import DataExtractor
 
-# Analyzer imports - only existing ones
+# Analyzer imports
 from src.analyzers.threat_analyzer import ThreatAnalyzer
 from src.analyzers.sentiment_analyzer import SentimentAnalyzer
 from src.analyzers.behavioral_analyzer import BehavioralAnalyzer
