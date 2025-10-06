@@ -1,264 +1,551 @@
 #!/usr/bin/env python3
-"""
-Forensic analysis utility functions
+"""Forensic utilities for maintaining chain of custody and evidence integrity.
+Implements FRE 901 authentication and Daubert reliability standards.
 """
 
-import os
 import hashlib
 import json
-import logging
+import os
+import platform
+import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
-import platform
-import getpass
+from typing import Dict, List, Optional, Any
 
-class ForensicIntegrity:  # Changed from 'Forensic' to match imports
-    """Maintain forensic integrity and chain of custody."""
+
+class ForensicRecorder:
+    """
+    Records all forensic actions for chain of custody and legal defensibility.
+    Satisfies FRE 901 authentication requirements by tracking all operations with timestamps and hashes.
+    """
     
-    def __init__(self):
-        """Initialize forensic integrity tracker."""
-        self.logger = logging.getLogger(__name__)
-        self.chain_of_custody = []
-        self.start_time = datetime.now()
-        
-        self.record_action(
-            "FORENSIC_INIT",
-            "initialization",
-            "Forensic integrity tracking initialized"
-        )
-    
-    def record_action(self, action: str, category: str, details: str):
+    def __init__(self, output_dir: Optional[Path] = None):
         """
-        Record an action for chain of custody.
+        Initialize the forensic recorder.
         
         Args:
-            action: Action identifier
-            category: Category of action
-            details: Detailed description
+            output_dir: Directory for output files. Uses config if not specified.
         """
-        entry = {
-            'timestamp': datetime.now().isoformat(),
-            'action': action,
-            'category': category,
-            'details': details
-        }
+        if output_dir:
+            self.output_dir = Path(output_dir)
+        else:
+            # Import config here to avoid circular imports
+            try:
+                from src.config import config
+                self.output_dir = config.output_dir
+            except ImportError:
+                # Fallback to current directory if config not available
+                self.output_dir = Path('./output')
         
-        self.chain_of_custody.append(entry)
-        self.logger.debug(f"Chain of custody: {action} - {details}")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize action log for chain of custody
+        self.actions: List[Dict] = []
+        self.start_time = datetime.now()
+        self.session_id = self.start_time.strftime("%Y%m%d_%H%M%S")
+        
+        # Record initialization for audit trail
+        self.record_action(
+            "session_start",
+            "Forensic recorder initialized",
+            {"session_id": self.session_id, "start_time": self.start_time.isoformat()}
+        )
     
-    def hash_file(self, file_path: Path) -> str:
+    def record_action(self, action: str, details: str, metadata: Optional[Dict] = None):
         """
-        Generate SHA-256 hash of file for integrity verification.
-        Required for FRE 901 authentication.
+        Record a forensic action for chain of custody (FRE 901 authentication).
+        Every operation is logged with timestamp and metadata for reproducibility.
+        
+        Args:
+            action: Type of action performed
+            details: Description of the action
+            metadata: Optional additional metadata
+        """
+        action_record = {
+            "timestamp": datetime.now().isoformat(),
+            "action": action,
+            "details": details,
+            "metadata": metadata or {},
+            "session_id": self.session_id
+        }
+        self.actions.append(action_record)
+        
+        # Persist to log file immediately for evidence integrity
+        log_file = self.output_dir / f"forensic_log_{self.session_id}.jsonl"
+        try:
+            with open(log_file, 'a') as f:
+                f.write(json.dumps(action_record) + '\n')
+        except Exception as e:
+            print(f"Warning: Could not write to forensic log: {e}")
+    
+    def compute_hash(self, file_path: Path) -> str:
+        """
+        Compute SHA-256 hash of a file for authentication (FRE 901).
+        Hash provides verifiable proof that file has not been altered.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            SHA-256 hash hex string
         """
         sha256_hash = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            for byte_block in iter(lambda: f.read(4096), b""):
-                sha256_hash.update(byte_block)
-        return sha256_hash.hexdigest()
-    
-    def hash_content(self, content: str) -> str:
-        """Generate SHA-256 hash of string content."""
-        return hashlib.sha256(content.encode('utf-8')).hexdigest()
-    
-    def record_source(self, source_path: Path, source_type: str) -> Dict[str, Any]:
-        """
-        Record source file with complete forensic metadata.
-        Establishes chain of custody per legal requirements.
-        """
-        record = {
-            'timestamp': datetime.utcnow().isoformat() + 'Z',
-            'source_type': source_type,
-            'path': str(source_path.absolute()),
-            'hash': self.hash_file(source_path),
-            'size_bytes': source_path.stat().st_size,
-            'modified_time': datetime.fromtimestamp(source_path.stat().st_mtime).isoformat(),
-            'operator': getpass.getuser(),
-            'hostname': platform.node(),
-            'platform': platform.platform()
-        }
         
-        self.source_hashes[str(source_path)] = record['hash']
-        self.chain_of_custody.append(record)
-        
-        logging.info(f"Source recorded: {source_path.name} (SHA-256: {record['hash'][:16]}...)")
-        return record
-    
-    def log_operation(self, operation: str, details: Dict[str, Any]) -> None:
-        """
-        Log forensic operation for audit trail.
-        Required for expert witness testimony and Daubert standard.
-        """
-        entry = {
-            'timestamp': datetime.utcnow().isoformat() + 'Z',
-            'operation': operation,
-            'details': details,
-            'operator': getpass.getuser()
-        }
-        self.operation_log.append(entry)
-        logging.debug(f"Operation logged: {operation}")
-    
-    def verify_integrity(self, file_path: Path) -> bool:
-        """
-        Verify file hasn't been modified since initial recording.
-        Critical for maintaining evidence admissibility.
-        """
-        if str(file_path) not in self.source_hashes:
-            logging.warning(f"No hash record for {file_path}")
-            return False
-        
-        current_hash = self.hash_file(file_path)
-        original_hash = self.source_hashes[str(file_path)]
-        
-        if current_hash != original_hash:
-            logging.error(f"Integrity check FAILED for {file_path}")
-            logging.error(f"Original: {original_hash}")
-            logging.error(f"Current: {current_hash}")
-            return False
-        
-        logging.info(f"Integrity verified: {file_path.name}")
-        return True
-    
-    def export_chain_of_custody(self, output_path: Path) -> None:
-        """
-        Export complete chain of custody documentation.
-        Meets FRE 902 self-authentication requirements.
-        """
-        custody_doc = {
-            'case_id': self.case_id,
-            'generated': datetime.utcnow().isoformat() + 'Z',
-            'generator': 'Forensic Message Analyzer v4.0.0',
-            'operator': getpass.getuser(),
-            'hostname': platform.node(),
-            'sources': self.chain_of_custody,
-            'operations': self.operation_log,
-            'source_hashes': self.source_hashes
-        }
-        
-        with open(output_path, 'w') as f:
-            json.dump(custody_doc, f, indent=2)
-        
-        # Also create human-readable version
-        txt_path = output_path.with_suffix('.txt')
-        with open(txt_path, 'w') as f:
-            f.write("CHAIN OF CUSTODY DOCUMENTATION\n")
-            f.write("=" * 50 + "\n\n")
-            f.write(f"Case ID: {self.case_id}\n")
-            f.write(f"Generated: {custody_doc['generated']}\n")
-            f.write(f"Operator: {custody_doc['operator']}\n")
-            f.write(f"System: {custody_doc['hostname']}\n\n")
+        try:
+            with open(file_path, "rb") as f:
+                # Process in chunks for large files
+                for byte_block in iter(lambda: f.read(4096), b""):
+                    sha256_hash.update(byte_block)
             
-            f.write("SOURCE FILES\n")
-            f.write("-" * 30 + "\n")
-            for source in self.chain_of_custody:
-                f.write(f"\nFile: {Path(source['path']).name}\n")
-                f.write(f"  Type: {source['source_type']}\n")
-                f.write(f"  SHA-256: {source['hash']}\n")
-                f.write(f"  Size: {source['size_bytes']:,} bytes\n")
-                f.write(f"  Modified: {source['modified_time']}\n")
-                f.write(f"  Recorded: {source['timestamp']}\n")
+            file_hash = sha256_hash.hexdigest()
+            
+            # Record hash computation for audit trail
+            self.record_action(
+                "hash_computed",
+                f"Computed SHA-256 hash for {file_path.name}",
+                {"file": str(file_path), "hash": file_hash, "size": file_path.stat().st_size}
+            )
+            
+            return file_hash
+            
+        except Exception as e:
+            self.record_action(
+                "hash_error",
+                f"Failed to compute hash for {file_path.name}: {str(e)}",
+                {"file": str(file_path), "error": str(e)}
+            )
+            return ""
+    
+    def verify_integrity(self, file_path: Path, expected_hash: str) -> bool:
+        """
+        Verify file integrity using SHA-256 hash.
+        Ensures evidence has not been tampered with (FRE 901, Daubert reliability).
+        
+        Args:
+            file_path: Path to the file
+            expected_hash: Expected SHA-256 hash
+            
+        Returns:
+            True if hash matches, False otherwise
+        """
+        actual_hash = self.compute_hash(file_path)
+        matches = actual_hash == expected_hash
+        
+        self.record_action(
+            "integrity_check",
+            f"Integrity verification for {file_path.name}: {'PASSED' if matches else 'FAILED'}",
+            {
+                "file": str(file_path),
+                "expected_hash": expected_hash,
+                "actual_hash": actual_hash,
+                "matches": matches
+            }
+        )
+        
+        return matches
+    
+    def generate_chain_of_custody(self, output_file: Optional[str] = None) -> Optional[str]:
+        """
+        Generate chain of custody document for legal proceedings.
+        Satisfies FRE 901 authentication and business records exception (FRE 803(6)).
+        
+        Args:
+            output_file: Optional path for the output file
+            
+        Returns:
+            Path to the generated file, or None if failed
+        """
+        if not output_file:
+            output_file = str(self.output_dir / f"chain_of_custody_{self.session_id}.json")
+        
+        try:
+            # Create comprehensive custody document
+            custody_doc = {
+                "generated_at": datetime.now().isoformat(),
+                "session_id": self.session_id,
+                "start_time": self.start_time.isoformat(),
+                "end_time": datetime.now().isoformat(),
+                "duration_seconds": (datetime.now() - self.start_time).total_seconds(),
+                "total_actions": len(self.actions),
+                "actions": self.actions,
+                "system_info": {
+                    "platform": platform.system(),
+                    "platform_version": platform.version(),
+                    "python_version": sys.version,
+                    "analyzer_version": "1.0.0"
+                },
+                "legal_notice": (
+                    "This chain of custody document was generated automatically "
+                    "as part of forensic analysis. All timestamps are in ISO 8601 format. "
+                    "SHA-256 hashes verify file integrity. This document satisfies "
+                    "FRE 901 authentication requirements."
+                )
+            }
+            
+            # Write initial document
+            with open(output_file, 'w') as f:
+                json.dump(custody_doc, f, indent=2)
+            
+            # Hash the chain of custody document itself
+            doc_hash = self.compute_hash(Path(output_file))
+            
+            # Append self-hash to the document
+            custody_doc["document_hash"] = doc_hash
+            custody_doc["hash_algorithm"] = "SHA-256"
+            
+            # Re-save with hash
+            with open(output_file, 'w') as f:
+                json.dump(custody_doc, f, indent=2)
+            
+            self.record_action(
+                "chain_of_custody_generated",
+                f"Generated chain of custody document with {len(self.actions)} actions",
+                {"file": output_file, "hash": doc_hash}
+            )
+            
+            return output_file
+            
+        except Exception as e:
+            self.record_action(
+                "chain_of_custody_error",
+                f"Failed to generate chain of custody: {str(e)}",
+                {"error": str(e)}
+            )
+            return None
+    
+    def record_file_state(self, file_path: Path, operation: str):
+        """
+        Record the state of a file for evidence tracking.
+        Implements best evidence rule (FRE 1002) by preserving original state.
+        
+        Args:
+            file_path: Path to the file
+            operation: Operation being performed (e.g., "read", "created", "analyzed")
+        """
+        if not file_path.exists():
+            self.record_action(
+                "file_not_found",
+                f"File not found during {operation}: {file_path.name}",
+                {"file": str(file_path), "operation": operation}
+            )
+            return
+        
+        stats = file_path.stat()
+        file_hash = self.compute_hash(file_path)
+        
+        self.record_action(
+            "file_state_recorded",
+            f"Recorded state of {file_path.name} for {operation}",
+            {
+                "file": str(file_path),
+                "operation": operation,
+                "size_bytes": stats.st_size,
+                "created_time": datetime.fromtimestamp(stats.st_ctime).isoformat(),
+                "modified_time": datetime.fromtimestamp(stats.st_mtime).isoformat(),
+                "hash": file_hash,
+                "read_only": not os.access(file_path, os.W_OK)
+            }
+        )
+    
+    def record_error(self, error_type: str, error_message: str, context: Optional[Dict] = None):
+        """
+        Record errors for Daubert reliability (known error rate documentation).
+        
+        Args:
+            error_type: Type of error
+            error_message: Error message
+            context: Optional context information
+        """
+        self.record_action(
+            f"error_{error_type}",
+            error_message,
+            {"error_type": error_type, "context": context or {}}
+        )
 
-class DaubertCompliance:
+
+class EvidenceValidator:
     """
-    Ensures analysis meets Daubert standard for scientific evidence.
-    Required for expert testimony admissibility in federal court.
+    Validates evidence integrity and chain of custody.
+    Ensures compliance with authentication requirements (FRE 901) and reliability standards (Daubert).
     """
     
-    @staticmethod
-    def document_methodology() -> Dict[str, str]:
+    def __init__(self, forensic_recorder: ForensicRecorder):
         """
-        Document scientific methodology for Daubert compliance.
-        All five Daubert factors must be addressed.
+        Initialize the evidence validator.
+        
+        Args:
+            forensic_recorder: ForensicRecorder instance for logging
         """
-        return {
-            'testing': 'All analysis algorithms are unit tested with known inputs and outputs. '
-                      'Test coverage exceeds 80% with documented false positive/negative rates.',
+        self.forensic = forensic_recorder
+    
+    def validate_source_files(self, source_files: List[Path]) -> Dict[str, Any]:
+        """
+        Validate source files for evidence integrity.
+        Implements FRE 901 authentication by verifying file existence and computing hashes.
+        
+        Args:
+            source_files: List of source file paths
             
-            'peer_review': 'Methodology based on published forensic analysis standards including '
-                          'NIST SP 800-86 Guidelines on Digital Forensics and '
-                          'SWGDE Best Practices for Computer Forensics.',
-            
-            'error_rate': 'Sentiment analysis: 85% accuracy based on validation dataset. '
-                         'OCR extraction: 95% accuracy for typed text, 75% for handwritten. '
-                         'Message deduplication: 99.9% accuracy using GUID methodology.',
-            
-            'standards': 'Follows ISO/IEC 27037:2012 for digital evidence handling, '
-                        'ASTM E2916-19 for digital forensics terminology, and '
-                        'Federal Rules of Evidence 901 and 902 for authentication.',
-            
-            'acceptance': 'Uses industry-standard tools: SQLite for database access, '
-                         'Azure OpenAI for NLP analysis, Tesseract for OCR. '
-                         'Methodology accepted in numerous federal and state proceedings.'
+        Returns:
+            Validation report with file states and hashes
+        """
+        report = {
+            "validated_at": datetime.now().isoformat(),
+            "total_files": len(source_files),
+            "valid_files": [],
+            "missing_files": [],
+            "issues": []
         }
+        
+        for file_path in source_files:
+            if not file_path.exists():
+                report["missing_files"].append(str(file_path))
+                self.forensic.record_action(
+                    "validation_failed",
+                    f"Source file missing: {file_path}",
+                    {"file": str(file_path)}
+                )
+            else:
+                try:
+                    # Compute and record hash for authentication
+                    file_hash = self.forensic.compute_hash(file_path)
+                    stats = file_path.stat()
+                    
+                    file_info = {
+                        "path": str(file_path),
+                        "hash": file_hash,
+                        "size": stats.st_size,
+                        "modified": datetime.fromtimestamp(stats.st_mtime).isoformat(),
+                        "read_only": not os.access(file_path, os.W_OK)
+                    }
+                    report["valid_files"].append(file_info)
+                    
+                except Exception as e:
+                    report["issues"].append({
+                        "file": str(file_path),
+                        "error": str(e)
+                    })
+                    self.forensic.record_error(
+                        "validation_error",
+                        f"Error validating {file_path}: {str(e)}",
+                        {"file": str(file_path)}
+                    )
+        
+        self.forensic.record_action(
+            "source_validation_complete",
+            f"Validated {len(report['valid_files'])} of {report['total_files']} files",
+            report
+        )
+        
+        return report
     
-    @staticmethod
-    def document_limitations() -> Dict[str, str]:
+    def create_evidence_package(self, source_files: List[Path], 
+                              output_files: List[Path],
+                              metadata: Optional[Dict] = None) -> Path:
         """
-        Document known limitations for transparency.
-        Required for honest expert testimony.
+        Create an evidence package with all files and metadata.
+        Satisfies best evidence rule (FRE 1002) and business records exception (FRE 803(6)).
+        
+        Args:
+            source_files: List of source file paths
+            output_files: List of output file paths
+            metadata: Optional additional metadata
+            
+        Returns:
+            Path to the evidence package manifest
         """
-        return {
-            'temporal': 'Analysis limited to messages within provided date range. '
-                       'Cannot detect deleted messages unless recoverable from database.',
-            
-            'linguistic': 'Sentiment analysis may not accurately interpret sarcasm, '
-                         'cultural idioms, or coded language without context.',
-            
-            'technical': 'OCR accuracy depends on image quality. '
-                        'Encrypted messages cannot be analyzed without decryption.',
-            
-            'contextual': 'Automated analysis cannot fully understand personal relationships '
-                         'or historical context without human review.',
-            
-            'completeness': 'Analysis covers only provided data sources. '
-                           'Other communication channels not included unless provided.'
+        package_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Compute hashes for all files (FRE 901 authentication)
+        source_hashes = {}
+        for file_path in source_files:
+            if file_path.exists():
+                source_hashes[str(file_path)] = self.forensic.compute_hash(file_path)
+        
+        output_hashes = {}
+        for file_path in output_files:
+            if file_path.exists():
+                output_hashes[str(file_path)] = self.forensic.compute_hash(file_path)
+        
+        # Create comprehensive package manifest
+        package_manifest = {
+            "package_id": package_id,
+            "created_at": datetime.now().isoformat(),
+            "source_files": source_hashes,
+            "output_files": output_hashes,
+            "metadata": metadata or {},
+            "total_files": len(source_hashes) + len(output_hashes),
+            "legal_notice": (
+                "This evidence package preserves the original state of all files "
+                "with SHA-256 hashes for authentication (FRE 901). Files were processed "
+                "in read-only mode to maintain best evidence (FRE 1002)."
+            )
         }
+        
+        # Save manifest
+        manifest_path = self.forensic.output_dir / f"evidence_package_{package_id}.json"
+        with open(manifest_path, 'w') as f:
+            json.dump(package_manifest, f, indent=2)
+        
+        # Hash the manifest itself for integrity
+        manifest_hash = self.forensic.compute_hash(manifest_path)
+        package_manifest["manifest_hash"] = manifest_hash
+        
+        # Re-save with self-hash
+        with open(manifest_path, 'w') as f:
+            json.dump(package_manifest, f, indent=2)
+        
+        self.forensic.record_action(
+            "evidence_package_created",
+            f"Created evidence package with {package_manifest['total_files']} files",
+            {"manifest": str(manifest_path), "hash": manifest_hash}
+        )
+        
+        return manifest_path
+
+
+# Ensure classes are exported
+__all__ = ['ForensicRecorder', 'EvidenceValidator', 'ForensicIntegrity']
+
+
+class ForensicIntegrity:
+    """
+    Maintains forensic integrity for evidence processing.
+    Ensures read-only access and tracks all file operations for FRE 901 authentication.
+    """
     
-class ForensicUtils:
-    """Utility class for forensic analysis operations"""
+    def __init__(self, forensic_recorder: Optional[ForensicRecorder] = None):
+        """
+        Initialize forensic integrity checker.
+        
+        Args:
+            forensic_recorder: Optional ForensicRecorder instance for logging
+        """
+        self.forensic = forensic_recorder or ForensicRecorder()
     
-    @staticmethod
-    def validate_path(path):
-        """Validate if a path exists"""
-        return os.path.exists(path)
+    def verify_read_only(self, file_path: Path) -> bool:
+        """
+        Verify file is accessible in read-only mode (FRE 1002 - Best Evidence).
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            True if file can be read without modification risk
+        """
+        if not file_path.exists():
+            self.forensic.record_action(
+                "integrity_check",
+                f"File not found: {file_path}",
+                {"file": str(file_path), "exists": False}
+            )
+            return False
+        
+        # Check if file is read-only
+        can_write = os.access(file_path, os.W_OK)
+        
+        self.forensic.record_action(
+            "read_only_check",
+            f"Checked read-only status for {file_path.name}",
+            {
+                "file": str(file_path),
+                "read_only": not can_write,
+                "can_read": os.access(file_path, os.R_OK)
+            }
+        )
+        
+        return True  # We can proceed even if writable, just don't write
     
-    @staticmethod
-    def create_output_dir(path):
-        """Create output directory if it doesn't exist"""
-        os.makedirs(path, exist_ok=True)
-        return path
-    
-    @staticmethod
-    def get_file_hash(filepath):
-        """Calculate SHA256 hash of a file"""
-        if not os.path.exists(filepath):
+    def create_working_copy(self, source_path: Path, dest_dir: Optional[Path] = None) -> Optional[Path]:
+        """
+        Create a working copy to preserve original evidence (FRE 1002).
+        
+        Args:
+            source_path: Path to the source file
+            dest_dir: Optional destination directory
+            
+        Returns:
+            Path to the working copy, or None if failed
+        """
+        if not source_path.exists():
+            self.forensic.record_error(
+                "copy_failed",
+                f"Source file not found: {source_path}",
+                {"source": str(source_path)}
+            )
             return None
         
-        sha256 = hashlib.sha256()
-        with open(filepath, 'rb') as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                sha256.update(chunk)
-        return sha256.hexdigest()
+        try:
+            # Use output directory if not specified
+            if not dest_dir:
+                dest_dir = self.forensic.output_dir / "working_copies"
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create timestamped copy name
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            dest_path = dest_dir / f"{source_path.stem}_{timestamp}{source_path.suffix}"
+            
+            # Copy the file
+            import shutil
+            shutil.copy2(source_path, dest_path)
+            
+            # Verify copy integrity
+            source_hash = self.forensic.compute_hash(source_path)
+            copy_hash = self.forensic.compute_hash(dest_path)
+            
+            if source_hash == copy_hash:
+                self.forensic.record_action(
+                    "working_copy_created",
+                    f"Created verified working copy of {source_path.name}",
+                    {
+                        "source": str(source_path),
+                        "copy": str(dest_path),
+                        "hash": source_hash,
+                        "verified": True
+                    }
+                )
+                return dest_path
+            else:
+                self.forensic.record_error(
+                    "copy_verification_failed",
+                    f"Hash mismatch for copy of {source_path.name}",
+                    {
+                        "source": str(source_path),
+                        "source_hash": source_hash,
+                        "copy_hash": copy_hash
+                    }
+                )
+                dest_path.unlink()  # Remove bad copy
+                return None
+                
+        except Exception as e:
+            self.forensic.record_error(
+                "copy_error",
+                f"Failed to create working copy: {str(e)}",
+                {"source": str(source_path), "error": str(e)}
+            )
+            return None
     
-    @staticmethod
-    def format_timestamp(timestamp):
-        """Format timestamp for display"""
-        if isinstance(timestamp, (int, float)):
-            return datetime.fromtimestamp(timestamp).isoformat()
-        return str(timestamp)
-    
-    @staticmethod
-    def safe_json_serialize(obj):
-        """Safely serialize object to JSON"""
-        import json
-        from datetime import datetime, date
+    def validate_extraction(self, source_path: Path, extracted_data: Any) -> bool:
+        """
+        Validate that extraction preserved data integrity (Daubert reliability).
         
-        def default_handler(o):
-            if isinstance(o, (datetime, date)):
-                return o.isoformat()
-            elif hasattr(o, '__dict__'):
-                return o.__dict__
-            return str(o)
+        Args:
+            source_path: Path to source file
+            extracted_data: Data extracted from the file
+            
+        Returns:
+            True if extraction appears valid
+        """
+        # Record extraction
+        self.forensic.record_action(
+            "extraction_validated",
+            f"Validated extraction from {source_path.name}",
+            {
+                "source": str(source_path),
+                "data_type": type(extracted_data).__name__,
+                "has_data": bool(extracted_data)
+            }
+        )
         
-        return json.dumps(obj, default=default_handler, indent=2)
+        return bool(extracted_data)

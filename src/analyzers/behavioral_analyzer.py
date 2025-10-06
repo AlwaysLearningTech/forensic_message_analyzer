@@ -289,20 +289,22 @@ class BehavioralAnalyzer:
         if 'timestamp' not in df.columns:
             return {}
         
-        df['hour'] = pd.to_datetime(df['timestamp']).dt.hour
-        df['weekday'] = pd.to_datetime(df['timestamp']).dt.dayofweek
+        # Work with a copy to avoid SettingWithCopyWarning
+        df_time = df.copy()
+        df_time['hour'] = pd.to_datetime(df_time['timestamp']).dt.hour
+        df_time['weekday'] = pd.to_datetime(df_time['timestamp']).dt.dayofweek
         
         # Identify unusual timing patterns
-        late_night = df[(df['hour'] >= 23) | (df['hour'] <= 4)]
-        early_morning = df[(df['hour'] >= 5) & (df['hour'] <= 7)]
+        late_night = df_time[(df_time['hour'] >= 23) | (df_time['hour'] <= 4)]
+        early_morning = df_time[(df_time['hour'] >= 5) & (df_time['hour'] <= 7)]
         
         return {
             'late_night_messages': len(late_night),
             'early_morning_messages': len(early_morning),
-            'most_active_hour': df['hour'].mode()[0] if len(df) > 0 else None,
+            'most_active_hour': df_time['hour'].mode()[0] if len(df_time) > 0 else None,
             'weekend_vs_weekday': {
-                'weekend': len(df[df['weekday'].isin([5, 6])]),
-                'weekday': len(df[~df['weekday'].isin([5, 6])])
+                'weekend': len(df_time[df_time['weekday'].isin([5, 6])]),
+                'weekday': len(df_time[~df_time['weekday'].isin([5, 6])])
             }
         }
     
@@ -311,8 +313,9 @@ class BehavioralAnalyzer:
         if 'timestamp' not in df.columns:
             return []
         
-        df['hour'] = pd.to_datetime(df['timestamp']).dt.hour
-        hour_counts = df['hour'].value_counts()
+        # Extract hours without modifying the original DataFrame
+        hours = pd.to_datetime(df['timestamp']).dt.hour
+        hour_counts = hours.value_counts()
         
         # Return top 3 most active hours
         return hour_counts.nlargest(3).index.tolist()

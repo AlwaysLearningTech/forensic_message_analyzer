@@ -1,6 +1,7 @@
+#!/usr/bin/env python3
 """
-WhatsApp extraction module.
-Extracts messages from WhatsApp chat exports.
+WhatsApp chat extraction module.
+Processes exported WhatsApp chat files.
 """
 
 import re
@@ -8,144 +9,149 @@ import logging
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
-import zipfile
-from charset_normalizer import from_bytes
+from typing import List, Dict, Optional
 
-from ..config import config
-from ..forensic_utils import ForensicIntegrity
+from ..config import Config
+from ..forensic_utils import ForensicRecorder, ForensicIntegrity
+
+# Initialize config
+config = Config()
+
+logger = logging.getLogger(__name__)
+
 
 class WhatsAppExtractor:
-    """Extract messages from WhatsApp exports."""
+    """
+    Extracts messages from WhatsApp chat exports.
+    Handles various export formats and attachments.
+    """
     
-    # Regex patterns for different WhatsApp export formats
-    PATTERNS = {
-        'ios_us': r'^\[(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}:\d{2}\s[AP]M)\]\s([^:]+):\s(.+)$',
-        'ios_eu': r'^(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2})\s-\s([^:]+):\s(.+)$',
-        'android_us': r'^(\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}\s[AP]M)\s-\s([^:]+):\s(.+)$',
-        'android_eu': r'^(\d{1,2}\.\d{1,2}\.\d{2,4},\s\d{1,2}:\d{2})\s-\s([^:]+):\s(.+)$'
-    }
-    
-    def __init__(self, forensic_integrity: ForensicIntegrity):
-        """Initialize WhatsApp extractor."""
-        self.forensic = forensic_integrity
-        self.source_dir = config.whatsapp_source_dir
-        self.logger = logging.getLogger(__name__)
-        self.chat_files = self._find_chat_files()
-        
-        self.forensic.record_action(
-            "WHATSAPP_EXTRACTOR_INIT",
-            "extraction",
-            f"Found {len(self.chat_files)} chat files"
-        )
-    
-    def _find_chat_files(self) -> list:
-        """Find WhatsApp chat export files."""
-        chat_files = []
-        
-        # Check for zip file
-        zip_path = Path("source_files/whatsapp/WhatsApp_SourceFiles.zip")
-        if zip_path.exists():
-            try:
-                with zipfile.ZipFile(zip_path, 'r') as zf:
-                    # Extract to temp location
-                    extract_dir = Path("source_files/whatsapp/extracted")
-                    extract_dir.mkdir(parents=True, exist_ok=True)
-                    zf.extractall(extract_dir)
-                    
-                    # Find .txt files
-                    for txt_file in extract_dir.rglob("*.txt"):
-                        chat_files.append(txt_file)
-                        
-            except Exception as e:
-                self.logger.error(f"Failed to extract WhatsApp zip: {e}")
-        
-        # Also check for direct .txt files
-        whatsapp_dir = Path("source_files/whatsapp")
-        if whatsapp_dir.exists():
-            for txt_file in whatsapp_dir.glob("*.txt"):
-                if txt_file not in chat_files:
-                    chat_files.append(txt_file)
-        
-        return chat_files
-    
-    def extract(self) -> pd.DataFrame:
+    def __init__(self, export_dir: str, forensic_recorder: ForensicRecorder, forensic_integrity: ForensicIntegrity):
         """
-        Extract messages from WhatsApp chat exports.
+        Initialize WhatsApp extractor.
+        
+        Args:
+            export_dir: Directory containing WhatsApp exports
+            forensic_recorder: ForensicRecorder instance
+            forensic_integrity: ForensicIntegrity instance
+        """
+        self.export_dir = Path(export_dir) if export_dir else None
+        self.forensic = forensic_recorder
+        self.integrity = forensic_integrity
+        
+        # Regex patterns for parsing WhatsApp messages
+        self.message_pattern = re.compile(
+            r'(\d{1,2}/\d{1,2}/\d{2,4},?\s+\d{1,2}:\d{2}(?:\s+[AP]M)?)\s+-\s+([^:]+):\s+(.*)',
+            re.MULTILINE
+        )
+        
+    def extract_all(self) -> pd.DataFrame:
+        """
+        Extract all WhatsApp messages from export directory.
         
         Returns:
-            DataFrame with extracted messages
+            DataFrame with all extracted messages
         """
+        if not self.export_dir or not self.export_dir.exists():
+            logger.warning(f"WhatsApp export directory not found: {self.export_dir}")
+            return pd.DataFrame()
+        
         all_messages = []
         
-        for chat_file in self.chat_files:
-            try:
-                messages = self._parse_chat_file(chat_file)
-                all_messages.extend(messages)
-                self.logger.info(f"Extracted {len(messages)} messages from {chat_file.name}")
-            except Exception as e:
-                self.logger.error(f"Failed to parse {chat_file}: {e}")
+        # Find all text files in export directory
+        chat_files = list(self.export_dir.glob("*.txt"))
         
+        for chat_file in chat_files:
+            messages = self._extract_from_file(chat_file)
+            all_messages.extend(messages)
+        
+        # Convert to DataFrame
         if all_messages:
             df = pd.DataFrame(all_messages)
-            self.logger.info(f"Total WhatsApp messages extracted: {len(df)}")
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df = df.sort_values('timestamp')
             
             self.forensic.record_action(
-                "WHATSAPP_EXTRACTION_COMPLETE",
-                "extraction",
-                f"Extracted {len(df)} messages from {len(self.chat_files)} files"
+                "whatsapp_extraction",
+                f"Extracted {len(df)} messages from {len(chat_files)} WhatsApp files",
+                {"file_count": len(chat_files), "message_count": len(df)}
             )
             
             return df
         
         return pd.DataFrame()
     
-    def _parse_chat_file(self, file_path: Path) -> list:
-        """Parse a single WhatsApp chat export file."""
+    def _extract_from_file(self, file_path: Path) -> List[Dict]:
+        """
+        Extract messages from a single WhatsApp export file.
+        
+        Args:
+            file_path: Path to WhatsApp export file
+            
+        Returns:
+            List of message dictionaries
+        """
         messages = []
         
-        # WhatsApp format: [DD/MM/YYYY, HH:MM:SS] Contact: Message
-        pattern = r'\[(\d{1,2}/\d{1,2}/\d{4}),?\s+(\d{1,2}:\d{2}:\d{2})\]\s+([^:]+):\s+(.*)'
-        
-        with open(file_path, 'r', encoding='utf-8') as f:
-            current_message = None
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
             
-            for line in f:
-                match = re.match(pattern, line)
+            # Find all messages
+            matches = self.message_pattern.findall(content)
+            
+            for match in matches:
+                timestamp_str, sender, content = match
                 
-                if match:
-                    # Save previous message if exists
-                    if current_message:
-                        messages.append(current_message)
-                    
-                    # Parse new message
-                    date_str = match.group(1)
-                    time_str = match.group(2)
-                    sender = match.group(3)
-                    content = match.group(4)
-                    
-                    # Parse timestamp
-                    timestamp_str = f"{date_str} {time_str}"
-                    try:
-                        timestamp = datetime.strptime(timestamp_str, "%d/%m/%Y %H:%M:%S")
-                    except:
-                        try:
-                            timestamp = datetime.strptime(timestamp_str, "%m/%d/%Y %H:%M:%S")
-                        except:
-                            timestamp = datetime.now()
-                    
-                    current_message = {
-                        'message_id': f"wa_{file_path.stem}_{len(messages)}",
-                        'timestamp': timestamp,
-                        'sender': sender.strip(),
-                        'content': content.strip(),
-                        'chat_name': file_path.stem
-                    }
-                elif current_message and line.strip():
-                    # Continuation of previous message
-                    current_message['content'] += '\n' + line.strip()
+                # Parse timestamp (handle different formats)
+                timestamp = self._parse_timestamp(timestamp_str)
+                
+                messages.append({
+                    'timestamp': timestamp,
+                    'sender': sender.strip(),
+                    'content': content.strip(),
+                    'source': 'WhatsApp',
+                    'file': file_path.name
+                })
             
-            # Don't forget the last message
-            if current_message:
-                messages.append(current_message)
+            logger.info(f"Extracted {len(messages)} messages from {file_path.name}")
+            
+        except Exception as e:
+            logger.error(f"Error extracting from {file_path}: {e}")
+            self.forensic.record_action(
+                "whatsapp_file_error",
+                f"Failed to extract from {file_path.name}: {str(e)}",
+                {"file": str(file_path), "error": str(e)}
+            )
         
         return messages
+    
+    def _parse_timestamp(self, timestamp_str: str) -> datetime:
+        """
+        Parse WhatsApp timestamp into datetime object.
+        
+        Args:
+            timestamp_str: Timestamp string from WhatsApp
+            
+        Returns:
+            Parsed datetime object
+        """
+        # Try different date formats
+        formats = [
+            "%m/%d/%y, %I:%M %p",  # 12/25/23, 3:30 PM
+            "%m/%d/%Y, %I:%M %p",  # 12/25/2023, 3:30 PM
+            "%d/%m/%y, %H:%M",     # 25/12/23, 15:30
+            "%d/%m/%Y, %H:%M",     # 25/12/2023, 15:30
+            "%m/%d/%y, %H:%M",     # 12/25/23, 15:30
+            "%m/%d/%Y, %H:%M",     # 12/25/2023, 15:30
+        ]
+        
+        for fmt in formats:
+            try:
+                return datetime.strptime(timestamp_str.strip(), fmt)
+            except ValueError:
+                continue
+        
+        # If no format matches, log and return current time
+        logger.warning(f"Could not parse timestamp: {timestamp_str}")
+        return datetime.now()

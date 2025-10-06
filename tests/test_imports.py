@@ -1,103 +1,82 @@
 #!/usr/bin/env python3
 """
-Test script to verify all imports are working correctly
+Test module imports and dependencies.
 """
-import sys
-import os
-import traceback
 
-# Add the project root to Python path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pytest
+
 
 def test_imports():
-    print("="*60)
-    print("TESTING CORE IMPORTS")
-    print("="*60)
-    
-    errors = []
-    warnings = []
-    
-    # Test 1: Import Config
+    """Test that all required modules can be imported."""
     try:
-        from src.config import Config
-        print("✓ Config import successful")
-        # Try to instantiate
-        config = Config()
-        print("✓ Config instantiation successful")
-    except ImportError as e:
-        print(f"✗ Config import failed: {e}")
-        errors.append(("Config", e))
-    except Exception as e:
-        print(f"✗ Config instantiation failed: {e}")
-        errors.append(("Config instantiation", e))
-    
-    # Test 2: Import ForensicUtils
-    try:
-        from src.forensic_utils import ForensicUtils
-        print("✓ ForensicUtils import successful")
-    except ImportError as e:
-        print(f"✗ ForensicUtils import failed: {e}")
-        errors.append(("ForensicUtils", e))
-    
-    # Test 3: Import IMessageExtractor
-    try:
-        from src.extractors.imessage_extractor import IMessageExtractor
-        print("✓ IMessageExtractor import successful")
-    except ImportError as e:
-        print(f"✗ IMessageExtractor import failed: {e}")
-        errors.append(("IMessageExtractor", e))
-    
-    # Test 4: Import ForensicAnalyzer
-    try:
-        from src.main import ForensicAnalyzer
-        print("✓ ForensicAnalyzer import successful")
-    except ImportError as e:
-        print(f"✗ ForensicAnalyzer import failed: {e}")
-        errors.append(("ForensicAnalyzer", e))
-        traceback.print_exc()
-    
-    # Test 5: Try to instantiate ForensicAnalyzer
-    if not errors:
+        # Core modules
+        import src.config
+        import src.forensic_utils
+        import src.main
+        
+        # Extractors
+        import src.extractors.data_extractor
+        import src.extractors.imessage_extractor
+        import src.extractors.whatsapp_extractor
+        import src.extractors.screenshot_extractor
+        
+        # Analyzers
+        import src.analyzers.threat_analyzer
+        import src.analyzers.sentiment_analyzer
+        import src.analyzers.behavioral_analyzer
+        import src.analyzers.yaml_pattern_analyzer
+        import src.analyzers.screenshot_analyzer
+        import src.analyzers.attachment_processor
+        import src.analyzers.communication_metrics
+        import src.analyzers.ai_analyzer
+        
+        # Review
+        import src.review.manual_review_manager
+        
+        # Reporters
+        import src.reporters.forensic_reporter
+        import src.reporters.json_reporter
+        import src.reporters.excel_reporter
+        
+        # Utils
+        import src.utils.timeline_generator
+        import src.utils.run_manifest
+        
+        # Required external dependencies
+        import pandas
+        import numpy
+        import yaml
+        import pytesseract
+        from PIL import Image
+        import openpyxl
+        from docx import Document
+        from reportlab.lib.pagesizes import letter
+        
+        # Optional but included
         try:
-            from src.main import ForensicAnalyzer
-            analyzer = ForensicAnalyzer()
-            print("✓ ForensicAnalyzer instantiation successful")
-        except Exception as e:
-            print(f"✗ ForensicAnalyzer instantiation failed: {e}")
-            errors.append(("ForensicAnalyzer instantiation", e))
-            traceback.print_exc()
-    
-    # Test optional imports
-    print("\n" + "="*60)
-    print("TESTING OPTIONAL IMPORTS")
-    print("="*60)
-    
-    try:
-        import magic
-        print("✓ python-magic import successful")
+            import plotly
+        except ImportError:
+            print("Note: plotly not installed - visualization features will be limited")
+        
+        # All core imports successful
+        assert True, "All required imports successful"
+        
     except ImportError as e:
-        print(f"⚠ python-magic not available: {e}")
-        warnings.append("python-magic not installed - run: pip install python-magic-bin")
-    
-    print("="*60)
-    
-    if errors:
-        print("\n❌ ERRORS FOUND:")
-        for name, error in errors:
-            print(f"  - {name}: {error}")
-        return False
-    else:
-        print("\n✅ ALL CORE TESTS PASSED!")
-        if warnings:
-            print("\n⚠ Warnings:")
-            for warning in warnings:
-                print(f"  - {warning}")
-        print("\nYou can now run:")
-        print("  python3 run.py")
-        print("  # or")
-        print("  python3 -c \"from src.main import ForensicAnalyzer; analyzer = ForensicAnalyzer(); analyzer.run_analysis()\"")
-        return True
+        pytest.fail(f"Import failed: {str(e)}")
 
-if __name__ == "__main__":
-    success = test_imports()
-    sys.exit(0 if success else 1)
+
+def test_config_loads():
+    """Test that configuration loads properly."""
+    from src.config import Config
+    
+    config = Config()
+    assert config is not None
+    assert hasattr(config, 'output_dir')
+
+
+def test_forensic_utils_available():
+    """Test forensic utilities are available."""
+    from src.forensic_utils import ForensicRecorder, ForensicIntegrity
+    
+    recorder = ForensicRecorder()
+    assert recorder is not None

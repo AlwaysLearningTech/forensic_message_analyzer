@@ -1,0 +1,125 @@
+# Default analysis patterns for forensic message analyzer
+# Auto-generated and can be customized
+
+threat_patterns:
+  - name: "Physical Threat"
+    pattern: "(kill|hurt|harm|attack|assault|hit|punch|slap)"
+    severity: "high"
+    confidence_boost: 0.3
+    
+  - name: "Stalking Behavior"
+    pattern: "(follow|watch|tracking|know where|find you|watching you)"
+    severity: "high"
+    confidence_boost: 0.25
+    
+  - name: "Harassment"
+    pattern: "(harass|bother|annoy|won't stop|leave.*alone)"
+    severity: "medium"
+    confidence_boost: 0.2
+    
+  - name: "Intimidation"
+    pattern: "(threat|intimidate|scare|afraid|fear|consequence)"
+    severity: "high"
+    confidence_boost: 0.25
+    
+  - name: "Property Damage"
+    pattern: "(destroy|damage|break|vandal|ruin|trash)"
+    severity: "medium"
+    confidence_boost: 0.2
+    
+  - name: "Extortion"
+    pattern: "(blackmail|extort|pay.*or|expose|reveal.*unless)"
+    severity: "high"
+    confidence_boost: 0.3
+
+behavioral_patterns:
+  - name: "Emotional Manipulation"
+    pattern: "(guilt|blame|fault|deserve|made me|force me to)"
+    category: "manipulation"
+    
+  - name: "Gaslighting"
+    pattern: "(never said|didn't happen|imagining|crazy|overreacting)"
+    category: "manipulation"
+    
+  - name: "Control"
+    pattern: "(can't|won't let|forbid|not allowed|permission|must)"
+    category: "control"
+    
+  - name: "Isolation"
+    pattern: "(don't talk|stay away from|no friends|only me|don't need)"
+    category: "control"
+    
+  - name: "Love Bombing"
+    pattern: "(love you so much|can't live without|need you|perfect|soulmate)"
+    category: "manipulation"
+
+sentiment_keywords:
+  positive:
+    - "love"
+    - "happy"
+    - "grateful"
+    - "appreciate"
+    - "wonderful"
+    - "great"
+    - "thank"
+    
+  negative:
+    - "hate"
+    - "angry"
+    - "upset"
+    - "frustrated"
+    - "terrible"
+    - "awful"
+    - "disgusting"
+    
+  neutral:
+    - "okay"
+    - "fine"
+    - "alright"
+    - "maybe"
+    - "perhaps"
+
+escalation_indicators:
+  - name: "Frequency Increase"
+    type: "temporal"
+    threshold: 2.0  # 2x normal frequency
+    
+  - name: "Emotional Intensity"
+    type: "sentiment"
+    threshold: -0.7  # Very negative sentiment
+    
+  - name: "Threat Escalation"
+    type: "content"
+    pattern: "(will|going to|promise|swear)"
+    
+  - name: "Urgency Markers"
+    type: "content"
+    pattern: "(now|immediately|today|tonight|right away)"
+
+context_flags:
+  legal:
+    - "custody"
+    - "court"
+    - "lawyer"
+    - "judge"
+    - "divorce"
+    - "restraining order"
+    - "police"
+    
+  family:
+    - "children"
+    - "kids"
+    - "daughter"
+    - "son"
+    - "parent"
+    - "mother"
+    - "father"
+    
+  financial:
+    - "money"
+    - "pay"
+    - "owe"
+    - "debt"
+    - "account"
+    - "bank"
+    - "credit"

@@ -1,340 +1,510 @@
-# Forensic Analyzer Python - Legal Evidence Processing System
+# Forensic Message Analyzer
+
+A comprehensive digital forensics tool for analyzing message data from multiple sources, designed for legal defensibility and evidence integrity.
+
+## Table of Contents
+- [Overview](#overview)
+- [Features](#features)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Data Separation Strategy](#data-separation-strategy)
+- [Usage](#usage)
+- [Legal Defensibility](#legal-defensibility)
+- [Architecture](#architecture)
+- [Testing](#testing)
+- [Output Files](#output-files)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Overview
 
-This system processes digital communications for use in legal proceedings. It extracts, analyzes, and documents electronic messages while maintaining strict standards required by courts for digital evidence admission.
+The Forensic Message Analyzer is a multi-phase digital evidence processor designed for legal use. It extracts, analyzes, and reports on message data from iMessage, WhatsApp, and screenshots while maintaining a complete chain of custody for court admissibility.
 
-## Table of Contents
+## Features
 
-1. [What This System Does](#what-this-system-does)
-2. [Legal Standards Compliance](#legal-standards-compliance)
-3. [Installation](#installation)
-4. [Usage](#usage)
-5. [Understanding the Output](#understanding-the-output)
-6. [Evidence Integrity](#evidence-integrity)
-7. [Troubleshooting](#troubleshooting)
-8. [Technical Details](#technical-details)
+### Data Extraction
+- **iMessage**: Direct extraction from macOS Messages database
+- **WhatsApp**: Import from exported chat files
+- **Screenshots**: Catalog and OCR processing
+- **Attachments**: Full metadata preservation
 
-## What This System Does
+### Analysis Capabilities
+- **Threat Detection**: AI-powered threat identification with configurable thresholds
+- **Pattern Analysis**: YAML-based configurable patterns for behavioral detection
+- **Sentiment Analysis**: Message tone and emotion detection using TextBlob
+- **Behavioral Analysis**: Communication pattern identification and profiling
+- **OCR Processing**: Text extraction from screenshots using Tesseract
+- **Communication Metrics**: Frequency, volume, timing, and response pattern analysis
+- **AI Analysis**: Optional Azure OpenAI integration with rate limiting (2000 tokens/min default)
 
-This system:
-- Extracts messages from iPhone (iMessage) and WhatsApp backups
-- Analyzes message content for potential legal relevance
-- Creates detailed documentation of all processing steps
-- Generates reports suitable for court submission
-- Maintains evidence integrity throughout processing
+### Legal Compliance
+- **Chain of Custody**: Complete audit trail with SHA-256 hashing
+- **Evidence Integrity**: Read-only processing, no source modification
+- **FRE Compliance**: Meets Federal Rules of Evidence requirements
+- **Daubert Standards**: Testable, reproducible, documented methodology
 
-## Legal Standards Compliance
-
-### Meeting Court Requirements for Digital Evidence
-
-Courts require digital evidence to meet specific standards before admission. This system addresses each requirement:
-
-#### 1. Authentication (Federal Rule of Evidence 901)
-**What courts require:** Proof that the evidence is what you claim it to be.
-
-**How we meet this requirement:**
-- Every source file gets a unique digital fingerprint (SHA-256 hash) that proves it hasn't been altered
-- The system records the exact date and time of every processing step
-- Original files are never modified - all processing happens on copies
-- A complete chain of custody document tracks the evidence from extraction to report
-
-#### 2. Reliability (The Daubert Standard)
-**What courts require:** Scientific evidence must be based on reliable methods that can be tested and verified.
-
-**How we meet this requirement:**
-
-The Daubert Standard has five specific factors:
-
-1. **Testing**: Our methods can be (and have been) tested
-   - The system includes automated tests that verify each component works correctly
-   - Processing the same data multiple times produces identical results
-   - Test results are documented and available for review
-
-2. **Peer Review**: Our methods follow published standards
-   - Based on NIST (National Institute of Standards and Technology) guidelines for digital forensics
-   - Uses industry-standard tools and libraries
-   - Methods align with published forensic science practices
-
-3. **Error Rate**: The system documents its accuracy
-   - Sentiment analysis accuracy: 85-90% based on validation testing
-   - Message extraction accuracy: 99%+ (all accessible messages are extracted)
-   - Any processing errors are logged and reported
-   - Manual review process catches and corrects automated errors
-
-4. **Standards**: Established forensic standards are followed
-   - ISO/IEC 27037:2012 guidelines for digital evidence handling
-   - SWGDE (Scientific Working Group on Digital Evidence) best practices
-   - Association of Chief Police Officers (ACPO) principles
-
-5. **General Acceptance**: Uses widely accepted methods
-   - SQLite database extraction (standard for mobile forensics)
-   - SHA-256 hashing (federal standard for data integrity)
-   - Python programming language (widely used in forensic analysis)
-   - Documented methodologies used by law enforcement
-
-#### 3. Best Evidence Rule (Federal Rule of Evidence 1002)
-**What courts require:** Original documents or accurate duplicates must be provided.
-
-**How we meet this requirement:**
-- Extracts exact copies of message content without alteration
-- Preserves all metadata (timestamps, sender information, etc.)
-- Original source files remain untouched
-- Bit-for-bit accurate extraction methods
-
-#### 4. Hearsay Exceptions (Federal Rule of Evidence 803)
-**What courts require:** Electronic records must qualify for business records exception.
-
-**How we meet this requirement:**
-- Messages are extracted with complete metadata showing when they were created
-- System documents that messages were made in the regular course of communication
-- Timestamps are preserved in original format
-- No editorial changes to message content
-
-### Chain of Custody Documentation
-
-The system maintains a detailed chain of custody that includes:
-- **Source Verification**: Hash values proving original files haven't been tampered with
-- **Process Documentation**: Every step taken during analysis
-- **Timestamp Records**: Exact times for all operations
-- **Error Logging**: Any issues encountered during processing
-- **Decision Tracking**: Records of all manual review decisions
+### Reporting
+- **Multi-format**: Excel, Word, PDF reports
+- **Timeline Visualization**: Interactive HTML timelines
+- **Manual Review**: Structured decision tracking
+- **Run Manifest**: Complete documentation of analysis process
 
 ## Installation
 
 ### Prerequisites
+- Python 3.8 or higher
+- macOS (for iMessage extraction)
+- Tesseract OCR (for screenshot text extraction)
 
-- Computer running Windows, Mac, or Linux
-- Python 3.8 or newer installed
-- Administrator/sudo access for installation
-- Access to message backup files
+### Setup
 
-### Setup Steps
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/forensic_message_analyzer.git
+cd forensic_message_analyzer
+```
 
-1. **Download the System**
-   ```bash
-   git clone https://github.com/your-repo/forensic_analyzer_python.git
-   cd forensic_analyzer_python
-   ```
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-2. **Install Required Components**
-   ```bash
-   pip install -r requirements.txt
-   ```
+3. Install Tesseract OCR:
+```bash
+# macOS
+brew install tesseract
 
-3. **Configure Your Settings**
-   - Copy `.env.example` to `.env`
-   - Edit `.env` with your specific information:
-     - Contact phone numbers or email addresses
-     - Date ranges for analysis
-     - API credentials if using AI features
+# Ubuntu/Debian
+sudo apt-get install tesseract-ocr
+
+# Windows
+# Download from: https://github.com/UB-Mannheim/tesseract/wiki
+```
+
+## Configuration
+
+The `.env` file is stored **outside the repository** for security. The system looks for it in:
+1. `~/workspace/data/forensic_message_analyzer/.env` (primary location)
+2. Path specified in `DOTENV_PATH` environment variable
+3. Local `.env` in the project directory (not recommended)
+
+### Setting Up Configuration
+
+1. Create the data directory structure:
+```bash
+mkdir -p ~/workspace/data/forensic_message_analyzer
+```
+
+2. Copy the example configuration to the data directory:
+```bash
+cp .env.example ~/workspace/data/forensic_message_analyzer/.env
+```
+
+3. Edit `~/workspace/data/forensic_message_analyzer/.env` with your settings:
+```bash
+# Azure OpenAI (optional, for AI analysis)
+AZURE_OPENAI_ENDPOINT=your-endpoint
+AZURE_OPENAI_API_KEY=your-key
+AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment
+
+# Contact Mapping - Define names for reports and their identifiers
+# PERSON(x)_NAME: The name used in all reports (e.g., "David Snyder")
+# PERSON(x)_MAPPING: List of identifiers to match (phones, emails, aliases)
+# IMPORTANT: Use single quotes around the JSON array to avoid parsing issues
+# NOTE: Phone numbers are automatically expanded to match common formats:
+#   - "+12345678901" also matches "234-567-8901" and "(234) 567-8901"
+#   - You only need to list each phone number ONCE in any format
+PERSON1_NAME="First Last"
+PERSON2_NAME="Another Person"
+PERSON3_NAME="Third Person"
+
+PERSON1_MAPPING='["+12345678901","email@example.com","FirstName","Full Name"]'
+PERSON2_MAPPING='["+19876543210","another@example.com","AnotherName"]'
+PERSON3_MAPPING='["third@example.com","ThirdName","Nickname"]'
+
+# Data Sources (paths to source files)
+MESSAGES_DB_PATH=~/Library/Messages/chat.db
+WHATSAPP_SOURCE_DIR=~/workspace/data/forensic_message_analyzer/source_files/whatsapp/
+SCREENSHOT_SOURCE_DIR=~/workspace/data/forensic_message_analyzer/source_files/screenshots/
+
+# Rate Limiting (for Azure OpenAI API)
+TOKENS_PER_MINUTE=2000
+REQUEST_DELAY_MS=500
+MAX_TOKENS_PER_REQUEST=150
+
+# Output and Review Directories
+OUTPUT_DIR=~/workspace/output/forensic_message_analyzer
+REVIEW_DIR=~/workspace/data/forensic_message_analyzer/review
+LOG_DIR=~/workspace/data/forensic_message_analyzer/logs
+```
+
+## Data Separation Strategy
+
+### Security Architecture
+
+The project implements a strict separation between code and data to prevent sensitive information from being accidentally committed to version control:
+
+```
+Repository (GitHub)              Local Data Storage
+├── src/                        ~/workspace/data/forensic_message_analyzer/
+├── tests/                      ├── .env (configuration with keys)
+├── patterns/                   ├── source_files/
+├── .env.example                │   ├── whatsapp/
+└── README.md                   │   └── screenshots/
+                               ├── review/ (manual review decisions)
+                               └── logs/
+                               
+                               ~/workspace/output/forensic_message_analyzer/
+                               └── [all analysis outputs]
+```
+
+### Key Principles
+
+1. **Code Repository** (`/workspace/repos/forensic_message_analyzer/`):
+   - Contains only source code, tests, and documentation
+   - `.env.example` provides template without sensitive data
+   - `.gitignore` excludes all data directories
+
+2. **Data Storage** (`/workspace/data/forensic_message_analyzer/`):
+   - Holds actual `.env` with credentials
+   - Contains source files for analysis
+   - Stores review decisions and logs
+   - Never tracked in version control
+
+3. **Output Storage** (`/workspace/output/forensic_message_analyzer/`):
+   - All analysis results and reports
+   - Chain of custody documents
+   - Separate from both code and input data
+
+### Setting Up Data Directories
+
+```bash
+# Create data directory structure
+mkdir -p ~/workspace/data/forensic_message_analyzer/{source_files,review,logs}
+mkdir -p ~/workspace/data/forensic_message_analyzer/source_files/{whatsapp,screenshots}
+mkdir -p ~/workspace/output/forensic_message_analyzer
+
+# Copy and configure .env
+cp .env.example ~/workspace/data/forensic_message_analyzer/.env
+# Edit the .env file with your actual configuration
+```
 
 ## Usage
 
-### Running the Complete Analysis
+### Full Analysis Pipeline
 
-The simplest way to run the system:
-
+Run the complete forensic analysis:
 ```bash
 python run.py
 ```
 
-This will:
-1. Extract all available messages
-2. Analyze them for legal relevance
-3. Flag items needing human review
-4. Generate comprehensive reports
+This executes five phases:
+1. **Data Extraction**: Collects messages from all sources
+2. **Automated Analysis**: Runs all configured analyzers
+3. **Manual Review**: Flags items for human review
+4. **Report Generation**: Creates comprehensive reports
+5. **Documentation**: Generates chain of custody and manifest
 
-### Understanding Each Phase
+### Individual Components
 
-The system operates in distinct phases:
+```python
+from src.forensic_utils import ForensicRecorder, ForensicIntegrity
+from src.extractors.imessage_extractor import IMessageExtractor
+from src.extractors.whatsapp_extractor import WhatsAppExtractor
+from src.analyzers.threat_analyzer import ThreatAnalyzer
+from src.analyzers.sentiment_analyzer import SentimentAnalyzer
+from src.analyzers.behavioral_analyzer import BehavioralAnalyzer
+from src.reporters.forensic_reporter import ForensicReporter
+import pandas as pd
 
-**Phase 1: Initialization**
-- Verifies source files exist
-- Creates secure working directories
-- Begins chain of custody documentation
+# Initialize forensic tracking
+recorder = ForensicRecorder()
+integrity = ForensicIntegrity(recorder)
 
-**Phase 2: Evidence Processing**
-- Extracts messages from all sources
-- Preserves original formatting and metadata
-- Creates searchable database of communications
+# Extract iMessages (requires db_path, forensic_recorder, forensic_integrity)
+db_path = "~/Library/Messages/chat.db"
+imessage_extractor = IMessageExtractor(db_path, recorder, integrity)
+imessages_df = imessage_extractor.extract_messages()
 
-**Phase 3: Automated Review**
-- Identifies potentially relevant messages
-- Detects patterns of concerning behavior
-- Calculates emotional tone of communications
+# Extract WhatsApp (requires export_dir, forensic_recorder, forensic_integrity)
+export_dir = "~/workspace/data/forensic_message_analyzer/source_files/whatsapp/"
+whatsapp_extractor = WhatsAppExtractor(export_dir, recorder, integrity)
+whatsapp_df = whatsapp_extractor.extract_messages()
 
-**Phase 4: Manual Review**
-- Presents flagged messages for human verification
-- Records decisions about evidence inclusion
-- Documents reasoning for legal record
+# Combine messages
+combined_df = pd.concat([imessages_df, whatsapp_df], ignore_index=True)
 
-**Phase 5: Analysis**
-- Performs sentiment analysis on communications
-- Identifies behavioral patterns over time
-- Creates timeline of significant events
+# Analyze for threats (returns DataFrame with threat_detected column)
+threat_analyzer = ThreatAnalyzer(recorder)
+threats_df = threat_analyzer.detect_threats(combined_df)
+threat_summary = threat_analyzer.generate_threat_summary(threats_df)
 
-**Phase 6: Report Generation**
-- Creates Excel spreadsheet with all data
-- Generates Word document with narrative findings
-- Produces PDF suitable for court filing
+# Analyze sentiment (returns DataFrame with sentiment columns)
+sentiment_analyzer = SentimentAnalyzer(recorder)
+sentiment_df = sentiment_analyzer.analyze_sentiment(threats_df)
 
-**Phase 7: Documentation**
-- Finalizes chain of custody
-- Creates integrity verification records
-- Packages all materials for legal team
+# Analyze behavioral patterns (returns dict)
+behavioral_analyzer = BehavioralAnalyzer(recorder)
+behavior_results = behavioral_analyzer.analyze_patterns(sentiment_df)
 
-## Understanding the Output
+# Generate report
+reporter = ForensicReporter(recorder)
+reporter.generate_report(sentiment_df, 'forensic_report')
+```
 
-### Generated Files
+## Legal Defensibility
 
-The system creates several files in the `output` directory:
+### Federal Rules of Evidence Compliance
 
-1. **Excel Report** (`forensic_report_[date].xlsx`)
-   - Complete message database in spreadsheet format
-   - Separate tabs for different analyses
-   - Sortable and filterable for legal team review
+#### Authentication (FRE 901)
+- SHA-256 hashing of all source files and outputs
+- Precise timestamp logging via `ForensicRecorder`
+- Read-only access to original evidence
+- Complete audit trail in chain of custody
 
-2. **Word Report** (`forensic_report_[date].docx`)
-   - Narrative description of findings
-   - Methodology documentation
-   - Statistical summaries
-   - Suitable for court submission
+#### Best Evidence Rule (FRE 1002)
+- Full metadata preservation
+- Deterministic, reproducible extractions
+- Unaltered content export alongside analysis
 
-3. **PDF Report** (`forensic_report_[date].pdf`)
-   - Court-ready version of findings
-   - Locked format prevents accidental changes
-   - Include page numbers and timestamps
+#### Business Records Exception (FRE 803(6))
+- Retains original message metadata
+- Documents regular course of communication
+- No content modification during processing
 
-4. **Chain of Custody** (`chain_of_custody_[date].json`)
-   - Complete audit trail
-   - Hash values for verification
-   - Processing timeline
-   - Technical details for authentication
+### Daubert Standards
 
-### Report Sections Explained
+#### Testability
+- Comprehensive unit and integration tests
+- Deterministic processing (same input → same output)
+- Hash verification for reproducibility
 
-**Executive Summary**
-- Overview of total messages analyzed
-- Key findings and patterns identified
-- Statistical breakdown by source and date
+#### Peer Review
+- Uses established libraries (pandas, Pillow, pytesseract)
+- Open-source for community review
+- Documented methodology in reports
 
-**Methodology**
-- Step-by-step explanation of process
-- Tools and techniques used
-- Validation and verification methods
+#### Error Rate
+- Logs all extraction/analysis anomalies
+- Validation statistics in metrics
+- Documented limitations in reports
 
-**Findings**
-- Detailed analysis results
-- Pattern identification
-- Timeline of events
-- Behavioral observations
+#### Standards and Controls
+- SWGDE/NIST-aligned workflow
+- Configurable via `.env`
+- No hidden state or processing
 
-**Technical Appendix**
-- Hash values and integrity checks
-- Error rates and limitations
-- Complete processing logs
+#### General Acceptance
+- Standard output formats (JSON, XLSX, DOCX, PDF)
+- Verifiable logs and hashes
+- Industry-standard tools and methods
 
-## Evidence Integrity
+## Architecture
 
-### How We Preserve Evidence
+### Directory Structure
+```
+forensic_message_analyzer/
+├── src/
+│   ├── extractors/              # Data extraction modules
+│   │   ├── data_extractor.py    # Unified extraction orchestrator
+│   │   ├── imessage_extractor.py # iMessage database extraction
+│   │   ├── whatsapp_extractor.py # WhatsApp export parsing
+│   │   └── screenshot_extractor.py # Screenshot cataloging
+│   ├── analyzers/               # Analysis engines
+│   │   ├── threat_analyzer.py   # Threat detection
+│   │   ├── sentiment_analyzer.py # Sentiment analysis
+│   │   ├── behavioral_analyzer.py # Behavioral patterns
+│   │   ├── yaml_pattern_analyzer.py # YAML-defined patterns
+│   │   ├── communication_metrics.py # Statistical metrics
+│   │   ├── screenshot_analyzer.py # OCR processing
+│   │   └── attachment_processor.py # Attachment cataloging
+│   ├── review/                  # Manual review management
+│   │   └── manual_review_manager.py
+│   ├── reporters/               # Report generation
+│   │   ├── forensic_reporter.py # Main reporter (Excel, Word, PDF)
+│   │   └── json_reporter.py     # JSON output
+│   ├── utils/                   # Utilities and helpers
+│   │   ├── timeline_generator.py # HTML timeline creation
+│   │   └── run_manifest.py      # Run documentation
+│   ├── forensic_utils.py        # Chain of custody and integrity
+│   ├── config.py                # Configuration management
+│   └── main.py                  # Main orchestration
+├── tests/                       # Unit and integration tests
+│   ├── test_imports.py          # Dependency verification
+│   ├── test_core_functionality.py # Core component tests
+│   ├── test_integration.py      # End-to-end tests
+│   ├── test_forensic_utils.py   # Forensic utilities tests
+│   └── run_all_tests.sh         # Test runner script
+├── patterns/                    # YAML pattern definitions
+│   └── analysis_patterns.yaml
+├── .github/
+│   └── copilot-instructions.md  # Development guidelines
+├── check_readiness.py           # System readiness checker
+├── run.py                       # Main entry point
+└── .env.example                 # Configuration template
+```
 
-1. **Read-Only Access**: Original files are accessed in read-only mode
-2. **Working Copies**: All processing happens on copies, not originals
-3. **Hash Verification**: Digital fingerprints confirm no alterations
-4. **Audit Logging**: Every action is recorded with timestamps
-5. **Error Documentation**: Any issues are logged and reported
+### Core Classes and Their Methods
 
-### Verifying Evidence Integrity
+#### Forensic Utilities
+- **ForensicRecorder()**: Records all actions with timestamps and hashes
+  - `record_action(action, details, metadata=None)`: Log forensic action
+  - `compute_hash(file_path)`: SHA-256 hash of file (takes Path object)
+  - `generate_chain_of_custody()`: Create chain of custody JSON
 
-Legal teams can verify evidence hasn't been tampered with:
+- **ForensicIntegrity(recorder)**: Ensures evidence integrity
+  - `verify_read_only()`: Verify source is read-only
+  - `create_working_copy(source, dest)`: Create hashed working copy
 
-1. Compare hash values in chain of custody with original files
-2. Review audit logs for complete processing history
-3. Re-run analysis to confirm identical results
-4. Check timestamps for logical sequence
+#### Extractors
+- **IMessageExtractor(db_path, forensic_recorder, forensic_integrity)**
+  - `extract_messages()`: Extract from iMessage database
 
-## Court-Facing Legal Defensibility Checklist
+- **WhatsAppExtractor(export_dir, forensic_recorder, forensic_integrity)**
+  - `extract_messages()`: Parse WhatsApp export files
 
-Use this one-page checklist before sharing with your legal team or filing in court. It explains how the system meets common evidence rules and why.
+- **DataExtractor(forensic_recorder)**: Coordinates all extraction
+  - `extract_all()`: Returns list of message dicts from all sources
 
-1) Identity/Authenticity (FRE 901)
-- What to check: Each original source file and every generated report has a SHA-256 hash.
-- How this proves it: Any change would change the hash value, so matching hashes show the item is unchanged from when it was processed.
-- Where to find it: `output/chain_of_custody_*.json` and `output/run_manifest_*.json` include file hashes and timestamps for all steps.
+#### Analyzers
+- **ThreatAnalyzer(forensic_recorder)**
+  - `detect_threats(df)`: Returns DataFrame with threat_detected column
+  - `generate_threat_summary(df)`: Returns threat summary dict
 
-2) Best Evidence (FRE 1002)
-- What to check: Extracted message content and metadata (time, sender, IDs) are preserved as-is; originals aren’t modified.
-- How this proves it: Reports can be regenerated from the same sources and produce the same data; metadata shows provenance.
-- Where to find it: Excel/Word/PDF exports in `output/` and the extraction logs in the chain of custody file.
+- **SentimentAnalyzer(forensic_recorder)**
+  - `analyze_sentiment(df)`: Returns DataFrame with sentiment_polarity, sentiment_subjectivity
 
-3) Business Records/Hearsay Exception (FRE 803)
-- What to check: Message timestamps and system IDs are included; data was collected from standard message databases/exports.
-- How this proves it: These records are created during normal communication and exported in their ordinary form.
-- Where to find it: Message rows include timestamp/sender/source columns; extraction notes in chain of custody.
+- **BehavioralAnalyzer(forensic_recorder)**
+  - `analyze_patterns(df)`: Returns dict with behavioral analysis
 
-4) Reliability (Daubert Factors)
-- Testing: Re-run the same input and compare hashes of outputs; results should match.
-- Peer Review/Standards: Uses widely accepted libraries and NIST/SWGDE-aligned methods documented here.
-- Error Rates: Validation stats (missing timestamps, duplicates) are recorded and shown in reports/logs.
-- Controls/Standards: Workflow is fixed: extraction → analysis → manual review → reporting → custody/manifest.
-- General Acceptance: Outputs are standard formats (XLSX/DOCX/PDF/JSON) with documented methods.
+- **YamlPatternAnalyzer(forensic_recorder, patterns_file=None)**
+  - `analyze_patterns(df)`: Returns DataFrame with patterns_detected, pattern_score
 
-5) Reproducibility and Chain of Custody
-- What to check: The run manifest lists inputs, outputs, and hashes for the entire run.
-- How this proves it: Anyone can verify that the same inputs produce outputs with matching hashes.
-- Where to find it: `output/run_manifest_*.json` and `output/chain_of_custody_*.json`.
+- **CommunicationMetricsAnalyzer(forensic_recorder=None)**
+  - `analyze_messages(messages)`: Takes list of dicts, returns metrics dict
 
-6) Manual Review Transparency
-- What to check: Decisions to include/exclude items are recorded with timestamps and notes.
-- How this proves it: Demonstrates human oversight where automated detection is uncertain.
-- Where to find it: `output/manual_reviews.json` and `manual_review_summary_*.json`.
+#### Utilities
+- **TimelineGenerator(forensic_recorder)**
+  - `create_timeline(df, output_path)`: Create HTML timeline
 
-Note on Jurisdiction: This documentation is written for general U.S. evidentiary standards. If you have local rules (e.g., King County, WA family court), provide them to your forensic analyst to tailor language and exhibits; the hashes, logs, and reproducible workflow remain the same.
+- **ManualReviewManager()**
+  - `add_review(item_id, item_type, decision, notes)`: Add review decision
+  - `get_reviews_by_decision(decision)`: Retrieve reviews by decision type
 
-## Troubleshooting
+- **RunManifest(forensic_recorder)**
+  - `add_input_file(path)`: Add input file to manifest
+  - `add_output_file(path)`: Add output file to manifest
+  - `generate_manifest()`: Returns Path to manifest JSON
 
-### Common Issues and Solutions
+### Data Flow
+```
+Source Data → Extraction → Analysis → Review → Reporting → Documentation
+     ↓            ↓           ↓         ↓          ↓            ↓
+  [Hashed]    [Hashed]    [Logged]  [Tracked]  [Hashed]   [Manifest]
+```
 
-**"Cannot find message database"**
-- Ensure you have necessary permissions to access the files
-- Check that backup files are in the expected location
-- Verify file paths in `.env` configuration
+## Testing
 
-**"No messages extracted"**
-- Confirm contact information in configuration matches actual messages
-- Check date ranges aren't too restrictive
-- Ensure backup files contain expected data
+### Run All Tests
+```bash
+# Run all test suites
+./tests/run_all_tests.sh
 
-**"Analysis failed"**
-- Review error logs in `logs/error.log`
-- Check that all required dependencies are installed
-- Verify sufficient disk space for processing
+# Or use pytest directly
+python3 -m pytest tests/ -v
+```
 
-## Technical Details
+### Run Specific Test Suite
+```bash
+# Import tests
+python3 -m pytest tests/test_imports.py -v
 
-### Data Sources
+# Core functionality tests
+python3 -m pytest tests/test_core_functionality.py -v
 
-- **iMessage**: Extracted from iPhone backup or Mac Messages database
-- **WhatsApp**: Processed from exported chat files
-- **Attachments**: Media files are cataloged but not modified
+# Integration tests
+python3 -m pytest tests/test_integration.py -v
 
-### Analysis Methods
+# Forensic utilities tests
+python3 -m pytest tests/test_forensic_utils.py -v
 
-- **Sentiment Analysis**: Determines emotional tone using natural language processing
-- **Pattern Detection**: Identifies concerning communication patterns
-- **Timeline Generation**: Creates chronological event sequence
-- **Statistical Analysis**: Calculates communication frequency and patterns
+# Test with coverage
+python3 -m pytest --cov=src tests/
+```
 
-### Security and Privacy
+### Check System Readiness
+```bash
+# Verify configuration and dependencies
+python3 check_readiness.py
+```
 
-- All processing happens locally on your computer
-- No data is sent to external services without explicit configuration
-- Sensitive information can be redacted in reports
-- Access controls prevent unauthorized use
+## Output Files
+
+All outputs are timestamped and stored in the configured `OUTPUT_DIR`:
+
+### Analysis Outputs
+- `extracted_data_YYYYMMDD_HHMMSS.json` - Raw extracted messages
+- `analysis_results_YYYYMMDD_HHMMSS.json` - Analysis findings
+- `manual_review_summary_YYYYMMDD_HHMMSS.json` - Review decisions
+
+### Reports
+- `forensic_report_YYYYMMDD_HHMMSS.xlsx` - Excel report with multiple sheets
+- `forensic_report_YYYYMMDD_HHMMSS.docx` - Word document report
+- `forensic_report_YYYYMMDD_HHMMSS.pdf` - PDF report for court submission
+- `timeline_YYYYMMDD_HHMMSS.html` - Interactive timeline visualization
+
+### Documentation
+- `chain_of_custody_YYYYMMDD_HHMMSS.json` - Complete audit trail
+- `run_manifest_YYYYMMDD_HHMMSS.json` - Analysis process documentation
+
+## Contributing
+
+We welcome contributions that enhance the forensic capabilities while maintaining legal defensibility:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/enhancement`)
+3. Ensure all tests pass (`pytest tests/`)
+4. Add tests for new functionality
+5. Update documentation as needed
+6. Submit a pull request
+
+### Development Guidelines
+
+- Maintain evidence integrity - never modify source data
+- Add forensic logging for all operations
+- Ensure deterministic, reproducible processing
+- Follow existing patterns for analyzers/extractors
+- Document legal compliance considerations
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Disclaimer
+
+This tool is designed to assist in digital forensic analysis for legal proceedings. Users are responsible for:
+- Ensuring compliance with applicable laws and regulations
+- Obtaining necessary legal authority for data access
+- Maintaining proper chain of custody procedures
+- Validating findings through appropriate review processes
+
+The authors and contributors make no warranties about the suitability of this software for any particular legal proceeding.
+
+## Support
+
+For issues, questions, or contributions:
+- Open an issue on GitHub
+- Review existing documentation and code comments
+- Check logs in the output directory for debugging
+
+## Acknowledgments
+
+- Built with consideration for Federal Rules of Evidence
+- Follows SWGDE and NIST digital forensics guidelines
+- Uses industry-standard libraries and methods
 
 ---
 
-**For Legal Teams**: This documentation explains how the system meets legal standards for digital evidence. The forensic analyst who runs this system collects and processes the data, but all legal determinations should be made by qualified attorneys.
+**For Legal Teams**: The system produces reports suitable for court proceedings with complete documentation of methodology, limitations, and chain of custody. All processing is transparent, reproducible, and defensible under Daubert standards.
 
-**Questions**: If you need clarification on any aspect of the system or its output, consult with your forensic analyst or technical expert who can explain the specific details of your case's processing.
+**For Technical Teams**: The modular architecture allows easy extension of extractors and analyzers. All components follow consistent patterns with comprehensive logging and error handling.

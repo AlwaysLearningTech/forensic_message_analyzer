@@ -42,12 +42,16 @@ class TimelineGenerator:
         """Generate HTML timeline content."""
         events = []
         
+        # Build filter for significant events
+        filter_mask = (df.get('threat_detected', pd.Series([False] * len(df))) == True) | \
+                      (df.get('patterns_detected', pd.Series([''] * len(df))) != '')
+        
+        # Add sentiment filter only if column exists
+        if 'sentiment_score' in df.columns:
+            filter_mask = filter_mask | (df['sentiment_score'].abs() > 0.7)
+        
         # Focus on significant events
-        significant_df = df[
-            (df.get('threat_detected', False) == True) |
-            (df.get('patterns_detected', '') != '') |
-            (df.get('sentiment_score', 0).abs() > 0.7)
-        ]
+        significant_df = df[filter_mask]
         
         for _, row in significant_df.iterrows():
             event = {

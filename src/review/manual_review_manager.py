@@ -1,227 +1,250 @@
 """
-Manual review management system.
-Handles queuing and tracking of manual review decisions.
+Manual review manager for handling manual review decisions.
+
+This module provides the `ManualReviewManager` class, which is responsible
+for managing the manual review process of messages flagged by the system.
+It handles the loading, saving, and tracking of manual review decisions,
+as well as the interaction with the forensic recording system.
 """
 
 import json
-import logging
-from typing import List, Dict, Any
 from datetime import datetime
 from pathlib import Path
-import pandas as pd
+from typing import Dict, List, Optional, Any
+import hashlib
+from src.forensic_utils import ForensicRecorder
+from src.config import Config
+
+# Initialize config
+config = Config()
+
 
 class ManualReviewManager:
-    """Manages manual review of flagged messages."""
+    """
+    Manages manual review decisions for flagged messages.
     
-    def __init__(self, forensic):
-        """Initialize review manager with forensic tracking."""
-        self.forensic = forensic
-        self.logger = logging.getLogger(__name__)
-        self.reviews = {}
-        self.review_file = Path("output/manual_reviews.json")
-        self.review_file.parent.mkdir(parents=True, exist_ok=True)
+    This class handles the persistence and retrieval of manual review decisions
+    made by analysts on messages flagged by the automated analysis system.
+    """
+    
+    def __init__(self, review_dir: Optional[Path] = None):
+        """
+        Initialize the ManualReviewManager.
         
-        # Load existing reviews if available
-        self.load_reviews()
+        Args:
+            review_dir: Directory for storing review decisions. 
+                       Defaults to config.review_dir if not provided.
+        """
+        self.review_dir = review_dir or Path(config.review_dir)
+        self.review_dir.mkdir(parents=True, exist_ok=True)
+        self.forensic = ForensicRecorder()
+        self.reviews = []
+        self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         
+        # Record initialization
         self.forensic.record_action(
-            "REVIEW_MANAGER_INIT",
-            "manual_review",
-            f"Initialized with {len(self.reviews)} existing reviews"
+            "manual_review_initialized",
+            f"Manual review manager initialized with session {self.session_id}",
+            {"review_dir": str(self.review_dir)}
         )
     
-    def load_reviews(self):
-        """Load existing review decisions from file."""
-        if self.review_file.exists():
-            try:
-                with open(self.review_file, 'r') as f:
-                    self.reviews = json.load(f)
-                self.logger.info(f"Loaded {len(self.reviews)} existing reviews")
-            except Exception as e:
-                self.logger.error(f"Failed to load reviews: {e}")
-                self.reviews = {}
+    def add_review(self, item_id: str, item_type: str, decision: str, notes: str = ""):
+        """
+        Add a manual review decision.
+        
+        Args:
+            item_id: Unique identifier for the reviewed item
+            item_type: Type of item (e.g., 'threat', 'pattern', 'behavioral')
+            decision: Review decision ('relevant', 'not_relevant', 'uncertain')
+            notes: Optional notes about the decision
+        """
+        review = {
+            "item_id": item_id,
+            "item_type": item_type,
+            "decision": decision,
+            "notes": notes,
+            "timestamp": datetime.now().isoformat(),
+            "reviewer": "analyst",  # Could be extended to track specific reviewers
+            "session_id": self.session_id
+        }
+        
+        self.reviews.append(review)
+        
+        # Record the review action
+        self.forensic.record_action(
+            "manual_review_added",
+            f"Manual review added for {item_type} item {item_id}",
+            {
+                "item_id": item_id,
+                "decision": decision,
+                "has_notes": bool(notes)
+            }
+        )
+        
+        # Auto-save after each review
+        self._save_reviews()
     
-    def save_reviews(self):
-        """Save review decisions to file."""
-        try:
-            with open(self.review_file, 'w') as f:
-                json.dump(self.reviews, f, indent=2, default=str)
-            self.logger.info(f"Saved {len(self.reviews)} reviews")
+    def get_reviews_by_decision(self, decision: str) -> List[Dict]:
+        """
+        Get all reviews with a specific decision.
+        
+        Args:
+            decision: The decision to filter by ('relevant', 'not_relevant', 'uncertain')
             
+        Returns:
+            List of review dictionaries matching the decision
+        """
+        return [r for r in self.reviews if r['decision'] == decision]
+    
+    def get_reviews_by_type(self, item_type: str) -> List[Dict]:
+        """
+        Get all reviews for a specific item type.
+        
+        Args:
+            item_type: The type to filter by (e.g., 'threat', 'pattern')
+            
+        Returns:
+            List of review dictionaries matching the item type
+        """
+        return [r for r in self.reviews if r['item_type'] == item_type]
+    
+    def get_review_summary(self) -> Dict[str, Any]:
+        """
+        Get a summary of all review decisions.
+        
+        Returns:
+            Dictionary with review statistics and breakdowns
+        """
+        total = len(self.reviews)
+        
+        # Count by decision
+        decisions = {
+            'relevant': len(self.get_reviews_by_decision('relevant')),
+            'not_relevant': len(self.get_reviews_by_decision('not_relevant')),
+            'uncertain': len(self.get_reviews_by_decision('uncertain'))
+        }
+        
+        # Count by type
+        types = {}
+        for review in self.reviews:
+            item_type = review['item_type']
+            types[item_type] = types.get(item_type, 0) + 1
+        
+        return {
+            'total_reviews': total,
+            'decisions': decisions,
+            'types': types,
+            'session_id': self.session_id,
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    def _save_reviews(self):
+        """
+        Save current reviews to a JSON file.
+        """
+        output_file = self.review_dir / f"reviews_{self.session_id}.json"
+        
+        data = {
+            'session_id': self.session_id,
+            'timestamp': datetime.now().isoformat(),
+            'reviews': self.reviews,
+            'summary': self.get_review_summary()
+        }
+        
+        with open(output_file, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        # Compute hash for integrity
+        file_hash = self._compute_hash(output_file)
+        
+        self.forensic.record_action(
+            "reviews_saved",
+            f"Saved {len(self.reviews)} reviews to {output_file.name}",
+            {"file": str(output_file), "hash": file_hash}
+        )
+    
+    def load_reviews(self, session_id: str) -> List[Dict]:
+        """
+        Load reviews from a previous session.
+        
+        Args:
+            session_id: The session ID to load
+            
+        Returns:
+            List of review dictionaries from that session
+        """
+        input_file = self.review_dir / f"reviews_{session_id}.json"
+        
+        if not input_file.exists():
             self.forensic.record_action(
-                "REVIEWS_SAVED",
-                "manual_review",
-                f"Persisted {len(self.reviews)} review decisions"
+                "reviews_not_found",
+                f"No reviews found for session {session_id}",
+                {"file": str(input_file)}
             )
-        except Exception as e:
-            self.logger.error(f"Failed to save reviews: {e}")
-    
-    def get_messages_for_review(self, df: pd.DataFrame, threshold: float = 0.5) -> List[Dict[str, Any]]:
-        """
-        Select messages that need manual review.
+            return []
         
-        Args:
-            df: DataFrame with analyzed messages
-            threshold: Confidence threshold for automatic inclusion
-            
-        Returns:
-            List of messages requiring review
-        """
-        messages_to_review = []
+        with open(input_file, 'r') as f:
+            data = json.load(f)
         
-        for idx, row in df.iterrows():
-            # Skip if already reviewed
-            msg_id = row.get('message_id')
-            if msg_id and str(msg_id) in self.reviews:
-                continue
-            
-            # Check if message needs review
-            needs_review = False
-            
-            # Threat detected but low confidence
-            if row.get('threat_detected') and row.get('threat_confidence', 0) < threshold:
-                needs_review = True
-            
-            # High sentiment score
-            if abs(row.get('sentiment_score', 0)) > 0.8:
-                needs_review = True
-            
-            # Harmful content flagged
-            if row.get('harmful_content'):
-                needs_review = True
-            
-            if needs_review:
-                messages_to_review.append({
-                    'message_id': msg_id,
-                    'content': row.get('content'),
-                    'timestamp': row.get('timestamp'),
-                    'sender': row.get('sender'),
-                    'threat_categories': row.get('threat_categories'),
-                    'sentiment_score': row.get('sentiment_score'),
-                    'threat_confidence': row.get('threat_confidence')
-                })
-        
-        self.logger.info(f"Identified {len(messages_to_review)} messages for review")
+        reviews = data.get('reviews', [])
         
         self.forensic.record_action(
-            "REVIEW_QUEUE_CREATED",
-            "manual_review",
-            f"Queued {len(messages_to_review)} messages for manual review"
+            "reviews_loaded",
+            f"Loaded {len(reviews)} reviews from session {session_id}",
+            {"file": str(input_file), "count": len(reviews)}
         )
         
-        return messages_to_review
+        return reviews
     
-    def conduct_interactive_review(self, messages: List[Dict[str, Any]]):
+    def _compute_hash(self, file_path: Path) -> str:
         """
-        Conduct interactive review session.
+        Compute SHA-256 hash of a file.
         
         Args:
-            messages: List of messages to review
-        """
-        print("\n" + "="*60)
-        print("MANUAL REVIEW SESSION")
-        print("="*60)
-        print(f"Messages to review: {len(messages)}")
-        print("Commands: [y]es to include, [n]o to exclude, [s]kip, [q]uit")
-        print("="*60 + "\n")
-        
-        for i, msg in enumerate(messages, 1):
-            print(f"\n[{i}/{len(messages)}] Message ID: {msg['message_id']}")
-            print(f"Timestamp: {msg['timestamp']}")
-            print(f"Sender: {msg.get('sender', 'Unknown')}")
-            print(f"Content: {msg['content'][:200]}...")
-            
-            if msg.get('threat_categories'):
-                print(f"Threats Detected: {msg['threat_categories']}")
-            if msg.get('sentiment_score'):
-                print(f"Sentiment Score: {msg['sentiment_score']:.2f}")
-            
-            while True:
-                decision = input("\nDecision [y/n/s/q]: ").lower().strip()
-                
-                if decision == 'y':
-                    self.record_review_decision(msg['message_id'], 'include')
-                    print("✓ Marked for inclusion")
-                    break
-                elif decision == 'n':
-                    notes = input("Reason for exclusion (optional): ").strip()
-                    self.record_review_decision(msg['message_id'], 'exclude', notes)
-                    print("✗ Marked for exclusion")
-                    break
-                elif decision == 's':
-                    print("⊘ Skipped")
-                    break
-                elif decision == 'q':
-                    self.save_reviews()
-                    print("\nReview session saved and ended.")
-                    return
-                else:
-                    print("Invalid input. Please use y/n/s/q")
-        
-        self.save_reviews()
-        print("\n" + "="*60)
-        print("REVIEW SESSION COMPLETE")
-        print(f"Total reviews saved: {len(self.reviews)}")
-        print("="*60)
-    
-    def record_review_decision(self, message_id: str, decision: str, notes: str = ""):
-        """
-        Record a manual review decision.
-        
-        Args:
-            message_id: Unique message identifier
-            decision: Review decision (include/exclude)
-            notes: Optional reviewer notes
-        """
-        self.reviews[str(message_id)] = {
-            'decision': decision,
-            'notes': notes,
-            'reviewed_at': datetime.now().isoformat(),
-            'reviewer': 'forensic_analyst'
-        }
-        
-        self.forensic.record_action(
-            "REVIEW_DECISION_RECORDED",
-            "manual_review",
-            f"Message {message_id}: {decision}"
-        )
-    
-    def apply_reviews_to_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Apply review decisions to DataFrame.
-        
-        Args:
-            df: DataFrame with messages
+            file_path: Path to the file
             
         Returns:
-            DataFrame with review decisions applied
+            Hexadecimal hash string
         """
-        df['manual_review'] = ''
-        df['include_as_evidence'] = None
-        
-        for idx, row in df.iterrows():
-            msg_id = str(row.get('message_id'))
-            if msg_id in self.reviews:
-                review = self.reviews[msg_id]
-                df.at[idx, 'manual_review'] = review['decision']
-                df.at[idx, 'include_as_evidence'] = (review['decision'] == 'include')
-        
-        reviewed_count = df['manual_review'].notna().sum()
-        self.logger.info(f"Applied {reviewed_count} review decisions to DataFrame")
-        
-        return df
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        return sha256_hash.hexdigest()
     
-    def export_review_summary(self, filepath: Path):
-        """Export summary of review decisions."""
-        summary = {
-            'total_reviews': len(self.reviews),
-            'included': sum(1 for r in self.reviews.values() if r['decision'] == 'include'),
-            'excluded': sum(1 for r in self.reviews.values() if r['decision'] == 'exclude'),
-            'review_date': datetime.now().isoformat(),
-            'reviews': self.reviews
+    def export_for_report(self) -> Dict[str, Any]:
+        """
+        Export review data formatted for reporting.
+        
+        Returns:
+            Dictionary with review data formatted for reports
+        """
+        summary = self.get_review_summary()
+        
+        # Group reviews by decision and type for easier reporting
+        relevant_items = []
+        not_relevant_items = []
+        uncertain_items = []
+        
+        for review in self.reviews:
+            item = {
+                'id': review['item_id'],
+                'type': review['item_type'],
+                'notes': review['notes'],
+                'timestamp': review['timestamp']
+            }
+            
+            if review['decision'] == 'relevant':
+                relevant_items.append(item)
+            elif review['decision'] == 'not_relevant':
+                not_relevant_items.append(item)
+            else:
+                uncertain_items.append(item)
+        
+        return {
+            'summary': summary,
+            'relevant_items': relevant_items,
+            'not_relevant_items': not_relevant_items,
+            'uncertain_items': uncertain_items,
+            'all_reviews': self.reviews
         }
-        
-        with open(filepath, 'w') as f:
-            json.dump(summary, f, indent=2, default=str)
-        
-        self.logger.info(f"Exported review summary to {filepath}")

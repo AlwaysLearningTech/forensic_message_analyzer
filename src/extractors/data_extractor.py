@@ -10,6 +10,8 @@ from pathlib import Path
 
 from .imessage_extractor import iMessageExtractor
 from .whatsapp_extractor import WhatsAppExtractor
+from ..config import Config
+from ..forensic_utils import ForensicIntegrity
 
 class DataExtractor:
     """Coordinates data extraction from all sources."""
@@ -18,10 +20,19 @@ class DataExtractor:
         """Initialize data extractor with forensic tracking."""
         self.forensic = forensic
         self.logger = logging.getLogger(__name__)
+        self.config = Config()
         
-        # Initialize individual extractors
-        self.imessage = iMessageExtractor(forensic)
-        self.whatsapp = WhatsAppExtractor(forensic)
+        # Create forensic integrity instance
+        self.integrity = ForensicIntegrity(forensic)
+        
+        # Initialize individual extractors with proper parameters
+        # iMessage extractor needs: db_path, forensic_recorder, forensic_integrity
+        imessage_db = getattr(self.config, 'imessage_db_path', None)
+        self.imessage = iMessageExtractor(imessage_db, forensic, self.integrity) if imessage_db else None
+        
+        # WhatsApp extractor needs: export_dir, forensic_recorder, forensic_integrity
+        whatsapp_dir = getattr(self.config, 'whatsapp_dir', None)
+        self.whatsapp = WhatsAppExtractor(whatsapp_dir, forensic, self.integrity) if whatsapp_dir else None
         
         self.forensic.record_action(
             "DATA_EXTRACTOR_INIT",

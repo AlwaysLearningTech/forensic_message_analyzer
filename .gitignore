@@ -1,13 +1,32 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+env/
 venv/
 ENV/
-env/
-.venv
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
 # Testing
 .pytest_cache/
@@ -21,39 +40,26 @@ htmlcov/
 .idea/
 *.swp
 *.swo
-*~
 .DS_Store
 
-# Environment
-.env
-.env.local
-.env.*.local
-
-# Data directories
-data/
+# Project specific - sensitive data directories
+source_files/
 output/
 logs/
-backups/
-exports/
-
-# Sensitive files
-*.db
-*.sqlite
-*.xlsx
-*.docx
-*.pdf
-chain_of_custody*.json
-manual_reviews*.json
-content_filter_rejected.json
+review/
+data/
 
 # Temporary files
 *.tmp
 *.bak
-*.log
-tmp/
-temp/
+*.backup
+*~
 
-# Distribution
-dist/
-build/
-*.egg-info/
+# Archives
+*.zip
+*.tar
+*.gz
+*.rar
+
+# Documentation build
+docs/_build/
