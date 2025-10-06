@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+.venv
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Data directories
+data/
+output/
+logs/
+backups/
+exports/
+
+# Sensitive files
+*.db
+*.sqlite
+*.xlsx
+*.docx
+*.pdf
+chain_of_custody*.json
+manual_reviews*.json
+content_filter_rejected.json
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+tmp/
+temp/
+
+# Distribution
+dist/
+build/
+*.egg-info/
