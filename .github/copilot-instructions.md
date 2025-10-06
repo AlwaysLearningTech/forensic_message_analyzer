@@ -18,7 +18,7 @@
   - `src/forensic_utils.py`: Core forensic integrity and Daubert compliance
   - `src/config.py`: Configuration management with flexible contact mapping
 - Contact Mapping System:
-  - `PERSON1_NAME`, `PERSON2_NAME`, `PERSON3_NAME`: Names used in all reports (e.g., "David Snyder")
+  - `PERSON1_NAME`, `PERSON2_NAME`, `PERSON3_NAME`: Names used in all reports (e.g., "John Doe")
   - `PERSON1_MAPPING`, `PERSON2_MAPPING`, `PERSON3_MAPPING`: JSON lists of identifiers (phones, emails, names, aliases)
   - Phone numbers automatically expand to match common formats (e.g., +12345678901 → also matches 234-567-8901, (234) 567-8901, 2345678901)
   - Only need to list each phone number ONCE in any format - variations generated automatically
@@ -111,8 +111,8 @@ Repository (code only)          Local Data Storage
 ├── src/                        ~/workspace/data/forensic_message_analyzer/
 ├── tests/                      ├── .env (actual configuration)
 ├── patterns/                   │   Example:
-├── .env.example               │   PERSON1_NAME="David Snyder"
-└── README.md                  │   PERSON1_MAPPING='["+12066049136","david@example.com","David"]'
+├── .env.example               │   PERSON1_NAME="John Doe"
+└── README.md                  │   PERSON1_MAPPING='["+12345678901","john@example.com","John"]'
                                │   (phone numbers auto-expand to all common formats)
                                ├── source_files/
                                │   ├── whatsapp/
