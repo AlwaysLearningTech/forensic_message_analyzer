@@ -12,7 +12,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.main import main
-from src.config import config
+from src.config import Config
+
+# Create config instance
+config = Config()
 
 def _pre_run_validation() -> bool:
     """Fail-fast checks to support legal defensibility and smooth runs.
@@ -20,12 +23,13 @@ def _pre_run_validation() -> bool:
     - Confirms output directory is writable
     - Logs the fact that validation passed for chain-of-custody context
     """
-    errors = config.validate()
+    is_valid, errors = config.validate()
+    
     # Allow runs without Azure creds if not using those features
     non_blocking = []
     blocking = []
     for err in errors:
-        if "Azure OpenAI credentials" in err:
+        if "Azure" in err or "API key" in err:
             non_blocking.append(err)
         else:
             blocking.append(err)
@@ -42,8 +46,9 @@ def _pre_run_validation() -> bool:
 
     # Ensure output dir exists and is writable
     try:
-        config.output_dir.mkdir(parents=True, exist_ok=True)
-        test_file = config.output_dir / ".writable_check"
+        output_path = Path(config.output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        test_file = output_path / ".writable_check"
         test_file.write_text("ok")
         test_file.unlink(missing_ok=True)
     except Exception as e:
@@ -62,9 +67,10 @@ def _post_run_verification() -> None:
         "chain_of_custody_*.json",
         "run_manifest_*.json",
     ]
+    output_path = Path(config.output_dir)
     missing = []
     for pattern in required_globs:
-        if not any(config.output_dir.glob(pattern)):
+        if not any(output_path.glob(pattern)):
             missing.append(pattern)
     if missing:
         logging.warning(
@@ -79,7 +85,7 @@ if __name__ == "__main__":
     try:
         if not _pre_run_validation():
             sys.exit(2)
-        success = main()
+        success = main(config)  # Pass config instance to main
         try:
             _post_run_verification()
         except Exception as _e:

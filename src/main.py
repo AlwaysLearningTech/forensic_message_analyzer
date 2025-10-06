@@ -16,15 +16,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.config import Config
 from src.forensic_utils import ForensicRecorder, ForensicIntegrity
 from src.extractors.data_extractor import DataExtractor
-from src.extractors.imessage_extractor import IMessageExtractor
-from src.extractors.whatsapp_extractor import WhatsAppExtractor
 from src.extractors.screenshot_extractor import ScreenshotExtractor
 from src.analyzers.threat_analyzer import ThreatAnalyzer
 from src.analyzers.sentiment_analyzer import SentimentAnalyzer
 from src.analyzers.behavioral_analyzer import BehavioralAnalyzer
 from src.analyzers.yaml_pattern_analyzer import YamlPatternAnalyzer
 from src.analyzers.screenshot_analyzer import ScreenshotAnalyzer
-from src.analyzers.attachment_processor import AttachmentProcessor
 from src.analyzers.communication_metrics import CommunicationMetricsAnalyzer
 from src.reporters.excel_reporter import ExcelReporter
 from src.reporters.forensic_reporter import ForensicReporter
@@ -33,18 +30,19 @@ from src.review.manual_review_manager import ManualReviewManager
 from src.utils.run_manifest import RunManifest
 from src.utils.timeline_generator import TimelineGenerator
 
-# Initialize config as a global instance
-config = Config()
-
 
 class ForensicAnalyzer:
     """Main orchestrator for the forensic analysis workflow."""
     
-    def __init__(self):
-        """Initialize the forensic analyzer with necessary components."""
+    def __init__(self, config: Config = None):
+        """Initialize the forensic analyzer with necessary components.
+        
+        Args:
+            config: Configuration instance. If None, creates a new one.
+        """
         self.forensic = ForensicRecorder()
         self.integrity = ForensicIntegrity(self.forensic)
-        self.config = config  # Use the global config instance
+        self.config = config if config is not None else Config()
         self.manifest = RunManifest(self.forensic)
         
         # Record session start
@@ -58,61 +56,39 @@ class ForensicAnalyzer:
         
         extractor = DataExtractor(self.forensic)
         
-        # Extract iMessage data
-        print("\n[*] Extracting iMessage data...")
+        # Extract all message data
+        print("\n[*] Extracting message data from all sources...")
         try:
-            imessage_extractor = IMessageExtractor(
-                self.config.messages_db_path,
-                self.forensic,
-                self.integrity
-            )
-            imessage_data = imessage_extractor.extract_messages()
-            print(f"    Extracted {len(imessage_data)} iMessage conversations")
+            all_messages = extractor.extract_all()
+            print(f"    Extracted {len(all_messages)} total messages")
         except Exception as e:
-            print(f"    Error extracting iMessage data: {e}")
-            imessage_data = None
-        
-        # Extract WhatsApp data
-        print("\n[*] Extracting WhatsApp data...")
-        try:
-            whatsapp_extractor = WhatsAppExtractor(
-                self.config.whatsapp_source_dir,
-                self.forensic,
-                self.integrity
-            )
-            whatsapp_data = whatsapp_extractor.extract_all()
-            print(f"    Extracted {len(whatsapp_data) if whatsapp_data is not None else 0} WhatsApp messages")
-        except Exception as e:
-            print(f"    Error extracting WhatsApp data: {e}")
-            whatsapp_data = None
+            print(f"    Error extracting messages: {e}")
+            all_messages = []
         
         # Catalog screenshots
         print("\n[*] Cataloging screenshots...")
-        try:
-            screenshot_extractor = ScreenshotExtractor(
-                self.config.screenshot_source_dir,
-                self.forensic
-            )
-            screenshots = screenshot_extractor.catalog_screenshots()
-            print(f"    Cataloged {len(screenshots)} screenshots")
-        except Exception as e:
-            print(f"    Error cataloging screenshots: {e}")
-            screenshots = []
-        
-        # Combine all message sources
-        print("\n[*] Combining message data...")
-        combined_data = extractor.combine_sources(imessage_data, whatsapp_data)
-        print(f"    Combined {len(combined_data) if hasattr(combined_data, '__len__') else 0} total messages")
+        screenshots = []
+        if self.config.screenshot_source_dir:
+            try:
+                screenshot_extractor = ScreenshotExtractor(
+                    self.config.screenshot_source_dir,
+                    self.forensic
+                )
+                screenshots = screenshot_extractor.extract_screenshots()
+                print(f"    Cataloged {len(screenshots)} screenshots")
+            except Exception as e:
+                print(f"    Error cataloging screenshots: {e}")
+        else:
+            print("    No screenshot directory configured")
         
         # Save extracted data
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file = Path(self.config.output_dir) / f"extracted_data_{timestamp}.json"
         
         extraction_results = {
-            'imessage': imessage_data.to_dict('records') if imessage_data is not None else [],
-            'whatsapp': whatsapp_data.to_dict('records') if whatsapp_data is not None else [],
+            'messages': all_messages,
             'screenshots': screenshots,
-            'combined': combined_data.to_dict('records') if hasattr(combined_data, 'to_dict') else []
+            'combined': all_messages  # For backwards compatibility
         }
         
         with open(output_file, 'w') as f:
@@ -129,11 +105,17 @@ class ForensicAnalyzer:
         print("="*60)
         
         results = {}
-        combined_df = data.get('combined', [])
+        messages = data.get('messages', [])
         
-        if not combined_df:
+        if not messages:
             print("\n[!] No message data to analyze")
             return results
+        
+        # Convert to DataFrame for analysis
+        import pandas as pd
+        combined_df = pd.DataFrame(messages)
+        
+        print(f"\n[*] Analyzing {len(combined_df)} messages")
         
         # Run threat analysis
         print("\n[*] Analyzing threats...")
@@ -141,7 +123,7 @@ class ForensicAnalyzer:
         threat_results = threat_analyzer.detect_threats(combined_df)
         threat_summary = threat_analyzer.generate_threat_summary(threat_results)
         results['threats'] = {
-            'details': threat_results,
+            'details': threat_results.to_dict('records') if hasattr(threat_results, 'to_dict') else threat_results,
             'summary': threat_summary
         }
         print(f"    Detected threats in {threat_summary.get('messages_with_threats', 0)} messages")
@@ -150,22 +132,22 @@ class ForensicAnalyzer:
         print("\n[*] Analyzing sentiment...")
         sentiment_analyzer = SentimentAnalyzer(self.forensic)
         sentiment_results = sentiment_analyzer.analyze_sentiment(combined_df)
-        results['sentiment'] = sentiment_results
+        results['sentiment'] = sentiment_results.to_dict('records') if hasattr(sentiment_results, 'to_dict') else sentiment_results
         print("    Sentiment analysis complete")
         
         # Run behavioral analysis
         print("\n[*] Analyzing behavioral patterns...")
         behavioral_analyzer = BehavioralAnalyzer(self.forensic)
-        behavioral_results = behavioral_analyzer.analyze(combined_df)
+        behavioral_results = behavioral_analyzer.analyze_patterns(combined_df)
         results['behavioral'] = behavioral_results
         print("    Behavioral analysis complete")
         
         # Run pattern analysis
         print("\n[*] Running pattern detection...")
         pattern_analyzer = YamlPatternAnalyzer(self.forensic)
-        pattern_results = pattern_analyzer.analyze_with_patterns(combined_df)
-        results['patterns'] = pattern_results
-        print(f"    Detected {len(pattern_results) if pattern_results else 0} pattern matches")
+        pattern_results = pattern_analyzer.analyze_patterns(combined_df)
+        results['patterns'] = pattern_results.to_dict('records') if hasattr(pattern_results, 'to_dict') else pattern_results
+        print(f"    Pattern detection complete")
         
         # Process screenshots
         if data.get('screenshots'):
@@ -178,7 +160,7 @@ class ForensicAnalyzer:
         # Communication metrics
         print("\n[*] Calculating communication metrics...")
         metrics_analyzer = CommunicationMetricsAnalyzer()
-        metrics_results = metrics_analyzer.analyze(combined_df)
+        metrics_results = metrics_analyzer.analyze_messages(messages)
         results['metrics'] = metrics_results
         print("    Communication metrics calculated")
         
@@ -299,7 +281,7 @@ class ForensicAnalyzer:
         
         return reports
     
-    def run_documentation_phase(self) -> Dict:
+    def run_documentation_phase(self, data: Dict) -> Dict:
         """Generate final documentation and chain of custody."""
         print("\n" + "="*60)
         print("PHASE 5: DOCUMENTATION")
@@ -310,11 +292,26 @@ class ForensicAnalyzer:
         chain_path = self.forensic.generate_chain_of_custody()
         print(f"    Saved to {chain_path}")
         
-        # Generate timeline
-        print("\n[*] Generating timeline...")
-        timeline_gen = TimelineGenerator(self.forensic)
-        timeline_path = timeline_gen.generate_timeline()
-        print(f"    Saved to {timeline_path}")
+        # Generate timeline if we have message data
+        timeline_path = None
+        combined_data = data.get('combined', [])
+        if combined_data:
+            print("\n[*] Generating timeline...")
+            timeline_gen = TimelineGenerator(self.forensic)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timeline_path = Path(self.config.output_dir) / f"timeline_{timestamp}.html"
+            
+            # Convert to DataFrame if needed
+            import pandas as pd
+            if isinstance(combined_data, list):
+                df = pd.DataFrame(combined_data)
+            else:
+                df = combined_data
+            
+            timeline_gen.create_timeline(df, timeline_path)
+            print(f"    Saved to {timeline_path}")
+        else:
+            print("\n[!] Skipping timeline generation (no message data)")
         
         # Generate run manifest
         print("\n[*] Generating run manifest...")
@@ -323,11 +320,14 @@ class ForensicAnalyzer:
         
         print("\n[✓] Documentation complete")
         
-        return {
+        result = {
             'chain_of_custody': str(chain_path),
-            'timeline': str(timeline_path),
             'manifest': str(manifest_path)
         }
+        if timeline_path:
+            result['timeline'] = str(timeline_path)
+        
+        return result
     
     def run_full_analysis(self):
         """Run the complete forensic analysis workflow."""
@@ -351,7 +351,7 @@ class ForensicAnalyzer:
             reports = self.run_reporting_phase(extracted_data, analysis_results, review_results)
             
             # Phase 5: Documentation
-            documentation = self.run_documentation_phase()
+            documentation = self.run_documentation_phase(extracted_data)
             
             print("\n" + "="*80)
             print(" WORKFLOW COMPLETE ")
@@ -366,3 +366,21 @@ class ForensicAnalyzer:
         except Exception as e:
             print(f"\n[ERROR] Workflow failed: {e}")
             raise
+
+
+def main(config: Config = None):
+    """Main entry point for the forensic analyzer.
+    
+    Args:
+        config: Configuration instance. If None, creates a new one.
+        
+    Returns:
+        bool: True if analysis completed successfully, False otherwise.
+    """
+    try:
+        analyzer = ForensicAnalyzer(config)
+        analyzer.run_full_analysis()
+        return True
+    except Exception as e:
+        print(f"\n[ERROR] Analysis failed: {e}")
+        return False
