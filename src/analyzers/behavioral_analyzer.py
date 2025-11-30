@@ -360,11 +360,11 @@ class BehavioralAnalyzer:
         
         # Look for clusters of negative sentiment
         df_sorted = df.sort_values('timestamp')
-        negative_msgs = df_sorted[df_sorted['sentiment_score'] < -0.3]
+        negative_msgs = df_sorted[df_sorted['sentiment_score'] < -0.3].copy()
         
         if len(negative_msgs) > 0:
             # Group negative messages that are close in time
-            negative_msgs['time_diff'] = negative_msgs['timestamp'].diff()
+            negative_msgs.loc[:, 'time_diff'] = negative_msgs['timestamp'].diff()
             
             current_period = {'start': None, 'end': None, 'messages': []}
             

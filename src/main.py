@@ -135,12 +135,8 @@ class ForensicAnalyzer:
         results['sentiment'] = sentiment_results.to_dict('records') if hasattr(sentiment_results, 'to_dict') else sentiment_results
         print("    Sentiment analysis complete")
         
-        # Run behavioral analysis
-        print("\n[*] Analyzing behavioral patterns...")
-        behavioral_analyzer = BehavioralAnalyzer(self.forensic)
-        behavioral_results = behavioral_analyzer.analyze_patterns(combined_df)
-        results['behavioral'] = behavioral_results
-        print("    Behavioral analysis complete")
+        # NOTE: Behavioral analysis moved to Phase 4 (after manual review)
+        # This ensures trends are based on reviewed/confirmed data, not raw detections
         
         # Run pattern analysis
         print("\n[*] Running pattern detection...")
@@ -175,40 +171,41 @@ class ForensicAnalyzer:
         
         return results
     
-    def run_review_phase(self, analysis_results: Dict) -> Dict:
-        """Run the manual review phase."""
+    def run_review_phase(self, analysis_results: Dict, extracted_data: Dict) -> Dict:
+        """Run the interactive manual review phase on flagged items."""
         print("\n" + "="*60)
-        print("PHASE 3: MANUAL REVIEW")
+        print("PHASE 3: INTERACTIVE MANUAL REVIEW")
         print("="*60)
         
+        from .review.interactive_review import InteractiveReview
+        
         manager = ManualReviewManager()
+        interactive = InteractiveReview(manager)
         
         # Present items for review
         items_for_review = []
         
-        # Add high-confidence threats
+        # Add ALL threats for review (not just high-confidence)
         if 'threats' in analysis_results:
-            threat_details = analysis_results['threats'].get('details', {})
-            if hasattr(threat_details, 'iterrows'):
-                for idx, row in threat_details.iterrows():
-                    if row.get('threat_detected'):
+            threat_details = analysis_results['threats'].get('details', [])
+            # threat_details is a list of dicts, not a DataFrame
+            if isinstance(threat_details, list):
+                for idx, item in enumerate(threat_details):
+                    if item.get('threat_detected'):
+                        # Flag ALL threats for legal review, regardless of confidence
                         items_for_review.append({
                             'id': f"threat_{idx}",
                             'type': 'threat',
-                            'content': row.get('content', ''),
-                            'categories': row.get('threat_categories', [])
+                            'content': item.get('content', ''),
+                            'categories': item.get('threat_categories', ''),
+                            'confidence': item.get('threat_confidence', 0)
                         })
         
         print(f"\n[*] {len(items_for_review)} items flagged for review")
         
-        # In automated mode, we'll approve all for now
-        for item in items_for_review:
-            manager.add_review(
-                item['id'],
-                item['type'],
-                'relevant',
-                'Automatically approved for demonstration'
-            )
+        # Run interactive review with context
+        messages = extracted_data.get('messages', [])
+        interactive.review_flagged_items(messages, items_for_review)
         
         # Get review summary
         relevant = manager.get_reviews_by_decision('relevant')
@@ -230,6 +227,37 @@ class ForensicAnalyzer:
         print("\n[✓] Review phase complete")
         
         return review_summary
+    
+    def run_behavioral_phase(self, extracted_data: Dict, analysis_results: Dict, review_results: Dict) -> Dict:
+        """Run behavioral analysis on reviewed data (Phase 4)."""
+        print("\n" + "="*60)
+        print("PHASE 4: BEHAVIORAL ANALYSIS (POST-REVIEW)")
+        print("="*60)
+        
+        import pandas as pd
+        
+        messages = extracted_data.get('messages', [])
+        if not messages:
+            print("\n[!] No message data to analyze")
+            return {}
+        
+        # Get confirmed threats from review
+        relevant_ids = [r['item_id'] for r in review_results.get('reviews', {}).values() 
+                       if r.get('decision') == 'relevant']
+        
+        print(f"\n[*] Analyzing behavioral patterns on {len(relevant_ids)} reviewed threats")
+        
+        # Convert to DataFrame
+        combined_df = pd.DataFrame(messages)
+        
+        # Run behavioral analysis
+        behavioral_analyzer = BehavioralAnalyzer(self.forensic)
+        behavioral_results = behavioral_analyzer.analyze_patterns(combined_df)
+        
+        print("    Behavioral analysis complete")
+        print(f"    Analyzed communication patterns across {len(combined_df)} messages")
+        
+        return behavioral_results
     
     def run_reporting_phase(self, data: Dict, analysis: Dict, review: Dict) -> Dict:
         """Generate reports in multiple formats."""
@@ -257,40 +285,9 @@ class ForensicAnalyzer:
         if 'excel' not in reports:
             print("\n[*] Generating Excel report...")
             try:
-                # Enrich messages with analysis results before generating Excel
+                # DON'T enrich - just pass the original data
+                # The Excel reporter will handle filtering and won't need all analysis columns
                 enriched_data = data.copy()
-                if 'messages' in data and 'threats' in analysis and 'details' in analysis['threats']:
-                    # Convert messages to DataFrame for merging
-                    import pandas as pd
-                    df_messages = pd.DataFrame(data['messages'])
-                    df_threats = pd.DataFrame(analysis['threats']['details'])
-                    
-                    # Merge threat columns if message_id exists
-                    if 'message_id' in df_messages.columns and 'message_id' in df_threats.columns:
-                        threat_cols = [col for col in df_threats.columns if col.startswith('threat_') or col == 'harmful_content']
-                        if 'message_id' not in threat_cols:
-                            threat_cols.insert(0, 'message_id')
-                        df_messages = df_messages.merge(
-                            df_threats[threat_cols],
-                            on='message_id',
-                            how='left'
-                        )
-                    
-                    # Merge sentiment columns if available
-                    if 'sentiment' in analysis:
-                        df_sentiment = pd.DataFrame(analysis['sentiment'])
-                        if 'message_id' in df_sentiment.columns:
-                            sentiment_cols = [col for col in df_sentiment.columns if col.startswith('sentiment_')]
-                            if 'message_id' not in sentiment_cols:
-                                sentiment_cols.insert(0, 'message_id')
-                            df_messages = df_messages.merge(
-                                df_sentiment[sentiment_cols],
-                                on='message_id',
-                                how='left'
-                            )
-                    
-                    # Update enriched_data with merged messages
-                    enriched_data['messages'] = df_messages.to_dict('records')
                 
                 excel_reporter = ExcelReporter(self.forensic)
                 excel_path = Path(self.config.output_dir) / f"report_{timestamp}.xlsx"

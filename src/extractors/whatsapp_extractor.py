@@ -159,15 +159,21 @@ class WhatsAppExtractor:
                         is_from_me = True
                         break
                 
-                # Determine recipient
-                # For WhatsApp group chats, this is more complex
-                # For now, assume 1:1 chat - if sender is Me, recipient is the other person
-                # If sender is someone else, recipient is Me
+                # Determine recipient using smart mapping
+                # For 1:1 chats: if sender is Me → recipient is the other person
+                # If sender is mapped person → recipient is Me
                 if is_from_me or sender_name == 'Me':
-                    # Need to determine who the other person is from the file name or chat participants
-                    # For now, set recipient as unknown
+                    # Sender is me, so recipient is the mapped person
+                    # Try to find recipient from contact mappings
                     recipient = 'Unknown'
+                    for person_name, identifiers in config.contact_mappings.items():
+                        # Check if this file relates to this person
+                        # Look at filename or sender name in other messages
+                        if any(identifier.lower() in file_path.name.lower() for identifier in identifiers):
+                            recipient = person_name
+                            break
                 else:
+                    # Sender is another person, so recipient is Me
                     recipient = 'Me'
                 
                 messages.append({

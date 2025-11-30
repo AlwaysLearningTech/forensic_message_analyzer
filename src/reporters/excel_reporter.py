@@ -77,17 +77,8 @@ class ExcelReporter:
                                 recipient
                             )
                     
-                    # All Messages tab - only messages involving mapped persons
-                    # Filter to messages where sender OR recipient is a mapped person
-                    if 'sender' in df_messages.columns and 'recipient' in df_messages.columns:
-                        mapped_mask = (
-                            df_messages['sender'].isin(mapped_persons + ['Me']) |
-                            df_messages['recipient'].isin(mapped_persons + ['Me'])
-                        )
-                        df_filtered = df_messages[mapped_mask]
-                        df_filtered.to_excel(writer, sheet_name='All Messages', index=False)
-                    else:
-                        df_messages.to_excel(writer, sheet_name='All Messages', index=False)
+                    # NOTE: We decided NOT to publish all messages
+                    # Only person-specific tabs are included for privacy
                 
                 # Manual Review sheet
                 if 'reviews' in review_decisions and review_decisions['reviews']:
