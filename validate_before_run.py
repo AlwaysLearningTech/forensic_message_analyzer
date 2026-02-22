@@ -204,7 +204,8 @@ def main():
             batch_text = ai._prepare_batch(batch)
             message_tokens += ai._estimate_tokens(batch_text)
         est_input = system_tokens + message_tokens
-        est_output = num_batches * 1000  # ~1000 tokens output per batch
+        # Based on actual batch data: avg ~1,800 output tokens per request
+        est_output = num_batches * 1800
 
         # Batch API rates: $7.50/MTok input, $37.50/MTok output
         est_cost = (est_input / 1_000_000) * 7.50 + (est_output / 1_000_000) * 37.50
@@ -213,11 +214,15 @@ def main():
         cache_savings = (system_tokens - ai._estimate_tokens(ai._SYSTEM_PROMPT)) * (7.50 - 0.75) / 1_000_000
         est_cost_cached = est_cost - cache_savings
 
+        # Per-component breakdown
+        input_cost = (est_input / 1_000_000) * 7.50
+        output_cost = (est_output / 1_000_000) * 37.50
+
         print(f"  Messages to analyze: {len(mapped_messages):,}")
         print(f"  Batch size: {batch_size}")
         print(f"  Number of batches: {num_batches}")
-        print(f"  Estimated input tokens: ~{est_input:,}")
-        print(f"  Estimated output tokens: ~{est_output:,}")
+        print(f"  Estimated input tokens:  ~{est_input:,}  (${input_cost:.2f})")
+        print(f"  Estimated output tokens: ~{est_output:,}  (${output_cost:.2f})")
         print(f"  Estimated cost (no cache): ~${est_cost:.2f}")
         print(f"  Estimated cost (with cache): ~${est_cost_cached:.2f}")
         print()

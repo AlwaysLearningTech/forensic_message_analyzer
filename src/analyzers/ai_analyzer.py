@@ -295,13 +295,13 @@ class AIAnalyzer:
         # Pre-submission cost estimate based on token estimation
         est_input_tokens = sum(self._estimate_tokens(r["params"]["messages"][0]["content"]) for r in batch_requests)
         est_input_tokens += self._estimate_tokens(self._SYSTEM_PROMPT) * total_requests
-        # Assume output averages ~1000 tokens per request
-        est_output_tokens = total_requests * 1000
+        # Based on actual batch data: avg ~1,800 output tokens per request
+        est_output_tokens = total_requests * 1800
         est_cost = (est_input_tokens / 1_000_000) * 7.50 + (est_output_tokens / 1_000_000) * 37.50
         print(
             f"    Submitting {total_requests} requests via Batch API (50% cost discount)...\n"
             f"    Estimated tokens: ~{est_input_tokens:,} input + ~{est_output_tokens:,} output\n"
-            f"    Estimated cost: ~${est_cost:.2f} (before cache savings)"
+            f"    Estimated cost: ~${est_cost:.2f}"
         )
 
         self.forensic.record_action(
