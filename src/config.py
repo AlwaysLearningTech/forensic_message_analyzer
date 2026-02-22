@@ -83,9 +83,11 @@ class Config:
         # AI analysis contacts — which mapped persons' conversations get sent to AI
         # If set, only conversations where both parties are in this list (+ 'Me')
         # will be analyzed. If empty/unset, all mapped contacts are included.
+        # PERSON1 (the user) is always included since 'Me' and PERSON1_NAME
+        # refer to the same person across different data sources.
         ai_contacts_raw = self._parse_json_list('AI_CONTACTS')
         if ai_contacts_raw:
-            self.ai_contacts = set(ai_contacts_raw) | {'Me'}
+            self.ai_contacts = set(ai_contacts_raw) | {'Me', person1_name}
         else:
             self.ai_contacts = set(self.contact_mappings.keys()) | {'Me'}
         
