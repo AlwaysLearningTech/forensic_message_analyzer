@@ -215,13 +215,18 @@ class WhatsAppExtractor:
                     # Sender is another person, so recipient is Me
                     recipient = 'Me'
                 
+                # Clean Unicode control characters (WhatsApp embeds LTR marks,
+                # object replacement chars, etc.)
+                clean_content = message_content.strip()
+                clean_content = re.sub(r'[\u200e\u200f\u202a-\u202e\ufffc\ufeff]', '', clean_content)
+                
                 msg_counter += 1
                 messages.append({
                     'message_id': f"wa_{file_path.stem}_{msg_counter}",
                     'timestamp': timestamp,
                     'sender': sender_name,
                     'recipient': recipient,
-                    'content': message_content.strip(),
+                    'content': clean_content,
                     'source': 'whatsapp',
                     'file': file_path.name
                 })

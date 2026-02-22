@@ -296,7 +296,8 @@ class AIAnalyzer:
         est_input_tokens = sum(self._estimate_tokens(r["params"]["messages"][0]["content"]) for r in batch_requests)
         est_input_tokens += self._estimate_tokens(self._SYSTEM_PROMPT) * total_requests
         # Based on actual batch data: avg ~1,800 output tokens per request
-        est_output_tokens = total_requests * 1800
+        # Based on actual billing: ~385 output tokens per batch average
+        est_output_tokens = total_requests * 385
         est_cost = (est_input_tokens / 1_000_000) * 7.50 + (est_output_tokens / 1_000_000) * 37.50
         print(
             f"    Submitting {total_requests} requests via Batch API (50% cost discount)...\n"

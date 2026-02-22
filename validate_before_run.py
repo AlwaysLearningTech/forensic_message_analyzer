@@ -113,8 +113,11 @@ def main():
     print("\n[4/7] Mapped-contact filter (AI analysis)...")
     ai_contacts = config.ai_contacts
     ai_specified = config.ai_contacts_specified
-    print(f"  AI contacts (full set): {ai_contacts}")
-    print(f"  AI contacts (specified): {ai_specified or 'all mapped contacts'}")
+    if ai_specified:
+        specified_names = ' & '.join(sorted(ai_specified))
+        print(f"  AI analyzing: {config.person1_name} \u2194 {specified_names} conversations")
+    else:
+        print(f"  AI analyzing: all mapped-contact conversations")
     mapped_messages = [
         m for m in messages
         if m.get('sender') in ai_contacts and m.get('recipient') in ai_contacts
@@ -207,8 +210,10 @@ def main():
             batch_text = ai._prepare_batch(batch)
             message_tokens += ai._estimate_tokens(batch_text)
         est_input = system_tokens + message_tokens
-        # Based on actual batch data: avg ~1,800 output tokens per request
-        est_output = num_batches * 1800
+        # Based on actual billing data: avg ~385 output tokens per batch
+        # (Previous estimate of 1,800 was from JSONL token counts which
+        # don't match actual Anthropic billing)
+        est_output = num_batches * 385
 
         # Batch API rates: $7.50/MTok input, $37.50/MTok output
         est_cost = (est_input / 1_000_000) * 7.50 + (est_output / 1_000_000) * 37.50
