@@ -26,8 +26,11 @@
   - Only need to list each phone number ONCE in any format - variations generated automatically
   - Config creates `contact_mappings` dict mapping display names to expanded identifier lists
   - `AI_CONTACTS`: JSON array of person names whose conversations to send to AI (e.g., `'["Marcia Snyder"]'`)
-    - Only conversations where BOTH sender AND recipient are in `ai_contacts` set are analyzed
-    - `ai_contacts` = names from AI_CONTACTS + 'Me'. If AI_CONTACTS is empty/unset, defaults to ALL mapped persons + 'Me'
+    - Two-tier filter: at least one party must be in `ai_contacts_specified` (the raw AI_CONTACTS names),
+      AND both parties must be in `ai_contacts` (expanded set including Me/PERSON1_NAME)
+    - `ai_contacts_specified` = set from AI_CONTACTS (e.g. {"Marcia Snyder"}), or None if unset (all mapped)
+    - `ai_contacts` = ai_contacts_specified + 'Me' + PERSON1_NAME. If AI_CONTACTS unset, defaults to ALL mapped persons + 'Me'
+    - This ensures only conversations WITH the specified person are analyzed, not all conversations OF the user
     - This controls cost: analyzing only one person's conversations instead of all can reduce AI spend by 50%+
 - Data flows: extraction → analysis → manual review → reporting → documentation
 - All processing maintains forensic integrity and chain of custody.
@@ -47,6 +50,7 @@
   - Attributes: `email_source_dir`, `teams_source_dir`, `messages_db_path`, `whatsapp_source_dir`, `screenshot_source_dir`
   - Attributes: `case_number`, `case_name`, `examiner_name`, `organization`, `timezone`
   - Attributes: `use_batch_api`, `tokens_per_minute`, `request_delay_ms`, `max_tokens_per_request`
+  - Attributes: `ai_contacts` (expanded set including Me/PERSON1), `ai_contacts_specified` (raw AI_CONTACTS set or None)
   - Note: Does NOT have SOURCE_DIR attribute
 - **ForensicAnalyzer(config=None)**: `src/main.py` - Main workflow orchestrator, takes **Config** (NOT ForensicRecorder!)
   - Creates internally: `self.forensic`, `self.integrity`, `self.manifest`, `self.third_party_registry`

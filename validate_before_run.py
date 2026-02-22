@@ -112,10 +112,13 @@ def main():
     # ---------------------------------------------------------------
     print("\n[4/7] Mapped-contact filter (AI analysis)...")
     ai_contacts = config.ai_contacts
-    print(f"  AI contacts: {ai_contacts}")
+    ai_specified = config.ai_contacts_specified
+    print(f"  AI contacts (full set): {ai_contacts}")
+    print(f"  AI contacts (specified): {ai_specified or 'all mapped contacts'}")
     mapped_messages = [
         m for m in messages
         if m.get('sender') in ai_contacts and m.get('recipient') in ai_contacts
+        and (ai_specified is None or m.get('sender') in ai_specified or m.get('recipient') in ai_specified)
     ]
     skipped = len(messages) - len(mapped_messages)
     print(f"  Total messages:  {len(messages):,}")

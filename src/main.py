@@ -180,10 +180,14 @@ class ForensicAnalyzer:
             ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic)
             if ai_analyzer.client:
                 # Filter to only conversations between AI-targeted contacts
+                # Both parties must be known (in ai_contacts), AND at least one
+                # party must be a specifically targeted contact (ai_contacts_specified)
                 ai_contacts = self.config.ai_contacts
+                ai_specified = self.config.ai_contacts_specified
                 mapped_messages = [
                     m for m in messages
                     if m.get('sender') in ai_contacts and m.get('recipient') in ai_contacts
+                    and (ai_specified is None or m.get('sender') in ai_specified or m.get('recipient') in ai_specified)
                 ]
                 skipped = len(messages) - len(mapped_messages)
                 if skipped:
