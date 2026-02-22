@@ -4,7 +4,6 @@ Tracks contacts discovered in emails and screenshots that are not in the
 configured person mappings (PERSON1/2/3).
 """
 
-import re
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any
@@ -13,9 +12,6 @@ from .config import Config
 from .forensic_utils import ForensicRecorder
 
 logger = logging.getLogger(__name__)
-
-# Phone-like pattern used to classify identifiers
-_PHONE_RE = re.compile(r'[\d\+\(\)\-\s]{10,}')
 
 
 class ThirdPartyRegistry:
