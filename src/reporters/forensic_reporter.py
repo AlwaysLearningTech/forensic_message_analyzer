@@ -330,7 +330,23 @@ class ForensicReporter:
         doc.add_paragraph(f"Relevant: {review_decisions.get('relevant', 0)}")
         doc.add_paragraph(f"Not relevant: {review_decisions.get('not_relevant', 0)}")
         doc.add_paragraph(f"Uncertain: {review_decisions.get('uncertain', 0)}")
-        
+
+        # Third-Party Contacts
+        third_party = extracted_data.get('third_party_contacts', [])
+        if third_party:
+            doc.add_heading('Third-Party Contacts', 1)
+            doc.add_paragraph(
+                f'{len(third_party)} third-party contacts were discovered during analysis '
+                'from emails and screenshots. These are contacts not included in the '
+                'configured person mappings.'
+            )
+            for entry in third_party:
+                ident = entry.get('identifier', '')
+                name = entry.get('display_name', '')
+                sources = ', '.join(entry.get('sources', []))
+                label = f'{name} ({ident})' if name else ident
+                doc.add_paragraph(f'  {label}  [source: {sources}]')
+
         # Chain of Custody
         doc.add_heading('Chain of Custody', 1)
         doc.add_paragraph(
@@ -655,7 +671,38 @@ class ForensicReporter:
         elements.append(Paragraph(f"<b>Not relevant:</b> {review_decisions.get('not_relevant', 0)}", styles['Normal']))
         elements.append(Paragraph(f"<b>Uncertain:</b> {review_decisions.get('uncertain', 0)}", styles['Normal']))
         elements.append(Spacer(1, 20))
-        
+
+        # Third-Party Contacts Section
+        third_party = extracted_data.get('third_party_contacts', [])
+        if third_party:
+            elements.append(Paragraph("Third-Party Contacts", styles['Heading1']))
+            elements.append(Paragraph(
+                f'{len(third_party)} third-party contacts were discovered during analysis '
+                'from emails and screenshots. These are contacts not included in the '
+                'configured person mappings.',
+                styles['Normal'],
+            ))
+            elements.append(Spacer(1, 8))
+            tp_rows = [['Identifier', 'Display Name', 'Source']]
+            for entry in third_party:
+                ident = entry.get('identifier', '')
+                name = entry.get('display_name', '')
+                sources = ', '.join(entry.get('sources', []))
+                tp_rows.append([ident, name, sources])
+            tp_table = Table(tp_rows, colWidths=[2.5 * inch, 2 * inch, 1.5 * inch])
+            tp_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f0f4fa')),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ]))
+            elements.append(tp_table)
+            elements.append(Spacer(1, 20))
+
         # Chain of Custody Section
         elements.append(Paragraph("Chain of Custody", styles['Heading1']))
         elements.append(Paragraph(

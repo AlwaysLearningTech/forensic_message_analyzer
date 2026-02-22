@@ -2,6 +2,11 @@
 AI-powered analysis module for forensic message analyzer.
 Uses Anthropic Claude (via Azure AI or direct API) for advanced
 threat detection and content analysis in family law proceedings.
+
+Supports two processing modes:
+- Batch API (default): Submits all requests asynchronously at 50% cost discount.
+  Prompt caching further reduces costs on repeated system prompts.
+- Synchronous: Real-time processing with rate limiting (for development/testing).
 """
 
 import os
@@ -31,28 +36,15 @@ logger = logging.getLogger(__name__)
 
 
 class RateLimiter:
-    """Rate limiter for API calls to respect token limits."""
+    """Rate limiter for synchronous API calls to respect token limits."""
 
     def __init__(self, max_requests_per_minute: int = 60, max_tokens_per_minute: int = 150000):
-        """
-        Initialize rate limiter.
-
-        Args:
-            max_requests_per_minute: Maximum API requests per minute
-            max_tokens_per_minute: Maximum tokens per minute
-        """
         self.max_requests_per_minute = max_requests_per_minute
         self.max_tokens_per_minute = max_tokens_per_minute
         self.request_times: List[float] = []
         self.token_counts: List[Tuple[float, int]] = []
 
     def wait_if_needed(self, estimated_tokens: int = 0):
-        """
-        Wait if necessary to respect rate limits.
-
-        Args:
-            estimated_tokens: Estimated tokens for next request
-        """
         current_time = time.time()
 
         # Clean old entries (older than 60 seconds)
@@ -88,22 +80,20 @@ def _extract_json(text: str) -> dict:
 class AIAnalyzer:
     """
     AI-powered analysis using Anthropic Claude Opus.
-    Provides advanced analysis while maintaining forensic integrity and legal defensibility.
+
+    Supports two processing modes:
+    - Batch API (default): Submits all requests asynchronously at 50% cost discount.
+      Uses prompt caching for additional savings on repeated system prompts.
+    - Synchronous: Processes requests one at a time with rate limiting.
     """
 
     def __init__(self, forensic_recorder: Optional[ForensicRecorder] = None):
-        """
-        Initialize AI analyzer with Anthropic Claude.
-
-        Args:
-            forensic_recorder: Optional ForensicRecorder for chain of custody
-        """
         self.forensic = forensic_recorder or ForensicRecorder()
 
         # Get configuration from config instance
         self.api_key = config.ai_api_key
         self.endpoint = config.ai_endpoint
-        self.model = config.ai_model or 'claude-opus-4-5-20251101'
+        self.model = config.ai_model or 'claude-opus-4-6'
 
         # Token limits from config
         self.max_tokens_per_request = max(
@@ -111,6 +101,7 @@ class AIAnalyzer:
         )
         self.max_tokens_per_minute = getattr(config, 'tokens_per_minute', 150000)
         self.max_requests_per_minute = 60
+        self.use_batch_api = getattr(config, 'use_batch_api', True)
 
         # Initialize Anthropic client if credentials available
         self.client = None
@@ -119,14 +110,14 @@ class AIAnalyzer:
             try:
                 client_kwargs = {"api_key": self.api_key}
 
-                # If an Azure AI endpoint is configured, use it as base_url
+                # If an endpoint is configured, use it as base_url
                 if self.endpoint:
                     base = self.endpoint.rstrip("/")
                     client_kwargs["base_url"] = base
 
                 self.client = Anthropic(**client_kwargs)
 
-                # Initialize rate limiter
+                # Initialize rate limiter (used in synchronous mode)
                 self.rate_limiter = RateLimiter(
                     max_requests_per_minute=self.max_requests_per_minute,
                     max_tokens_per_minute=self.max_tokens_per_minute,
@@ -135,7 +126,11 @@ class AIAnalyzer:
                 self.forensic.record_action(
                     "ai_analyzer_initialized",
                     f"Anthropic Claude analyzer initialized with {self.model}",
-                    {"model": self.model, "endpoint": self.endpoint or "api.anthropic.com"},
+                    {
+                        "model": self.model,
+                        "endpoint": self.endpoint or "api.anthropic.com",
+                        "batch_api": self.use_batch_api,
+                    },
                 )
             except Exception as e:
                 self.forensic.record_action(
@@ -155,137 +150,8 @@ class AIAnalyzer:
         """Rough token count (~4 characters per token for English)."""
         return max(1, len(text) // 4)
 
-    def analyze_messages(self, messages: List[Dict], batch_size: int = 10) -> Dict[str, Any]:
-        """
-        Analyze messages using Claude Opus for advanced insights.
-        Processes in batches to respect token limits and maintain performance.
-
-        Args:
-            messages: List of message dictionaries
-            batch_size: Number of messages to analyze per API call
-
-        Returns:
-            Dictionary containing AI analysis results
-        """
-        if not self.client:
-            self.forensic.record_action(
-                "ai_analysis_skipped",
-                "AI analysis skipped - Anthropic Claude not configured",
-            )
-            return self._empty_analysis()
-
-        analysis_results = {
-            "generated_at": datetime.now().isoformat(),
-            "total_messages": len(messages),
-            "ai_model": self.model,
-            "sentiment_analysis": {"scores": [], "overall": "neutral", "shifts": []},
-            "threat_assessment": {},
-            "behavioral_patterns": {},
-            "conversation_summary": "",
-            "key_topics": [],
-            "risk_indicators": [],
-            "recommendations": [],
-            "processing_stats": {
-                "batches_processed": 0,
-                "tokens_used": 0,
-                "api_calls": 0,
-                "errors": [],
-            },
-        }
-
-        try:
-            # Process messages in batches
-            for i in range(0, len(messages), batch_size):
-                batch = messages[i : i + batch_size]
-
-                # Prepare batch for analysis
-                batch_text = self._prepare_batch(batch)
-
-                # Estimate tokens
-                token_count = self._estimate_tokens(batch_text)
-
-                # Respect rate limits
-                self.rate_limiter.wait_if_needed(token_count)
-
-                # Analyze batch
-                batch_analysis = self._analyze_batch(batch_text, batch)
-
-                # Merge results
-                self._merge_analysis(analysis_results, batch_analysis)
-
-                # Update stats
-                analysis_results["processing_stats"]["batches_processed"] += 1
-                analysis_results["processing_stats"]["tokens_used"] += token_count
-                analysis_results["processing_stats"]["api_calls"] += 1
-
-                self.forensic.record_action(
-                    "ai_batch_analyzed",
-                    f"Analyzed batch {i // batch_size + 1} of {(len(messages) + batch_size - 1) // batch_size}",
-                    {
-                        "batch_size": len(batch),
-                        "tokens": token_count,
-                        "batch_number": i // batch_size + 1,
-                    },
-                )
-
-            # Generate overall summary
-            analysis_results["conversation_summary"] = self._generate_summary(analysis_results)
-
-            # Identify risk indicators
-            analysis_results["risk_indicators"] = self._identify_risks(analysis_results)
-
-            # Generate recommendations
-            analysis_results["recommendations"] = self._generate_recommendations(analysis_results)
-
-            self.forensic.record_action(
-                "ai_analysis_complete",
-                f"Completed AI analysis of {len(messages)} messages",
-                {
-                    "total_messages": len(messages),
-                    "batches": analysis_results["processing_stats"]["batches_processed"],
-                    "tokens_used": analysis_results["processing_stats"]["tokens_used"],
-                    "risk_indicators_found": len(analysis_results["risk_indicators"]),
-                },
-            )
-
-        except Exception as e:
-            self.forensic.record_action(
-                "ai_analysis_error",
-                f"Error during AI analysis: {str(e)}",
-                {"error": str(e), "messages_processed": i if "i" in locals() else 0},
-            )
-            analysis_results["processing_stats"]["errors"].append(str(e))
-
-        return analysis_results
-
-    def _prepare_batch(self, messages: List[Dict]) -> str:
-        """
-        Prepare a batch of messages for AI analysis.
-        Maintains forensic integrity by preserving original content.
-
-        Args:
-            messages: List of message dictionaries
-
-        Returns:
-            Formatted text for AI analysis
-        """
-        batch_text = "Analyze the following conversation for forensic investigation:\n\n"
-
-        for msg in messages:
-            timestamp = msg.get("timestamp", "Unknown time")
-            sender = msg.get("sender", "Unknown")
-            content = msg.get("content", "")
-
-            # Truncate very long messages to save tokens
-            if len(content) > 500:
-                content = content[:500] + "...[truncated]"
-
-            batch_text += f"[{timestamp}] {sender}: {content}\n"
-
-        return batch_text
-
     # ------------------------------------------------------------------
-    # System prompt (shared across batch calls)
+    # System prompt (shared across all analysis calls)
     # ------------------------------------------------------------------
 
     _SYSTEM_PROMPT = (
@@ -337,9 +203,314 @@ class AIAnalyzer:
         "}"
     )
 
+    def _cached_system_prompt(self) -> list:
+        """Return system prompt as content blocks with prompt caching enabled.
+
+        Prompt caching avoids re-processing the identical system prompt on every
+        request. With the Batch API, this can reduce input token costs by up to
+        90% for the system prompt portion across all requests in the batch.
+        """
+        return [{
+            "type": "text",
+            "text": self._SYSTEM_PROMPT,
+            "cache_control": {"type": "ephemeral"},
+        }]
+
+    # ------------------------------------------------------------------
+    # Main entry point
+    # ------------------------------------------------------------------
+
+    def analyze_messages(self, messages: List[Dict], batch_size: int = 50) -> Dict[str, Any]:
+        """
+        Analyze messages using Claude Opus for advanced insights.
+
+        Uses the Batch API by default (50% cost discount + prompt caching).
+        Falls back to synchronous processing if batch API is disabled or fails.
+
+        Args:
+            messages: List of message dictionaries
+            batch_size: Number of messages per analysis request (default 50).
+                        Larger values reduce system prompt overhead and cost.
+
+        Returns:
+            Dictionary containing AI analysis results
+        """
+        if not self.client:
+            self.forensic.record_action(
+                "ai_analysis_skipped",
+                "AI analysis skipped - Anthropic Claude not configured",
+            )
+            return self._empty_analysis()
+
+        if self.use_batch_api:
+            try:
+                return self._analyze_messages_batch(messages, batch_size)
+            except Exception as e:
+                logger.warning(f"Batch API failed, falling back to synchronous: {e}")
+                self.forensic.record_action(
+                    "batch_api_fallback",
+                    f"Batch API unavailable, using synchronous mode: {str(e)}",
+                    {"error": str(e)},
+                )
+
+        return self._analyze_messages_sync(messages, batch_size)
+
+    # ------------------------------------------------------------------
+    # Batch API path (50% cost discount)
+    # ------------------------------------------------------------------
+
+    def _analyze_messages_batch(self, messages: List[Dict], batch_size: int) -> Dict[str, Any]:
+        """
+        Submit all analysis requests via the Anthropic Message Batches API.
+
+        Benefits:
+        - 50% cost discount on all token usage
+        - Prompt caching reduces system prompt costs by up to 90%
+        - No client-side rate limiting needed (handled server-side)
+        - Up to 100,000 requests per batch
+
+        Processing is asynchronous: requests are submitted in bulk,
+        then we poll until the batch completes (typically under 1 hour).
+        """
+        analysis_results = self._init_analysis_results(len(messages))
+
+        # Build all batch requests
+        batch_requests = []
+        for i in range(0, len(messages), batch_size):
+            batch = messages[i:i + batch_size]
+            batch_text = self._prepare_batch(batch)
+            batch_requests.append({
+                "custom_id": f"analysis_{i // batch_size}",
+                "params": {
+                    "model": self.model,
+                    "system": self._cached_system_prompt(),
+                    "messages": [{"role": "user", "content": batch_text}],
+                    "temperature": 0.3,
+                    "max_tokens": self.max_tokens_per_request,
+                },
+            })
+
+        total_requests = len(batch_requests)
+        print(f"    Submitting {total_requests} requests via Batch API (50% cost discount)...")
+
+        self.forensic.record_action(
+            "batch_api_submit",
+            f"Submitting {total_requests} analysis requests via Batch API",
+            {
+                "total_requests": total_requests,
+                "batch_size": batch_size,
+                "total_messages": len(messages),
+            },
+        )
+
+        # Submit the batch
+        message_batch = self.client.messages.batches.create(requests=batch_requests)
+        batch_id = message_batch.id
+
+        self.forensic.record_action(
+            "batch_api_created",
+            f"Batch {batch_id} created with {total_requests} requests",
+            {"batch_id": batch_id},
+        )
+
+        # Poll for completion
+        print(f"    Batch {batch_id} created. Waiting for completion...")
+        poll_interval = 10  # seconds
+        while True:
+            message_batch = self.client.messages.batches.retrieve(batch_id)
+            counts = message_batch.request_counts
+            completed = counts.succeeded + counts.errored + counts.canceled + counts.expired
+            print(
+                f"\r    Progress: {completed}/{total_requests} "
+                f"({counts.succeeded} succeeded, {counts.errored} errored)",
+                end="", flush=True,
+            )
+
+            if message_batch.processing_status == "ended":
+                print()  # newline after progress
+                break
+
+            time.sleep(poll_interval)
+
+        # Process results
+        total_input_tokens = 0
+        total_output_tokens = 0
+        cache_read_tokens = 0
+
+        for result in self.client.messages.batches.results(batch_id):
+            if result.result.type == "succeeded":
+                msg = result.result.message
+                try:
+                    batch_analysis = _extract_json(msg.content[0].text)
+                    self._merge_analysis(analysis_results, batch_analysis)
+                    analysis_results["processing_stats"]["batches_processed"] += 1
+                    total_input_tokens += msg.usage.input_tokens
+                    total_output_tokens += msg.usage.output_tokens
+                    if hasattr(msg.usage, 'cache_read_input_tokens'):
+                        cache_read_tokens += msg.usage.cache_read_input_tokens or 0
+                except Exception as e:
+                    analysis_results["processing_stats"]["errors"].append(
+                        f"Parse error for {result.custom_id}: {str(e)}"
+                    )
+            elif result.result.type == "errored":
+                error_msg = str(getattr(result.result, 'error', 'Unknown error'))
+                analysis_results["processing_stats"]["errors"].append(
+                    f"API error for {result.custom_id}: {error_msg}"
+                )
+
+        analysis_results["processing_stats"]["api_calls"] = total_requests
+        analysis_results["processing_stats"]["tokens_used"] = total_input_tokens + total_output_tokens
+        analysis_results["processing_stats"]["input_tokens"] = total_input_tokens
+        analysis_results["processing_stats"]["output_tokens"] = total_output_tokens
+        analysis_results["processing_stats"]["cache_read_tokens"] = cache_read_tokens
+        analysis_results["processing_stats"]["batch_id"] = batch_id
+        analysis_results["processing_stats"]["batch_api"] = True
+
+        print(
+            f"    Batch complete: {counts.succeeded} succeeded, "
+            f"{total_input_tokens + total_output_tokens:,} tokens used"
+            + (f", {cache_read_tokens:,} from cache" if cache_read_tokens else "")
+        )
+
+        # Generate summary, risks, recommendations (synchronous - only 2 API calls)
+        analysis_results["conversation_summary"] = self._generate_summary(analysis_results)
+        analysis_results["risk_indicators"] = self._identify_risks(analysis_results)
+        analysis_results["recommendations"] = self._generate_recommendations(analysis_results)
+
+        self.forensic.record_action(
+            "batch_analysis_complete",
+            f"Completed batch analysis of {len(messages)} messages",
+            {
+                "batch_id": batch_id,
+                "total_requests": total_requests,
+                "succeeded": counts.succeeded,
+                "errored": counts.errored,
+                "input_tokens": total_input_tokens,
+                "output_tokens": total_output_tokens,
+                "cache_read_tokens": cache_read_tokens,
+                "errors": len(analysis_results["processing_stats"]["errors"]),
+                "risk_indicators_found": len(analysis_results["risk_indicators"]),
+            },
+        )
+
+        return analysis_results
+
+    # ------------------------------------------------------------------
+    # Synchronous path (fallback / development)
+    # ------------------------------------------------------------------
+
+    def _analyze_messages_sync(self, messages: List[Dict], batch_size: int) -> Dict[str, Any]:
+        """
+        Analyze messages synchronously (one API call per batch).
+        Used as fallback when Batch API is unavailable or disabled.
+        """
+        analysis_results = self._init_analysis_results(len(messages))
+
+        try:
+            for i in range(0, len(messages), batch_size):
+                batch = messages[i:i + batch_size]
+
+                batch_text = self._prepare_batch(batch)
+                token_count = self._estimate_tokens(batch_text)
+
+                self.rate_limiter.wait_if_needed(token_count)
+                batch_analysis = self._analyze_batch(batch_text, batch)
+                self._merge_analysis(analysis_results, batch_analysis)
+
+                analysis_results["processing_stats"]["batches_processed"] += 1
+                analysis_results["processing_stats"]["tokens_used"] += token_count
+                analysis_results["processing_stats"]["api_calls"] += 1
+
+                self.forensic.record_action(
+                    "ai_batch_analyzed",
+                    f"Analyzed batch {i // batch_size + 1} of {(len(messages) + batch_size - 1) // batch_size}",
+                    {
+                        "batch_size": len(batch),
+                        "tokens": token_count,
+                        "batch_number": i // batch_size + 1,
+                    },
+                )
+
+            analysis_results["conversation_summary"] = self._generate_summary(analysis_results)
+            analysis_results["risk_indicators"] = self._identify_risks(analysis_results)
+            analysis_results["recommendations"] = self._generate_recommendations(analysis_results)
+
+            self.forensic.record_action(
+                "ai_analysis_complete",
+                f"Completed AI analysis of {len(messages)} messages",
+                {
+                    "total_messages": len(messages),
+                    "batches": analysis_results["processing_stats"]["batches_processed"],
+                    "tokens_used": analysis_results["processing_stats"]["tokens_used"],
+                    "risk_indicators_found": len(analysis_results["risk_indicators"]),
+                },
+            )
+
+        except Exception as e:
+            self.forensic.record_action(
+                "ai_analysis_error",
+                f"Error during AI analysis: {str(e)}",
+                {"error": str(e), "messages_processed": i if "i" in locals() else 0},
+            )
+            analysis_results["processing_stats"]["errors"].append(str(e))
+
+        return analysis_results
+
+    # ------------------------------------------------------------------
+    # Shared helpers
+    # ------------------------------------------------------------------
+
+    def _init_analysis_results(self, total_messages: int) -> Dict[str, Any]:
+        """Create the initial analysis results structure."""
+        return {
+            "generated_at": datetime.now().isoformat(),
+            "total_messages": total_messages,
+            "ai_model": self.model,
+            "sentiment_analysis": {"scores": [], "overall": "neutral", "shifts": []},
+            "threat_assessment": {},
+            "behavioral_patterns": {},
+            "conversation_summary": "",
+            "key_topics": [],
+            "risk_indicators": [],
+            "recommendations": [],
+            "processing_stats": {
+                "batches_processed": 0,
+                "tokens_used": 0,
+                "api_calls": 0,
+                "errors": [],
+            },
+        }
+
+    def _prepare_batch(self, messages: List[Dict]) -> str:
+        """
+        Prepare a batch of messages for AI analysis.
+        Maintains forensic integrity by preserving original content.
+
+        Args:
+            messages: List of message dictionaries
+
+        Returns:
+            Formatted text for AI analysis
+        """
+        batch_text = "Analyze the following conversation for forensic investigation:\n\n"
+
+        for msg in messages:
+            timestamp = msg.get("timestamp", "Unknown time")
+            sender = msg.get("sender", "Unknown")
+            content = msg.get("content", "")
+
+            # Truncate very long messages to save tokens
+            if len(content) > 500:
+                content = content[:500] + "...[truncated]"
+
+            batch_text += f"[{timestamp}] {sender}: {content}\n"
+
+        return batch_text
+
     def _analyze_batch(self, batch_text: str, messages: List[Dict]) -> Dict[str, Any]:
         """
-        Analyze a batch of messages using Claude Opus.
+        Analyze a single batch of messages synchronously.
+        Uses prompt caching on the system prompt.
 
         Args:
             batch_text: Formatted text of messages
@@ -354,7 +525,7 @@ class AIAnalyzer:
         try:
             response = self.client.messages.create(
                 model=self.model,
-                system=self._SYSTEM_PROMPT,
+                system=self._cached_system_prompt(),
                 messages=[{"role": "user", "content": batch_text}],
                 temperature=0.3,
                 max_tokens=self.max_tokens_per_request,
@@ -473,17 +644,21 @@ class AIAnalyzer:
                 "content where possible."
             )
 
-            # Respect rate limits
+            # Respect rate limits (sync call)
             token_count = self._estimate_tokens(prompt)
             self.rate_limiter.wait_if_needed(token_count)
 
             response = self.client.messages.create(
                 model=self.model,
-                system=(
-                    "You are a forensic analyst preparing evidence summaries for "
-                    "family law attorneys. Write clearly for a legal audience, not "
-                    "a technical one."
-                ),
+                system=[{
+                    "type": "text",
+                    "text": (
+                        "You are a forensic analyst preparing evidence summaries for "
+                        "family law attorneys. Write clearly for a legal audience, not "
+                        "a technical one."
+                    ),
+                    "cache_control": {"type": "ephemeral"},
+                }],
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=1024,
@@ -629,7 +804,7 @@ class AIAnalyzer:
     def analyze_single_message(self, message: Dict) -> Dict[str, Any]:
         """
         Analyze a single message for immediate assessment.
-        Used for real-time threat detection during extraction.
+        Uses synchronous API (not batch) for real-time threat detection.
 
         Args:
             message: Message dictionary
@@ -717,7 +892,7 @@ class AIAnalyzer:
             "methodology": {
                 "model": self.model,
                 "temperature": 0.3,
-                "approach": "Batch processing with token limits",
+                "approach": "Batch API processing with prompt caching",
                 "validation": "Results cross-referenced with pattern-based analysis",
             },
             "analysis": analysis,

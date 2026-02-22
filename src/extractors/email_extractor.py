@@ -28,7 +28,8 @@ class EmailExtractor:
     Handles .eml files, .mbox files, and directories of .eml files.
     """
 
-    def __init__(self, source_dir: str, forensic_recorder: ForensicRecorder, forensic_integrity: ForensicIntegrity):
+    def __init__(self, source_dir: str, forensic_recorder: ForensicRecorder, forensic_integrity: ForensicIntegrity,
+                 third_party_registry=None):
         """
         Initialize email extractor.
 
@@ -36,10 +37,12 @@ class EmailExtractor:
             source_dir: Directory containing email files (.eml and/or .mbox)
             forensic_recorder: ForensicRecorder instance
             forensic_integrity: ForensicIntegrity instance
+            third_party_registry: Optional ThirdPartyRegistry for tracking unmapped contacts
         """
         self.source_dir = Path(source_dir) if source_dir else None
         self.forensic = forensic_recorder
         self.integrity = forensic_integrity
+        self.third_party_registry = third_party_registry
 
         if self.source_dir and not self.source_dir.exists():
             raise FileNotFoundError(f"Email source directory not found: {self.source_dir}")
@@ -301,11 +304,14 @@ class EmailExtractor:
         Extracts the email address from a formatted string like 'Name <email@example.com>'
         and checks against contact mappings.
 
+        If no mapping is found and a third_party_registry is available, the
+        contact is registered as a third party.
+
         Args:
             raw_address: Raw address string from email header
 
         Returns:
-            Resolved contact name or the original address
+            Resolved contact name or "Third Party: <identifier>"
         """
         if not raw_address:
             return 'Unknown'
@@ -324,6 +330,17 @@ class EmailExtractor:
                 # Match against display name
                 if display_name and display_name.strip().lower() == identifier_lower:
                     return person_name
+
+        # No mapping found — register as third party if registry available
+        best_id = email_addr or display_name.strip() or raw_address.strip()
+        if self.third_party_registry:
+            self.third_party_registry.register(
+                identifier=best_id,
+                source='email',
+                context=None,
+                display_name=display_name.strip() if display_name else None,
+            )
+            return self.third_party_registry.resolve(best_id)
 
         # Fall back to display name if available, otherwise the email address
         if display_name:

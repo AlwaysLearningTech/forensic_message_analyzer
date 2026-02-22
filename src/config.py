@@ -108,10 +108,13 @@ class Config:
             os.getenv('REVIEW_DIR', '~/workspace/data/forensic_message_analyzer/review')
         )
         
-        # Rate limiting
-        self.tokens_per_minute = int(os.getenv('TOKENS_PER_MINUTE', '2000'))
+        # AI processing mode
+        self.use_batch_api = os.getenv('USE_BATCH_API', 'true').lower() == 'true'
+
+        # Rate limiting (used in synchronous mode only; batch API handles its own limits)
+        self.tokens_per_minute = int(os.getenv('TOKENS_PER_MINUTE', '150000'))
         self.request_delay_ms = int(os.getenv('REQUEST_DELAY_MS', '500'))
-        self.max_tokens_per_request = int(os.getenv('MAX_TOKENS_PER_REQUEST', '150'))
+        self.max_tokens_per_request = int(os.getenv('MAX_TOKENS_PER_REQUEST', '4096'))
         
         # Output settings
         self.output_dir = self._expand_path(

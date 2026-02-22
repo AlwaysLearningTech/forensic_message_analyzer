@@ -49,7 +49,8 @@ class JSONReporter:
                 "threats_detected": analysis_results.get('threats', {}).get('summary', {}).get('messages_with_threats', 0),
                 "items_reviewed": review_decisions.get('total_reviewed', 0),
                 "relevant_items": review_decisions.get('relevant', 0)
-            }
+            },
+            "third_party_contacts": extracted_data.get('third_party_contacts', []),
         }
         
         with open(output_path, 'w') as f:

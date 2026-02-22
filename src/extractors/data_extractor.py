@@ -16,24 +16,29 @@ from ..forensic_utils import ForensicIntegrity
 
 class DataExtractor:
     """Coordinates data extraction from all sources."""
-    
-    def __init__(self, forensic):
-        """Initialize data extractor with forensic tracking."""
+
+    def __init__(self, forensic, third_party_registry=None):
+        """Initialize data extractor with forensic tracking.
+
+        Args:
+            forensic: ForensicRecorder instance.
+            third_party_registry: Optional ThirdPartyRegistry for unmapped contacts.
+        """
         self.forensic = forensic
         self.logger = logging.getLogger(__name__)
         self.config = Config()
-        
+
         # Create forensic integrity instance
         self.integrity = ForensicIntegrity(forensic)
-        
+
         # Initialize individual extractors with proper parameters
         # iMessage extractor needs: db_path, forensic_recorder, forensic_integrity
         self.imessage = iMessageExtractor(
-            self.config.messages_db_path, 
-            forensic, 
+            self.config.messages_db_path,
+            forensic,
             self.integrity
         ) if self.config.messages_db_path else None
-        
+
         # WhatsApp extractor needs: export_dir, forensic_recorder, forensic_integrity
         self.whatsapp = WhatsAppExtractor(
             self.config.whatsapp_source_dir,
@@ -42,10 +47,12 @@ class DataExtractor:
         ) if self.config.whatsapp_source_dir else None
 
         # Email extractor needs: source_dir, forensic_recorder, forensic_integrity
+        # Also receives the third_party_registry for unmapped contact tracking
         self.email = EmailExtractor(
             self.config.email_source_dir,
             forensic,
-            self.integrity
+            self.integrity,
+            third_party_registry=third_party_registry,
         ) if self.config.email_source_dir else None
 
         self.forensic.record_action(

@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.config import Config
 from src.forensic_utils import ForensicRecorder, ForensicIntegrity
+from src.third_party_registry import ThirdPartyRegistry
 from src.extractors.data_extractor import DataExtractor
 from src.extractors.screenshot_extractor import ScreenshotExtractor
 from src.analyzers.threat_analyzer import ThreatAnalyzer
@@ -44,6 +45,7 @@ class ForensicAnalyzer:
         self.forensic = ForensicRecorder(Path(self.config.output_dir))
         self.integrity = ForensicIntegrity(self.forensic)
         self.manifest = RunManifest(self.forensic)
+        self.third_party_registry = ThirdPartyRegistry(self.forensic, self.config)
         
         # Record session start
         self.forensic.record_action("session_start", "Forensic analysis session initialized")
@@ -54,7 +56,7 @@ class ForensicAnalyzer:
         print("PHASE 1: DATA EXTRACTION")
         print("="*60)
         
-        extractor = DataExtractor(self.forensic)
+        extractor = DataExtractor(self.forensic, third_party_registry=self.third_party_registry)
         
         # Extract all message data
         print("\n[*] Extracting message data from all sources...")
@@ -88,7 +90,8 @@ class ForensicAnalyzer:
         extraction_results = {
             'messages': all_messages,
             'screenshots': screenshots,
-            'combined': all_messages  # For backwards compatibility
+            'combined': all_messages,  # For backwards compatibility
+            'third_party_contacts': self.third_party_registry.get_all(),
         }
         
         with open(output_file, 'w') as f:
@@ -148,7 +151,17 @@ class ForensicAnalyzer:
         # Process screenshots
         if data.get('screenshots'):
             print("\n[*] Analyzing screenshots...")
-            # Screenshots are already extracted, just use them
+            screenshot_analyzer = ScreenshotAnalyzer(
+                self.forensic, third_party_registry=self.third_party_registry
+            )
+            # Run contact extraction on already-extracted screenshots
+            for screenshot in data['screenshots']:
+                text = screenshot.get('extracted_text', '')
+                if text:
+                    contacts = screenshot_analyzer._extract_contact_info(
+                        text, screenshot.get('filename', '')
+                    )
+                    screenshot['contacts_found'] = contacts
             screenshot_results = data['screenshots']
             results['screenshots'] = screenshot_results
             print(f"    Analyzed {len(screenshot_results)} screenshots")
@@ -452,6 +465,14 @@ class ForensicAnalyzer:
             # Phase 4: Behavioral Analysis (post-review)
             behavioral_results = self.run_behavioral_phase(extracted_data, analysis_results, review_results)
             analysis_results['behavioral'] = behavioral_results
+
+            # Update third-party contact data (screenshots may have added more during analysis)
+            extracted_data['third_party_contacts'] = self.third_party_registry.get_all()
+            tp_summary = self.third_party_registry.get_summary()
+            if tp_summary['total'] > 0:
+                print(f"\n[*] Discovered {tp_summary['total']} third-party contacts")
+                for src, count in tp_summary['by_source'].items():
+                    print(f"    {src}: {count}")
 
             # Phase 5: Reporting
             reports = self.run_reporting_phase(extracted_data, analysis_results, review_results)

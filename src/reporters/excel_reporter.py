@@ -97,6 +97,11 @@ class ExcelReporter:
                 if 'reviews' in review_decisions and review_decisions['reviews']:
                     df_reviews = pd.DataFrame(review_decisions['reviews'])
                     df_reviews.to_excel(writer, sheet_name='Manual Review', index=False)
+
+                # Third Party Contacts sheet
+                self._write_third_party_contacts_sheet(
+                    writer, extracted_data.get('third_party_contacts', [])
+                )
             
             # Record generation
             file_hash = self.forensic.compute_hash(output_path)
@@ -350,3 +355,32 @@ class ExcelReporter:
 
         except Exception as e:
             logger.error(f"Failed to write AI Analysis sheet: {e}")
+
+    def _write_third_party_contacts_sheet(self, writer, contacts: list):
+        """
+        Write a 'Third Party Contacts' sheet listing all discovered contacts.
+
+        Args:
+            writer: Active pd.ExcelWriter object.
+            contacts: List of third-party contact dicts from ThirdPartyRegistry.get_all().
+        """
+        if not contacts:
+            return
+
+        try:
+            rows = []
+            for entry in contacts:
+                rows.append({
+                    'Identifier': entry.get('identifier', ''),
+                    'Display Name': entry.get('display_name', ''),
+                    'Source': ', '.join(entry.get('sources', [])),
+                    'First Seen': entry.get('first_seen', ''),
+                    'Context': '; '.join(entry.get('contexts', [])),
+                })
+
+            df_contacts = pd.DataFrame(rows)
+            df_contacts.to_excel(writer, sheet_name='Third Party Contacts', index=False)
+            logger.info(f"Created 'Third Party Contacts' sheet with {len(rows)} contacts")
+
+        except Exception as e:
+            logger.error(f"Failed to write Third Party Contacts sheet: {e}")
