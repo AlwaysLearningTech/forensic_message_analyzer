@@ -11,13 +11,14 @@
 ## Project Architecture
 - The system is a multi-phase digital evidence processor for legal use, written in Python.
 - Major components:
-  - `src/extractors/`: Data extraction from iMessage, WhatsApp, and screenshots
+  - `src/extractors/`: Data extraction from iMessage, WhatsApp, email, Microsoft Teams, and screenshots
   - `src/analyzers/`: Automated analysis including threats, sentiment, patterns, OCR, metrics, and AI-powered analysis
-  - `src/review/`: Manual review management and decision tracking
+  - `src/review/`: Manual review management, interactive review, and web-based review interface
   - `src/reporters/`: Report generation (Excel, Word, PDF, JSON)
-  - `src/utils/`: Chain of custody, run manifest, timeline creation
-  - `src/forensic_utils.py`: Core forensic integrity and Daubert compliance
+  - `src/utils/`: Chain of custody, run manifest, timeline creation, conversation threading, legal compliance
+  - `src/forensic_utils.py`: Core forensic integrity, evidence validation, and Daubert compliance
   - `src/config.py`: Configuration management with flexible contact mapping
+  - `src/third_party_registry.py`: Third-party tool tracking for forensic provenance
 - Contact Mapping System:
   - `PERSON1_NAME`, `PERSON2_NAME`, `PERSON3_NAME`: Names used in all reports (e.g., "John Doe")
   - `PERSON1_MAPPING`, `PERSON2_MAPPING`, `PERSON3_MAPPING`: JSON lists of identifiers (phones, emails, names, aliases)
@@ -28,70 +29,110 @@
 - All processing maintains forensic integrity and chain of custody.
 
 ## Core Classes and Their CORRECT Method Names (ACTUALLY VERIFIED BY LOOKING)
-- **ForensicRecorder()**: `src/forensic_utils.py` - No parameters
-  - Methods: `record_action(action, details, metadata=None)`, `compute_hash(file_path)`, `generate_chain_of_custody()`
+- **ForensicRecorder(output_dir=None)**: `src/forensic_utils.py` - Optional output_dir parameter
+  - Methods: `record_action(action, details, metadata=None)`, `compute_hash(file_path)`, `generate_chain_of_custody(output_file=None)`
+  - Methods: `verify_integrity(file_path, expected_hash)`, `record_file_state(file_path, operation)`, `record_error(error_type, error_message, context)`
   - Note: `record_action()` stores dict with keys: timestamp, action, details (NOT description), metadata, session_id
   - Note: `compute_hash()` takes a Path object, not bytes!
-  - Note: `generate_chain_of_custody()` returns a string path, chain data has 'actions' but NOT 'hashes'
-- **ForensicIntegrity(recorder)**: `src/forensic_utils.py` - Takes ForensicRecorder
-  - Methods: `verify_read_only()`, `create_working_copy()`
+  - Note: `generate_chain_of_custody()` returns a string path (or None), chain data has 'actions' but NOT 'hashes'
+- **ForensicIntegrity(forensic_recorder=None)**: `src/forensic_utils.py` - Optional ForensicRecorder (creates default if None)
+  - Methods: `verify_read_only(file_path)`, `create_working_copy(source_path, dest_dir=None)`, `validate_extraction(source_path, extracted_data)`
+- **EvidenceValidator**: `src/forensic_utils.py` - Evidence validation utilities
 - **Config**: `src/config.py` - Configuration singleton
-  - Attributes: `output_dir`, `review_dir`, `contact_mappings`, etc (NOT SOURCE_DIR)
-- **ForensicAnalyzer(forensic)**: `src/main.py` - Main workflow orchestrator
-- **DataExtractor(forensic)**: `src/extractors/data_extractor.py` - Takes ForensicRecorder
-  - Method: `extract_all()` returns list of dicts with messages from all sources
-  - Note: Internally creates ForensicIntegrity and initializes iMessage/WhatsApp extractors with proper params
+  - Attributes: `output_dir`, `review_dir`, `contact_mappings`, `ai_api_key`, `ai_model`, `ai_endpoint`
+  - Attributes: `email_source_dir`, `teams_source_dir`, `messages_db_path`, `whatsapp_source_dir`, `screenshot_source_dir`
+  - Attributes: `case_number`, `case_name`, `examiner_name`, `organization`, `timezone`
+  - Attributes: `use_batch_api`, `tokens_per_minute`, `request_delay_ms`, `max_tokens_per_request`
+  - Note: Does NOT have SOURCE_DIR attribute
+- **ForensicAnalyzer(config=None)**: `src/main.py` - Main workflow orchestrator, takes **Config** (NOT ForensicRecorder!)
+  - Creates internally: `self.forensic`, `self.integrity`, `self.manifest`, `self.third_party_registry`
+  - Methods: `run_full_analysis()`, `run_extraction_phase()`, `run_analysis_phase(data)`, `run_review_phase(analysis, data)`, `run_behavioral_phase(data, analysis, review)`, `run_reporting_phase(data, analysis, review)`, `run_documentation_phase(data, analysis)`
+- **ThirdPartyRegistry(forensic_recorder, config=None)**: `src/third_party_registry.py` - Tracks third-party tools for forensic provenance
+- **DataExtractor(forensic, third_party_registry=None)**: `src/extractors/data_extractor.py` - Takes ForensicRecorder
+  - Method: `extract_all(start_date=None, end_date=None)` returns list of dicts with messages from all sources
+  - Method: `validate_extraction(messages)` returns dict
+  - Note: Internally creates ForensicIntegrity and initializes iMessage/WhatsApp/Email/Teams extractors with proper params
 - **IMessageExtractor(db_path, forensic_recorder, forensic_integrity)**: `src/extractors/imessage_extractor.py`
   - Takes 3 parameters: db_path, forensic_recorder, forensic_integrity
+  - Methods: `extract_messages()`, `decode_attributed_body(blob)`, `extract_text_with_fallback(text, attributed_body)`
   - Alias: iMessageExtractor (lowercase i) = IMessageExtractor
 - **WhatsAppExtractor(export_dir, forensic_recorder, forensic_integrity)**: `src/extractors/whatsapp_extractor.py`
   - Takes 3 parameters: export_dir, forensic_recorder, forensic_integrity
+  - Method: `extract_all()` returns list
+- **EmailExtractor(source_dir, forensic_recorder, forensic_integrity, third_party_registry=None)**: `src/extractors/email_extractor.py`
+  - Method: `extract_all()` returns List[Dict]
+- **TeamsExtractor(source_dir, forensic_recorder, forensic_integrity, third_party_registry=None)**: `src/extractors/teams_extractor.py`
+  - Method: `extract_all()`
+- **ScreenshotExtractor(screenshot_dir, forensic_recorder)**: `src/extractors/screenshot_extractor.py`
+  - Method: `extract_screenshots()` returns List[Dict]
 - **ThreatAnalyzer(forensic)**: `src/analyzers/threat_analyzer.py` - Takes ForensicRecorder
   - Methods: `detect_threats(df)` and `generate_threat_summary(df)` - NOT analyze() or analyze_threats()!
 - **SentimentAnalyzer(forensic)**: `src/analyzers/sentiment_analyzer.py` - Takes ForensicRecorder parameter!
   - Method: `analyze_sentiment(df)` - Returns DataFrame with columns: sentiment_score, sentiment_polarity, sentiment_subjectivity (NOT sentiment_label)
+  - Method: `generate_sentiment_summary(df)` - Returns Dict
 - **BehavioralAnalyzer(forensic)**: `src/analyzers/behavioral_analyzer.py` - Takes ForensicRecorder
   - Method: `analyze_patterns(df)` - Returns dict with behavioral analysis results
 - **YamlPatternAnalyzer(forensic, patterns_file=None)**: `src/analyzers/yaml_pattern_analyzer.py` - Takes ForensicRecorder
   - Method: `analyze_patterns(df)` - Returns DataFrame with patterns_detected and pattern_score columns
-- **ScreenshotAnalyzer(forensic)**: `src/analyzers/screenshot_analyzer.py` - Takes ForensicRecorder
-  - Method: `process_screenshots(screenshot_paths)`
+  - Method: `analyze_communication_frequency(df)` - Returns Dict
+- **ScreenshotAnalyzer(forensic, third_party_registry=None)**: `src/analyzers/screenshot_analyzer.py` - Takes ForensicRecorder
+  - Method: `analyze_screenshots()` - NO parameters! NOT process_screenshots()!
 - **AttachmentProcessor(forensic)**: `src/analyzers/attachment_processor.py` - Takes ForensicRecorder
-  - Method: `process_attachments(df)`
+  - Method: `process_attachments(attachment_dir=None)` - Takes optional **Path**, NOT DataFrame!
+  - Methods: `process_single_attachment(file_path)`, `categorize_file_type(mime_type)`, `extract_image_metadata()`, `generate_attachment_summary()`
 - **CommunicationMetricsAnalyzer(forensic_recorder=None)**: `src/analyzers/communication_metrics.py` - Optional ForensicRecorder
   - Method: `analyze_messages(messages)` - Takes list of message dicts (NOT DataFrame), returns dict
   - Alias: CommunicationMetrics = CommunicationMetricsAnalyzer
-- **AIAnalyzer(forensic)**: `src/analyzers/ai_analyzer.py` - Takes ForensicRecorder (optional, requires API key)
-  - Method: `analyze(df, threat_results)`
-- **ManualReviewManager()**: `src/review/manual_review_manager.py` - No parameters
-  - Method: `add_review(item_id, item_type, decision, notes)` - Takes positional arguments
+- **AIAnalyzer(forensic_recorder=None)**: `src/analyzers/ai_analyzer.py` - Optional ForensicRecorder (requires API key)
+  - Method: `analyze_messages(messages, batch_size=50)` - Takes list of dicts, NOT analyze(df, threat_results)!
+  - Methods: `analyze_single_message(message)`, `_estimate_tokens(text)`, `_empty_analysis()`
+- **ManualReviewManager(review_dir=None)**: `src/review/manual_review_manager.py` - Optional review_dir parameter
+  - Method: `add_review(item_id, item_type, decision, notes="")` - Takes positional arguments
   - Method: `get_reviews_by_decision(decision)` - Gets reviews by decision type
-  - Note: Does NOT have `load_existing_reviews()` method!
+  - Method: `get_reviews_by_type(item_type)`, `get_review_summary()`, `load_reviews(session_id)`
+  - Note: Does NOT have `load_existing_reviews()` method! But DOES have `load_reviews(session_id)`
+- **InteractiveReview(review_manager)**: `src/review/interactive_review.py` - Takes ManualReviewManager
+- **WebReview(review_manager, forensic_recorder=None)**: `src/review/web_review.py` - Web-based review interface
 - **TimelineGenerator(forensic)**: `src/utils/timeline_generator.py` - Takes ForensicRecorder
-  - Method: `create_timeline(df, output_path)` - NOT generate_timeline()!
-  - Note: Requires DataFrame and output path
-- **RunManifest(recorder)**: `src/utils/run_manifest.py` - Takes ForensicRecorder
-  - Methods: `add_input_file()`, `add_output_file()`, `generate_manifest()`
+  - Method: `create_timeline(df, output_path, raw_messages=None)` - NOT generate_timeline()!
+  - Method: `generate_html_timeline(df, raw_messages=None)`
+  - Note: Requires DataFrame and output path; raw_messages is optional
+- **ConversationThreader(default_gap_hours=2.0)**: `src/utils/conversation_threading.py` - Used by TimelineGenerator
+- **RunManifest(forensic_recorder=None)**: `src/utils/run_manifest.py` - Optional ForensicRecorder
+  - Methods: `add_input_file()`, `add_output_file()`, `generate_manifest(output_path=None)`
+  - Methods: `add_operation()`, `validate_manifest()`, `add_extraction_summary()`, `add_analysis_summary()`, `add_report_summary()`
   - Note: `generate_manifest()` returns a Path object, not a dict!
   - Note: Files must exist to be added properly
 
 ## IMPORTANT: Verified Method Names and Signatures
+- ForensicAnalyzer takes **Config** (NOT ForensicRecorder!) - `ForensicAnalyzer(config=None)`
 - ThreatAnalyzer uses `detect_threats()` and `generate_threat_summary()` - NOT analyze() or analyze_threats()
 - SentimentAnalyzer uses `analyze_sentiment()` NOT analyze() - returns DataFrame with sentiment_polarity NOT sentiment_label
 - SentimentAnalyzer REQUIRES `forensic` parameter in __init__
 - BehavioralAnalyzer uses `analyze_patterns()` NOT analyze()
 - YamlPatternAnalyzer uses `analyze_patterns()` NOT analyze_with_patterns()
 - CommunicationMetricsAnalyzer uses `analyze_messages(messages)` NOT analyze() or calculate_metrics() - takes list NOT DataFrame
-- TimelineGenerator uses `create_timeline(df, output_path)` NOT generate_timeline()
-- ManualReviewManager uses `add_review()` with positional arguments, NO `load_existing_reviews()` method
+- AIAnalyzer uses `analyze_messages(messages, batch_size=50)` NOT analyze(df, threat_results)!
+- ScreenshotAnalyzer uses `analyze_screenshots()` with NO params - NOT process_screenshots(paths)!
+- AttachmentProcessor.process_attachments takes optional **Path** - NOT DataFrame!
+- TimelineGenerator uses `create_timeline(df, output_path, raw_messages=None)` NOT generate_timeline()
+- ManualReviewManager uses `add_review()` with positional arguments, NO `load_existing_reviews()` method but HAS `load_reviews(session_id)`
+- ForensicRecorder has optional `output_dir` param - `ForensicRecorder(output_dir=None)`
 - ForensicRecorder.record_action(action, details, metadata) creates dict with 'details' NOT 'description'
 - ForensicRecorder.compute_hash() takes a Path object, not bytes
-- ForensicRecorder.generate_chain_of_custody() returns string path, chain JSON has 'actions' but NOT 'hashes'
-- RunManifest.generate_manifest() returns a Path, not a dict
+- ForensicRecorder.generate_chain_of_custody(output_file=None) returns string path or None, chain JSON has 'actions' but NOT 'hashes'
+- ForensicIntegrity has **optional** forensic_recorder param (creates default if None)
+- ManualReviewManager has optional `review_dir` param
+- RunManifest has optional `forensic_recorder` param - NOT required
+- RunManifest.generate_manifest(output_path=None) returns a Path, not a dict
 - RunManifest only adds files that exist
+- DataExtractor has optional `third_party_registry` param, `extract_all()` has optional date filters
 - DataExtractor.extract_all() returns list of message dicts, not dict with source keys
 - IMessageExtractor requires (db_path, forensic_recorder, forensic_integrity) - 3 params!
 - WhatsAppExtractor requires (export_dir, forensic_recorder, forensic_integrity) - 3 params!
+- EmailExtractor requires (source_dir, forensic_recorder, forensic_integrity, third_party_registry=None) - 3-4 params
+- TeamsExtractor requires (source_dir, forensic_recorder, forensic_integrity, third_party_registry=None) - 3-4 params
+- ScreenshotExtractor requires (screenshot_dir, forensic_recorder) - 2 params
 - Always look at the actual source code files - DON'T CREATE SCRIPTS TO CHECK!
 - NEVER GUESS - if unsure, read the actual file!
 
@@ -117,7 +158,9 @@ Repository (code only)          Local Data Storage
                                │   (phone numbers auto-expand to all common formats)
                                ├── source_files/
                                │   ├── whatsapp/
-                               │   └── screenshots/
+                               │   ├── screenshots/
+                               │   ├── email/
+                               │   └── microsoft_teams_personal/
                                ├── review/
                                └── logs/
                                
@@ -176,6 +219,7 @@ Repository (code only)          Local Data Storage
 12. **CommunicationMetricsAnalyzer takes list**: analyze_messages() takes list of dicts, NOT DataFrame
 13. **TimelineGenerator needs df and path**: create_timeline(df, output_path) requires both parameters
 14. **DataExtractor needs config paths**: Extractors are None if config doesn't have paths set
+15. **Extractors need 3 params**: IMessageExtractor and WhatsAppExtractor need (path, forensic, integrity)
 15. **Extractors need 3 params**: IMessageExtractor and WhatsAppExtractor need (path, forensic, integrity)
 
 ## Key Files Reference
