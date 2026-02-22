@@ -6,6 +6,7 @@ screenshots, and decision tracking. All decisions maintain forensic integrity
 via ManualReviewManager and ForensicRecorder.
 """
 
+import json
 import os
 import signal
 import logging
@@ -589,7 +590,7 @@ function renderContext(data) {{
 }}
 
 function msgBubble(m, isFlagged) {{
-  const person1 = {repr(config.person1_name if hasattr(config, 'person1_name') else 'Me')};
+  const person1 = {json.dumps(config.person1_name if hasattr(config, 'person1_name') else 'Me')};
   const cls = isFlagged ? 'msg flagged'
               : (m.sender === person1 ? 'msg sent' : 'msg received');
   let html = '<div class="' + cls + '">';

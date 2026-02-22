@@ -215,16 +215,17 @@ def main():
         # don't match actual Anthropic billing)
         est_output = num_batches * 385
 
-        # Batch API rates: $7.50/MTok input, $37.50/MTok output
-        est_cost = (est_input / 1_000_000) * 7.50 + (est_output / 1_000_000) * 37.50
+        # Batch API rates for Opus 4.6: $2.50/MTok input, $12.50/MTok output
+        est_cost = (est_input / 1_000_000) * 2.50 + (est_output / 1_000_000) * 12.50
 
         # With caching (system prompt only counted once at full price)
-        cache_savings = (system_tokens - ai._estimate_tokens(ai._SYSTEM_PROMPT)) * (7.50 - 0.75) / 1_000_000
+        # Cache reads = $0.25/MTok (10% of batch input rate)
+        cache_savings = (system_tokens - ai._estimate_tokens(ai._SYSTEM_PROMPT)) * (2.50 - 0.25) / 1_000_000
         est_cost_cached = est_cost - cache_savings
 
         # Per-component breakdown
-        input_cost = (est_input / 1_000_000) * 7.50
-        output_cost = (est_output / 1_000_000) * 37.50
+        input_cost = (est_input / 1_000_000) * 2.50
+        output_cost = (est_output / 1_000_000) * 12.50
 
         print(f"  Messages to analyze: {len(mapped_messages):,}")
         print(f"  Batch size: {batch_size}")
@@ -273,8 +274,8 @@ def main():
 
                 results = ai_test.analyze_messages(sample, batch_size=sample_size)
                 stats = results.get('processing_stats', {})
-                input_tok = stats.get('total_input_tokens', 0)
-                output_tok = stats.get('total_output_tokens', 0)
+                input_tok = stats.get('input_tokens', 0)
+                output_tok = stats.get('output_tokens', 0)
                 total_tok = input_tok + output_tok
                 errors = stats.get('errors', [])
 
@@ -283,7 +284,8 @@ def main():
                     print("  FAIL: Token counting returned 0 — still broken!")
                     failed += 1
                 else:
-                    actual_cost = (input_tok / 1_000_000) * 15.0 + (output_tok / 1_000_000) * 75.0
+                    # Synchronous standard rates for Opus 4.6: $5/MTok input, $25/MTok output
+                    actual_cost = (input_tok / 1_000_000) * 5.0 + (output_tok / 1_000_000) * 25.0
                     print(f"  Actual cost: ~${actual_cost:.4f} (synchronous rates)")
                     passed += 1
                     print("  PASS")

@@ -452,8 +452,15 @@ class AIAnalyzer:
                 batch_analysis = self._analyze_batch(batch_text, batch)
                 self._merge_analysis(analysis_results, batch_analysis)
 
+                # Track actual token usage from API response metadata
+                metadata = batch_analysis.get("_metadata", {})
+                actual_input = metadata.get("input_tokens", 0)
+                actual_output = metadata.get("output_tokens", 0)
+
                 analysis_results["processing_stats"]["batches_processed"] += 1
-                analysis_results["processing_stats"]["tokens_used"] += token_count
+                analysis_results["processing_stats"]["tokens_used"] += actual_input + actual_output
+                analysis_results["processing_stats"]["input_tokens"] = analysis_results["processing_stats"].get("input_tokens", 0) + actual_input
+                analysis_results["processing_stats"]["output_tokens"] = analysis_results["processing_stats"].get("output_tokens", 0) + actual_output
                 analysis_results["processing_stats"]["api_calls"] += 1
 
                 self.forensic.record_action(
