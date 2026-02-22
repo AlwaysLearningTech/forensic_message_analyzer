@@ -110,11 +110,12 @@ def main():
     # ---------------------------------------------------------------
     # Test 4: Mapped-contact filter
     # ---------------------------------------------------------------
-    print("\n[4/7] Mapped-contact filter...")
-    mapped_names_with_me = set(config.contact_mappings.keys()) | {'Me'}
+    print("\n[4/7] Mapped-contact filter (AI analysis)...")
+    ai_contacts = config.ai_contacts
+    print(f"  AI contacts: {ai_contacts}")
     mapped_messages = [
         m for m in messages
-        if m.get('sender') in mapped_names_with_me and m.get('recipient') in mapped_names_with_me
+        if m.get('sender') in ai_contacts and m.get('recipient') in ai_contacts
     ]
     skipped = len(messages) - len(mapped_messages)
     print(f"  Total messages:  {len(messages):,}")

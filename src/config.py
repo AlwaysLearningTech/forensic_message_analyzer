@@ -79,6 +79,15 @@ class Config:
             person2_name: self.person2_contacts,
             person3_name: self.person3_contacts,
         }
+
+        # AI analysis contacts — which mapped persons' conversations get sent to AI
+        # If set, only conversations where both parties are in this list (+ 'Me')
+        # will be analyzed. If empty/unset, all mapped contacts are included.
+        ai_contacts_raw = self._parse_json_list('AI_CONTACTS')
+        if ai_contacts_raw:
+            self.ai_contacts = set(ai_contacts_raw) | {'Me'}
+        else:
+            self.ai_contacts = set(self.contact_mappings.keys()) | {'Me'}
         
         # Date range
         self.start_date = os.getenv('START_DATE')

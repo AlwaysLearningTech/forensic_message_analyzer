@@ -25,6 +25,10 @@
   - Phone numbers automatically expand to match common formats (e.g., +12345678901 → also matches 234-567-8901, (234) 567-8901, 2345678901)
   - Only need to list each phone number ONCE in any format - variations generated automatically
   - Config creates `contact_mappings` dict mapping display names to expanded identifier lists
+  - `AI_CONTACTS`: JSON array of person names whose conversations to send to AI (e.g., `'["Marcia Snyder"]'`)
+    - Only conversations where BOTH sender AND recipient are in `ai_contacts` set are analyzed
+    - `ai_contacts` = names from AI_CONTACTS + 'Me'. If AI_CONTACTS is empty/unset, defaults to ALL mapped persons + 'Me'
+    - This controls cost: analyzing only one person's conversations instead of all can reduce AI spend by 50%+
 - Data flows: extraction → analysis → manual review → reporting → documentation
 - All processing maintains forensic integrity and chain of custody.
 
