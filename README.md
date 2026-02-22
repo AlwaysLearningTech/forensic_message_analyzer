@@ -81,6 +81,7 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
   - Sentiment distribution (Positive/Neutral/Negative)
   - Manual review breakdown
   - Chain of custody reference
+- **Forensic Export**: Unedited, unfiltered CSV and Excel export of all messages for court admissibility
 - **Timeline Visualization**: Interactive HTML timelines
 - **Manual Review**: Structured decision tracking
 - **Run Manifest**: Complete documentation of analysis process
@@ -571,6 +572,15 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
   - Describes how to use each output file
   - Includes recommended next steps for the legal team
 
+- `all_messages_YYYYMMDD_HHMMSS.csv` - Complete unedited message record (CSV)
+  - All messages from all sources in chronological order
+  - No filtering or enrichment — raw forensic data
+  - SHA-256 hashed for chain of custody
+
+- `all_messages_YYYYMMDD_HHMMSS.xlsx` - Complete unedited message record (Excel)
+  - Same data as CSV, formatted for court readability
+  - Single "All Messages" sheet with auto-sized columns
+
 ### Documentation
 - `chain_of_custody_YYYYMMDD_HHMMSS.json` - Complete audit trail with:
   - Session metadata (start time, duration, session ID)
@@ -593,6 +603,8 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
 ├── forensic_report_20251006_011543.pdf
 ├── timeline_20251006_011545.html
 ├── legal_team_summary_20251006_011545.txt
+├── all_messages_20251006_011545.csv
+├── all_messages_20251006_011545.xlsx
 ├── chain_of_custody_20251006_011530.json
 └── run_manifest_20251006_011545.json
 ```

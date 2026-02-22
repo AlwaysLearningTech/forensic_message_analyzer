@@ -121,6 +121,14 @@ class ForensicReporter:
             except Exception as e:
                 logger.error(f"Failed to save legal team summary: {e}")
 
+        # Generate unedited all-messages forensic export (CSV + Excel)
+        try:
+            export_paths = self._generate_all_messages_export(extracted_data, timestamp)
+            reports.update(export_paths)
+            logger.info(f"Generated all-messages export: {list(export_paths.keys())}")
+        except Exception as e:
+            logger.error(f"Failed to generate all-messages export: {e}")
+
         # Record report generation
         self.forensic.record_action(
             "reports_generated",
@@ -825,7 +833,79 @@ class ForensicReporter:
         )
         
         return output_path
-    
+
+    def _generate_all_messages_export(self, extracted_data: Dict,
+                                      timestamp: str) -> Dict[str, Path]:
+        """
+        Generate unedited, unfiltered export of ALL messages for forensic preservation.
+
+        Produces both CSV and Excel files sorted chronologically with no filtering
+        or enrichment — raw forensic data suitable for court submission.
+
+        Args:
+            extracted_data: Data from extraction phase (contains 'messages' key)
+            timestamp: Timestamp string for file naming
+
+        Returns:
+            Dict mapping format name to output file path
+        """
+        messages = extracted_data.get('messages', extracted_data.get('combined', []))
+        if not messages:
+            logger.warning("No messages to export for all-messages forensic record")
+            return {}
+
+        # Core columns only — no analysis enrichment
+        export_columns = ['timestamp', 'sender', 'recipient', 'content', 'source', 'message_id']
+
+        df = pd.DataFrame(messages)
+
+        # Keep only columns that exist in the data
+        available_columns = [col for col in export_columns if col in df.columns]
+        df = df[available_columns]
+
+        # Sort chronologically
+        if 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+            df = df.sort_values('timestamp', na_position='last')
+
+        paths = {}
+
+        # CSV export
+        csv_path = self.output_dir / f"all_messages_{timestamp}.csv"
+        df.to_csv(csv_path, index=False, encoding='utf-8')
+        csv_hash = self.forensic.compute_hash(csv_path)
+        self.forensic.record_action(
+            "all_messages_csv_generated",
+            f"Generated all-messages CSV ({len(df)} messages) with hash {csv_hash}",
+            {"path": str(csv_path), "hash": csv_hash, "message_count": len(df)}
+        )
+        paths['all_messages_csv'] = csv_path
+
+        # Excel export
+        xlsx_path = self.output_dir / f"all_messages_{timestamp}.xlsx"
+        with pd.ExcelWriter(xlsx_path, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='All Messages', index=False)
+            # Auto-size columns
+            worksheet = writer.sheets['All Messages']
+            for i, col in enumerate(df.columns):
+                max_len = max(
+                    df[col].astype(str).str.len().max() if len(df) > 0 else 0,
+                    len(col)
+                )
+                # Cap column width at 80 characters
+                worksheet.column_dimensions[chr(65 + i)].width = min(max_len + 2, 80)
+
+        xlsx_hash = self.forensic.compute_hash(xlsx_path)
+        self.forensic.record_action(
+            "all_messages_xlsx_generated",
+            f"Generated all-messages Excel ({len(df)} messages) with hash {xlsx_hash}",
+            {"path": str(xlsx_path), "hash": xlsx_hash, "message_count": len(df)}
+        )
+        paths['all_messages_xlsx'] = xlsx_path
+
+        logger.info(f"Generated all-messages forensic export: {len(df)} messages in CSV + Excel")
+        return paths
+
     def _generate_legal_team_summary(self, extracted_data: Dict,
                                      analysis_results: Dict,
                                      review_decisions: Dict) -> str:
