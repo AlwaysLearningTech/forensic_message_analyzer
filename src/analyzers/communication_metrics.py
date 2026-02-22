@@ -4,7 +4,7 @@ Generates metrics and statistics for legal review following Daubert standards.
 """
 
 from typing import Dict, List, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import Counter, defaultdict
 import pandas as pd
 from pathlib import Path
@@ -167,12 +167,12 @@ class CommunicationMetricsAnalyzer:
                 "total_messages": len(sent) + len(received),
                 "sent_ratio": len(sent) / max(len(sent) + len(received), 1),
                 "first_message": str(min(
-                    sent['timestamp'].min() if not sent.empty and 'timestamp' in sent.columns else datetime.max,
-                    received['timestamp'].min() if not received.empty and 'timestamp' in received.columns else datetime.max
+                    sent['timestamp'].min() if not sent.empty and 'timestamp' in sent.columns else datetime.max.replace(tzinfo=timezone.utc),
+                    received['timestamp'].min() if not received.empty and 'timestamp' in received.columns else datetime.max.replace(tzinfo=timezone.utc)
                 )) if 'timestamp' in df.columns else None,
                 "last_message": str(max(
-                    sent['timestamp'].max() if not sent.empty and 'timestamp' in sent.columns else datetime.min,
-                    received['timestamp'].max() if not received.empty and 'timestamp' in received.columns else datetime.min
+                    sent['timestamp'].max() if not sent.empty and 'timestamp' in sent.columns else datetime.min.replace(tzinfo=timezone.utc),
+                    received['timestamp'].max() if not received.empty and 'timestamp' in received.columns else datetime.min.replace(tzinfo=timezone.utc)
                 )) if 'timestamp' in df.columns else None
             }
             
