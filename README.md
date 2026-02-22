@@ -70,7 +70,7 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
 
 ### Reporting
 - **Excel Reports**: Organized by person with integrated threat/sentiment data
-  - Separate tabs for each configured person (e.g., Marcia Snyder, Kiara Snyder)
+  - Separate tabs for each configured person
   - Each tab combines messages, threats, and sentiment in one view
   - Excludes conversations with non-relevant parties
 - **Word/PDF Reports**: Comprehensive analysis with:
@@ -82,6 +82,7 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
   - Manual review breakdown
   - Chain of custody reference
 - **Forensic Export**: Unedited, unfiltered CSV and Excel export of all messages for court admissibility
+- **HTML/PDF Reports**: Inline base64 images, per-person message tables, conversation threads, risk indicators, and legal compliance footer (PDF via WeasyPrint)
 - **Timeline Visualization**: Interactive HTML timelines
 - **Manual Review**: Structured decision tracking
 - **Run Manifest**: Complete documentation of analysis process
@@ -214,6 +215,33 @@ cp .env.example ~/workspace/data/forensic_message_analyzer/.env
 
 ## Usage
 
+### Pre-Run Validation and Cost Estimation
+
+Before running the full analysis (which incurs AI API costs), use the validation script to verify your configuration, test all analysis phases, and get a cost estimate:
+
+```bash
+# Full validation with 5-message AI test (~$0.01)
+python3 validate_before_run.py
+
+# Just show extraction stats and cost estimate ($0 cost)
+python3 validate_before_run.py --estimate
+
+# Skip AI test entirely ($0 cost)
+python3 validate_before_run.py --no-ai
+
+# Test with a custom number of messages
+python3 validate_before_run.py --ai-sample 10
+```
+
+The script runs 7 checks:
+1. **Config validation** - Verifies .env settings
+2. **Contact mappings** - Confirms person identifiers are configured
+3. **Data extraction** - Extracts from all sources (free, local-only)
+4. **Mapped-contact filter** - Shows how many messages will be sent to AI vs skipped
+5. **Non-AI analysis** - Runs threat, sentiment, behavioral, and pattern analyzers
+6. **Cost estimate** - Calculates expected Batch API cost based on token estimation
+7. **AI test** - Sends a small sample to Claude to verify token counting works
+
 ### Full Analysis Pipeline
 
 Run the complete forensic analysis:
@@ -259,9 +287,9 @@ forensic_message_analyzer/
 └── output/
     └── report_YYYYMMDD_HHMMSS.xlsx
         ├── Overview (summary statistics)
-        ├── Marcia Snyder (filtered conversations)
-        ├── Kiara Snyder (filtered conversations)
-        ├── David Snyder (filtered conversations)
+        ├── Person 2 (filtered conversations)
+        ├── Person 3 (filtered conversations)
+        ├── Person 1 (filtered conversations)
         └── Manual Review (if applicable)
 ```
 
@@ -397,6 +425,7 @@ forensic_message_analyzer/
 │   │   ├── teams_extractor.py   # Microsoft Teams export extraction
 │   │   └── screenshot_extractor.py # Screenshot cataloging
 │   ├── analyzers/               # Analysis engines
+│   │   ├── ai_analyzer.py      # Anthropic Claude AI analysis (batch + sync)
 │   │   ├── threat_analyzer.py   # Threat detection
 │   │   ├── sentiment_analyzer.py # Sentiment analysis
 │   │   ├── behavioral_analyzer.py # Behavioral patterns
@@ -405,14 +434,20 @@ forensic_message_analyzer/
 │   │   ├── screenshot_analyzer.py # OCR processing
 │   │   └── attachment_processor.py # Attachment cataloging
 │   ├── review/                  # Manual review management
-│   │   └── manual_review_manager.py
+│   │   ├── manual_review_manager.py # Review decision tracking
+│   │   ├── interactive_review.py # CLI-based message review
+│   │   └── web_review.py       # Flask-based web review UI
 │   ├── reporters/               # Report generation
 │   │   ├── forensic_reporter.py # Main reporter (Excel, Word, PDF)
-│   │   └── json_reporter.py     # JSON output
+│   │   ├── html_reporter.py    # HTML/PDF report with inline images
+│   │   └── json_reporter.py    # JSON output
 │   ├── utils/                   # Utilities and helpers
+│   │   ├── conversation_threading.py # Thread detection and grouping
+│   │   ├── legal_compliance.py  # Legal standards documentation
 │   │   ├── timeline_generator.py # HTML timeline creation
 │   │   └── run_manifest.py      # Run documentation
 │   ├── forensic_utils.py        # Chain of custody and integrity
+│   ├── third_party_registry.py  # Unmapped contact tracking
 │   ├── config.py                # Configuration management
 │   └── main.py                  # Main orchestration
 ├── tests/                       # Unit and integration tests
@@ -425,6 +460,7 @@ forensic_message_analyzer/
 │   └── analysis_patterns.yaml
 ├── .github/
 │   └── copilot-instructions.md  # Development guidelines
+├── validate_before_run.py       # Pre-run validation and cost estimation
 ├── check_readiness.py           # System readiness checker
 ├── run.py                       # Main entry point
 └── .env.example                 # Configuration template
@@ -475,6 +511,11 @@ forensic_message_analyzer/
 - **CommunicationMetricsAnalyzer(forensic_recorder=None)**
   - `analyze_messages(messages)`: Takes list of dicts, returns metrics dict
 
+- **AIAnalyzer(forensic_recorder)**
+  - `analyze_messages(messages, batch_size=50)`: Batch or sync AI analysis
+  - `analyze_single_message(message)`: Real-time single-message threat assessment
+  - `generate_analysis_report(analysis, output_path=None)`: Write AI report JSON
+
 #### Utilities
 - **TimelineGenerator(forensic_recorder)**
   - `create_timeline(df, output_path)`: Create HTML timeline
@@ -482,6 +523,14 @@ forensic_message_analyzer/
 - **ManualReviewManager()**
   - `add_review(item_id, item_type, decision, notes)`: Add review decision
   - `get_reviews_by_decision(decision)`: Retrieve reviews by decision type
+
+- **HtmlReporter(forensic_recorder)**
+  - `generate_report(extracted_data, analysis_results, review_decisions, output_path, pdf=True)`: Generate HTML/PDF report with inline images
+
+- **ThirdPartyRegistry(forensic_recorder, config)**
+  - `register(identifier, display_name, source, context)`: Register unmapped contact
+  - `get_all()`: Return all registered third-party contacts
+  - `summary()`: Return statistics grouped by source
 
 - **RunManifest(forensic_recorder)**
   - `add_input_file(path)`: Add input file to manifest
@@ -542,8 +591,8 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
 ### Reports
 - `report_YYYYMMDD_HHMMSS.xlsx` - Excel report with person-organized tabs:
   - **Overview**: Summary statistics (message count, date range, threats, reviews)
-  - **[Person Name]**: Individual tabs for each configured person (e.g., "Marcia Snyder")
-    - Contains only messages where that person is the recipient
+  - **[Person Name]**: Individual tabs for each configured person
+    - Contains only messages where that person is a sender or recipient
     - Includes integrated threat and sentiment columns
     - Columns: timestamp, sender, recipient, content, source, threat_detected, threat_categories, 
       threat_confidence, harmful_content, sentiment_score, sentiment_polarity, sentiment_subjectivity
@@ -562,7 +611,14 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
 - `forensic_report_YYYYMMDD_HHMMSS.pdf` - PDF report for court submission
   - Contains same content as Word document
   - Formatted for legal distribution and printing
-  
+
+- `forensic_analysis_YYYYMMDD_HHMMSS.html` - HTML report with inline images
+  - Overview cards, per-person message tables, conversation threads
+  - Inline base64 attachment images (iMessage and WhatsApp)
+  - Risk indicators, AI summary, legal compliance footer
+
+- `forensic_analysis_YYYYMMDD_HHMMSS.pdf` - PDF conversion of HTML report (via WeasyPrint)
+
 - `timeline_YYYYMMDD_HHMMSS.html` - Interactive timeline visualization
   - Chronological message view with filtering
   - Threat highlighting and sentiment indicators
@@ -601,6 +657,8 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
 ├── report_20251006_011549.xlsx
 ├── forensic_report_20251006_011543.docx
 ├── forensic_report_20251006_011543.pdf
+├── forensic_analysis_20251006_011543.html
+├── forensic_analysis_20251006_011543.pdf
 ├── timeline_20251006_011545.html
 ├── legal_team_summary_20251006_011545.txt
 ├── all_messages_20251006_011545.csv
