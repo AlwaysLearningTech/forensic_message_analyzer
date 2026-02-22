@@ -55,7 +55,7 @@ class CommunicationMetricsAnalyzer:
         
         # Ensure timestamp column is datetime
         if 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
         
         metrics = {
             "generated_at": datetime.now().isoformat(),
