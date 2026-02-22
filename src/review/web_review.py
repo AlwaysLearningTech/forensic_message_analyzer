@@ -559,8 +559,9 @@ function renderContext(data) {{
 }}
 
 function msgBubble(m, isFlagged) {{
+  const person1 = {repr(config.person1_name if hasattr(config, 'person1_name') else 'Me')};
   const cls = isFlagged ? 'msg flagged'
-              : (m.sender === 'Me' ? 'msg sent' : 'msg received');
+              : (m.sender === person1 ? 'msg sent' : 'msg received');
   let html = '<div class="' + cls + '">';
   if (isFlagged) html += '<span class="flag-label">FLAGGED</span>';
   html += '<div class="meta">' + escapeHtml(m.timestamp || '') + ' &mdash; '

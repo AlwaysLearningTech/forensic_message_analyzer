@@ -91,10 +91,10 @@ class Config:
         ai_contacts_raw = self._parse_json_list('AI_CONTACTS')
         if ai_contacts_raw:
             self.ai_contacts_specified = set(ai_contacts_raw)
-            self.ai_contacts = self.ai_contacts_specified | {'Me', person1_name}
+            self.ai_contacts = self.ai_contacts_specified | {person1_name}
         else:
             self.ai_contacts_specified = None  # None means "all mapped contacts"
-            self.ai_contacts = set(self.contact_mappings.keys()) | {'Me'}
+            self.ai_contacts = set(self.contact_mappings.keys())
         
         # Date range
         self.start_date = os.getenv('START_DATE')

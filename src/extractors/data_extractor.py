@@ -138,6 +138,22 @@ class DataExtractor:
                 f"Teams extraction failed: {str(e)}"
             )
 
+        # Normalize 'Me' → PERSON1_NAME so the entire downstream pipeline uses
+        # a single consistent identity for the device owner.  Extractors assign
+        # 'Me' before contact-mapping runs, so we fix it up here in one place.
+        person1 = getattr(self.config, 'person1_name', None)
+        if person1:
+            me_count = 0
+            for msg in all_messages:
+                if msg.get('sender') == 'Me':
+                    msg['sender'] = person1
+                    me_count += 1
+                if msg.get('recipient') == 'Me':
+                    msg['recipient'] = person1
+                    me_count += 1
+            if me_count:
+                self.logger.info(f"Normalized {me_count} 'Me' references → '{person1}'")
+
         # Record extraction summary
         self.forensic.record_action(
             "EXTRACTION_COMPLETE",

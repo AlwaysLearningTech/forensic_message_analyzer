@@ -27,9 +27,11 @@
   - Config creates `contact_mappings` dict mapping display names to expanded identifier lists
   - `AI_CONTACTS`: JSON array of person names whose conversations to send to AI (e.g., `'["Marcia Snyder"]'`)
     - Two-tier filter: at least one party must be in `ai_contacts_specified` (the raw AI_CONTACTS names),
-      AND both parties must be in `ai_contacts` (expanded set including Me/PERSON1_NAME)
+      AND both parties must be in `ai_contacts` (expanded set including PERSON1_NAME)
     - `ai_contacts_specified` = set from AI_CONTACTS (e.g. {"Marcia Snyder"}), or None if unset (all mapped)
-    - `ai_contacts` = ai_contacts_specified + 'Me' + PERSON1_NAME. If AI_CONTACTS unset, defaults to ALL mapped persons + 'Me'
+    - `ai_contacts` = ai_contacts_specified + PERSON1_NAME. If AI_CONTACTS unset, defaults to ALL mapped persons
+    - Note: 'Me' is normalized to PERSON1_NAME during extraction (in DataExtractor.extract_all()),
+      so downstream code never sees 'Me' as a sender/recipient
     - This ensures only conversations WITH the specified person are analyzed, not all conversations OF the user
     - This controls cost: analyzing only one person's conversations instead of all can reduce AI spend by 50%+
 - Data flows: extraction → analysis → manual review → reporting → documentation

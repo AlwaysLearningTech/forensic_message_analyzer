@@ -41,8 +41,8 @@ class ExcelReporter:
                 df_messages = pd.DataFrame(extracted_data['messages'])
                 if 'sender' in df_messages.columns and 'recipient' in df_messages.columns:
                     mapped_mask = (
-                        df_messages['sender'].isin(mapped_persons + ['Me']) |
-                        df_messages['recipient'].isin(mapped_persons + ['Me'])
+                        df_messages['sender'].isin(mapped_persons) |
+                        df_messages['recipient'].isin(mapped_persons)
                     )
                     filtered_message_count = mapped_mask.sum()
                 else:
