@@ -5,49 +5,58 @@ All notable changes to the Forensic Message Analyzer will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [4.0.0] - 2026-02-22
 
 ### Added
-- **WhatsApp ZIP Auto-Extraction**: System now automatically extracts ZIP files in the WhatsApp source directory
-- **Recipient Tracking**: All messages now include both sender and recipient fields for complete conversation tracking
-- **Excel Filtering**: Excel reports now only show conversations with configured persons (excludes random phone numbers and chat IDs)
-- **Enhanced PDF Reports**: PDF reports now include Screenshots, Threat Analysis, Sentiment Analysis, Manual Review sections, and Chain of Custody reference (matching Word document content)
-- **attributedBody Binary Decoding**: Modern iMessage format with binary-encoded messages now properly decoded
-- **WhatsApp Timestamp Formats**: Added 12 timestamp formats including seconds (e.g., "3/8/22, 4:12:34 PM")
+- **Anthropic Claude AI Analysis**: Switched from Azure OpenAI to Anthropic Claude Opus 4.6 with Batch API (50% cost discount) and prompt caching
+- **HTML/PDF Report Generation**: New Jinja2-based HTML reporter with WeasyPrint PDF conversion, inline base64 images, overview cards, per-person message tables, conversation threads, and legal compliance footer
+- **iMessage Attachment Extraction**: Query message_attachment_join + attachment tables for image paths, resolve macOS ~ paths, attach first image per message for inline display
+- **WhatsApp Attachment Detection**: Detect `<attached: FILENAME>` pattern in messages, resolve file paths relative to chat export directory
+- **Web Review Attachment Display**: New `/attachments/` route serves both iMessage and WhatsApp images inline in the chat UI
+- **Interactive Review Photo Display**: CLI review shows `PHOTO: /path` for messages with image attachments
+- **Batch API with Prompt Caching**: System prompt cached with `cache_control: ephemeral` across all API calls; batch and sync modes both benefit
+- **AI Contact Filtering**: `AI_CONTACTS` config limits which conversations are sent for AI analysis (reduces cost)
+- **Third-Party Contact Registry**: Tracks contacts discovered in emails/screenshots not in configured person mappings, with O(1) dedup
+- **Email Extractor**: Extract messages from email source files with third-party contact detection
+- **Teams Extractor**: Extract messages from Microsoft Teams exports with third-party contact detection
+- **Pre-Run Validation Script**: `validate_before_run.py` checks config, data sources, and estimates cost before committing to a full run
+- **Unedited Forensic Export**: CSV + Excel export of all messages prior to any filtering, for chain of custody
+- **WhatsApp ZIP Auto-Extraction**: Automatically extracts ZIP files in WhatsApp source directory
+- **Recipient Tracking**: All messages include both sender and recipient fields
+- **attributedBody Binary Decoding**: Modern iMessage format with binary-encoded messages properly decoded
+- **WhatsApp Timestamp Formats**: 12 timestamp formats including seconds (e.g., "3/8/22, 4:12:34 PM")
 
 ### Changed
-- **Output Directory**: Fixed ForensicRecorder to use configured output directory instead of creating ./output/ in repository
-- **WhatsApp Regex Pattern**: Updated to match actual WhatsApp export format with optional seconds in timestamp
-- **Excel Report Structure**: Now creates individual tabs for each configured person with integrated threat/sentiment columns
-- **iMessage Extraction**: Added chat_identifier JOIN to SQL query for recipient determination
-- **Contact Mapping**: Recipient names now mapped to configured person names from .env
+- **AI Model**: Azure OpenAI → Anthropic Claude Opus 4.6 (direct API)
+- **AI Processing Mode**: Default to Batch API with server-side rate limiting; sync mode as fallback with configurable client-side rate limits
+- **Batch Pricing**: Corrected from Opus 4.0 rates ($7.50/$37.50) to Opus 4.6 rates ($2.50/$12.50 per MTok)
+- **Rate Limit Configuration**: `MAX_REQUESTS_PER_MINUTE`, `TOKENS_PER_MINUTE`, `REQUEST_DELAY_MS` now configurable via .env (previously hardcoded); only apply to sync fallback mode
+- **Batch Size**: Default 50 messages per analysis request (batch API submits all in single HTTP call, no rate-limiting reason for smaller batches)
+- **MAX_TOKENS_PER_REQUEST**: Reduced from 4096 to 2048 to stay within 8K output TPM tier limit
+- **'Me' Normalization**: Extractors assign 'Me' for device owner; `data_extractor.py` normalizes to PERSON1_NAME in one place
+- **WhatsApp Recipient Detection**: Uses first-pass sender scan instead of filename parsing
+- **Excel Report Structure**: Individual tabs per configured person with integrated threat/sentiment columns
+- **Output Directory**: ForensicRecorder uses configured output directory instead of ./output/ in repository
+- **Version**: Updated to 4.0.0 across run_manifest, forensic_utils, and __init__
 
 ### Fixed
-- **Config Import in forensic_utils.py**: Changed from singleton pattern to class instantiation for proper dependency injection
-- **WhatsApp Message Count**: Extraction now works correctly (0 → 33,808 messages in test case)
-- **Excel Tab Explosion**: Reduced from 130+ tabs to only configured persons (3 in typical case)
-- **PDF Content**: Now matches Word document with all sections included
+- **AI Analyzer Pricing**: Cost estimates were using Opus 4.0/4.1 batch rates (3x too high)
+- **Cache Token Tracking**: `cache_creation_input_tokens` was incorrectly added to `cache_read_tokens` counter; now tracked separately with correct per-type pricing
+- **Threat Analyzer Performance**: Replaced `iterrows()` loop with vectorized `str.contains()` using pre-compiled regex per category
+- **Sentiment Analyzer**: Fixed `www.\S+` regex (missing backslash), added `dropna()` guard for `idxmax()`/`idxmin()` on empty series
+- **Behavioral Analyzer**: Fixed `mode()[0]` crash when series is empty
+- **Excel Column Naming**: Fixed overflow beyond column Z (chr(65+i) only works for A-Z); replaced with proper base-26 conversion
+- **Data Extractor Null Guards**: Added `if self.imessage:` / `if self.whatsapp:` etc. guards and `or []` coalescing on extractor returns
+- **WhatsApp Recipient**: David's messages had recipient=David instead of Marcia
+- **Contact Filter**: Require BOTH parties mapped (AND not OR)
+- **Timezone Handling**: Fixed tz-naive vs tz-aware datetime comparison crashes in communication metrics and participant analysis
+- **Token Counting**: Fixed estimated token counts for cost reporting
 
-### Technical Improvements
-- Removed unused imports from main.py (IMessageExtractor, WhatsAppExtractor, AttachmentProcessor)
-- Implemented proper dependency injection for Config class (created in run.py, passed to main)
-- Added message enrichment logic to merge threat/sentiment data before Excel generation
-- Enhanced Excel sheet name sanitization for invalid characters
-- Comprehensive test coverage verified with targeted test scripts
-
-### Documentation
-- Updated README.md Features section with new capabilities
-- Updated README.md Usage section with correct API examples and Expected Output
-- Updated README.md Output Files section with detailed Excel structure
-- Created IMPROVEMENTS_LOG.md with comprehensive session documentation
-- Updated CODE_REVIEW.md with applied fixes and new grade (B+ → A-)
-- Created this CHANGELOG.md for version tracking
-
-### Testing
-- Created test_excel_simple.py to verify Excel filtering
-- Created test_excel_filter.py with comprehensive test scenarios
-- Verified: Only mapped persons appear in Excel tabs (excludes unmapped recipients)
-- All 25 existing tests still passing
+### Removed
+- **QUICK_START.md**: Outdated (referenced Azure OpenAI, missing files, wrong paths)
+- **debug_pairs.py**: Debug script no longer needed
+- **debug_sources.py**: Debug script no longer needed
+- **Dead Code**: Removed unused `import re` and `_PHONE_RE` from third_party_registry.py
 
 ## [1.0.0] - Initial Release
 
@@ -56,7 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - iMessage extraction with modern format support
 - WhatsApp export processing
 - Screenshot OCR analysis with Tesseract
-- Threat detection with configurable patterns (YAML-based)
+- Threat detection with configurable patterns
 - Sentiment analysis
 - Behavioral pattern analysis
 - Communication metrics calculation
@@ -67,7 +76,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Contact mapping with automatic phone number normalization
 - Data separation (code vs. data directories)
 - Comprehensive configuration via .env files
-- 26 unit and integration tests
 
 ### Reports Generated
 - Excel: Multi-tab reports with statistics and analysis
@@ -87,5 +95,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-For detailed technical changes, see [IMPROVEMENTS_LOG.md](IMPROVEMENTS_LOG.md).  
-For code review findings, see [CODE_REVIEW.md](CODE_REVIEW.md).  
+For detailed technical changes, see [IMPROVEMENTS_LOG.md](IMPROVEMENTS_LOG.md).
+For code review findings, see [CODE_REVIEW.md](CODE_REVIEW.md).
