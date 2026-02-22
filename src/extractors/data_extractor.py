@@ -11,6 +11,7 @@ from pathlib import Path
 from .imessage_extractor import iMessageExtractor
 from .whatsapp_extractor import WhatsAppExtractor
 from .email_extractor import EmailExtractor
+from .teams_extractor import TeamsExtractor
 from ..config import Config
 from ..forensic_utils import ForensicIntegrity
 
@@ -54,6 +55,14 @@ class DataExtractor:
             self.integrity,
             third_party_registry=third_party_registry,
         ) if self.config.email_source_dir else None
+
+        # Teams extractor needs: source_dir, forensic_recorder, forensic_integrity
+        self.teams = TeamsExtractor(
+            self.config.teams_source_dir,
+            forensic,
+            self.integrity,
+            third_party_registry=third_party_registry,
+        ) if self.config.teams_source_dir else None
 
         self.forensic.record_action(
             "DATA_EXTRACTOR_INIT",
@@ -113,6 +122,20 @@ class DataExtractor:
             self.forensic.record_action(
                 "EMAIL_EXTRACTION_FAILED",
                 f"Email extraction failed: {str(e)}"
+            )
+
+        # Extract Teams messages
+        try:
+            self.logger.info("Extracting Teams messages...")
+            teams_messages = self.teams.extract_all()
+            if teams_messages:  # List check
+                all_messages.extend(teams_messages)
+                self.logger.info(f"Extracted {len(teams_messages)} Teams messages")
+        except Exception as e:
+            self.logger.error(f"Failed to extract Teams messages: {e}")
+            self.forensic.record_action(
+                "TEAMS_EXTRACTION_FAILED",
+                f"Teams extraction failed: {str(e)}"
             )
 
         # Record extraction summary

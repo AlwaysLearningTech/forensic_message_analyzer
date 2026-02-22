@@ -18,7 +18,7 @@ A comprehensive digital forensics tool for analyzing message data from multiple 
 
 ## Overview
 
-The Forensic Message Analyzer is a multi-phase digital evidence processor designed for legal use. It extracts, analyzes, and reports on message data from iMessage, WhatsApp, and screenshots while maintaining a complete chain of custody for court admissibility.
+The Forensic Message Analyzer is a multi-phase digital evidence processor designed for legal use. It extracts, analyzes, and reports on message data from iMessage, WhatsApp, email, Microsoft Teams, and screenshots while maintaining a complete chain of custody for court admissibility.
 
 ## Features
 
@@ -33,7 +33,19 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
   - Supports multiple timestamp formats (with/without seconds)
   - Maps participants to configured person names
   - Includes recipient field for conversation filtering
-- **Screenshots**: Catalog and OCR processing
+- **Email**: MIME-based extraction from `.eml` and `.mbox` files
+  - Full MIME parsing with header extraction (From, To, Subject, Date)
+  - Automatic contact resolution against configured person mappings
+  - Third-party contact detection for unmapped senders/recipients
+  - Support for multipart messages and text/plain content extraction
+- **Microsoft Teams**: Personal export TAR archive processing
+  - Parses `messages.json` from Teams personal data exports
+  - Sender identification via userId and displayName fields
+  - Mapped-persons-only conversation filtering (same approach as iMessage)
+  - HTML tag stripping from RichText/Html messages
+  - Filters out system messages (ThreadActivity, Event/Call)
+  - Infers senders in 1:1 conversations where identity is not explicit
+- **Screenshots**: Catalog and OCR processing with contact extraction
 - **Attachments**: Full metadata preservation
 
 ### Analysis Capabilities
@@ -41,9 +53,13 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
 - **Pattern Analysis**: YAML-based configurable patterns for behavioral detection
 - **Sentiment Analysis**: Message tone and emotion detection using TextBlob
 - **Behavioral Analysis**: Communication pattern identification and profiling
-- **OCR Processing**: Text extraction from screenshots using Tesseract
 - **Communication Metrics**: Frequency, volume, timing, and response pattern analysis
-- **AI Analysis**: Optional Azure OpenAI integration with rate limiting (2000 tokens/min default)
+- **AI Analysis**: Anthropic Claude (Opus 4.6) integration with batch API support and prompt caching
+  - Threat detection and risk assessment with severity classification
+  - Emotional escalation tracking across conversations
+  - Behavioral pattern recognition (control, isolation, harassment)
+  - Legal team summary: narrative guide explaining findings and how to use the outputs
+  - Conversation summary written in plain language for attorneys
 
 ### Legal Compliance
 - **Chain of Custody**: Complete audit trail with SHA-256 hashing
@@ -56,9 +72,9 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
 - **Excel Reports**: Organized by person with integrated threat/sentiment data
   - Separate tabs for each configured person (e.g., Marcia Snyder, Kiara Snyder)
   - Each tab combines messages, threats, and sentiment in one view
-  - "All Messages" tab filtered to only configured contacts
   - Excludes conversations with non-relevant parties
 - **Word/PDF Reports**: Comprehensive analysis with:
+  - Legal team summary (AI-generated narrative for attorneys)
   - Executive summary
   - Data extraction statistics
   - Threat analysis with high-priority examples
@@ -122,40 +138,24 @@ cp .env.example ~/workspace/data/forensic_message_analyzer/.env
 
 3. Edit `~/workspace/data/forensic_message_analyzer/.env` with your settings:
 ```bash
-# Anthropic Claude (optional, for AI analysis)
-AI_ENDPOINT=your-endpoint
-AI_API_KEY=your-key
-AI_MODEL=claude-opus-4-5-20251101
+# Anthropic Claude API key (required for AI analysis)
+AI_API_KEY=your-api-key
+AI_MODEL=claude-opus-4-6
 
 # Contact Mapping - Define names for reports and their identifiers
-# PERSON(x)_NAME: The name used in all reports (e.g., "David Snyder")
-# PERSON(x)_MAPPING: List of identifiers to match (phones, emails, aliases)
-# IMPORTANT: Use single quotes around the JSON array to avoid parsing issues
-# NOTE: Phone numbers are automatically expanded to match common formats:
-#   - "+12345678901" also matches "234-567-8901" and "(234) 567-8901"
-#   - You only need to list each phone number ONCE in any format
 PERSON1_NAME="First Last"
-PERSON2_NAME="Another Person"
-PERSON3_NAME="Third Person"
-
 PERSON1_MAPPING='["+12345678901","email@example.com","FirstName","Full Name"]'
+PERSON2_NAME="Another Person"
 PERSON2_MAPPING='["+19876543210","another@example.com","AnotherName"]'
+PERSON3_NAME="Third Person"
 PERSON3_MAPPING='["third@example.com","ThirdName","Nickname"]'
 
-# Data Sources (paths to source files)
+# Data Sources (comment out or remove any you don't have)
 MESSAGES_DB_PATH=~/Library/Messages/chat.db
 WHATSAPP_SOURCE_DIR=~/workspace/data/forensic_message_analyzer/source_files/whatsapp/
 SCREENSHOT_SOURCE_DIR=~/workspace/data/forensic_message_analyzer/source_files/screenshots/
-
-# Rate Limiting (for Azure OpenAI API)
-TOKENS_PER_MINUTE=2000
-REQUEST_DELAY_MS=500
-MAX_TOKENS_PER_REQUEST=150
-
-# Output and Review Directories
-OUTPUT_DIR=~/workspace/output/forensic_message_analyzer
-REVIEW_DIR=~/workspace/data/forensic_message_analyzer/review
-LOG_DIR=~/workspace/data/forensic_message_analyzer/logs
+EMAIL_SOURCE_DIR=~/workspace/data/forensic_message_analyzer/source_files/email/
+TEAMS_SOURCE_DIR=~/workspace/data/forensic_message_analyzer/source_files/microsoft_teams_personal/
 ```
 
 ## Data Separation Strategy
@@ -170,10 +170,12 @@ Repository (GitHub)              Local Data Storage
 ├── tests/                      ├── .env (configuration with keys)
 ├── patterns/                   ├── source_files/
 ├── .env.example                │   ├── whatsapp/
-└── README.md                   │   └── screenshots/
+└── README.md                   │   ├── screenshots/
+                               │   ├── email/
+                               │   └── microsoft_teams_personal/
                                ├── review/ (manual review decisions)
                                └── logs/
-                               
+
                                ~/workspace/output/forensic_message_analyzer/
                                └── [all analysis outputs]
 ```
@@ -201,7 +203,7 @@ Repository (GitHub)              Local Data Storage
 ```bash
 # Create data directory structure
 mkdir -p ~/workspace/data/forensic_message_analyzer/{source_files,review,logs}
-mkdir -p ~/workspace/data/forensic_message_analyzer/source_files/{whatsapp,screenshots}
+mkdir -p ~/workspace/data/forensic_message_analyzer/source_files/{whatsapp,screenshots,email,microsoft_teams_personal}
 mkdir -p ~/workspace/output/forensic_message_analyzer
 
 # Copy and configure .env
@@ -219,11 +221,14 @@ python3 run.py
 ```
 
 This executes five phases:
-1. **Data Extraction**: Collects messages from all sources (iMessage, WhatsApp, screenshots)
-   - Automatically extracts ZIP files (e.g., WhatsApp_SourceFiles.zip)
+1. **Data Extraction**: Collects messages from all sources (iMessage, WhatsApp, email, Teams, screenshots)
+   - Automatically extracts ZIP files (e.g., WhatsApp_SourceFiles.zip) and TAR archives (Teams exports)
    - Decodes modern iMessage binary format (attributedBody)
+   - Parses email MIME format (.eml, .mbox) with header extraction
+   - Processes Microsoft Teams personal export JSON with sender identification
    - Maps all participants to configured person names
    - Adds sender and recipient fields to all messages
+   - Detects and tracks third-party contacts not in person mappings
 2. **Automated Analysis**: Runs all configured analyzers
    - Threat detection with pattern matching
    - Sentiment analysis (polarity and subjectivity)
@@ -241,8 +246,10 @@ This executes five phases:
 ### Expected Output
 
 **Message Extraction:**
-- iMessages: Typically 20,000-50,000 messages depending on database size
-- WhatsApp: Automatically extracts from ZIP archives (30,000+ messages typical)
+- iMessages: Extracted from macOS Messages database
+- WhatsApp: Automatically extracted from ZIP archives
+- Email: Parsed from .eml and .mbox files with MIME decoding
+- Teams: Extracted from personal export TAR archives (mapped conversations only)
 - Total: Combined dataset with sender, recipient, content, timestamp, source
 
 **Excel Report Structure:**
@@ -254,7 +261,6 @@ forensic_message_analyzer/
         ├── Marcia Snyder (filtered conversations)
         ├── Kiara Snyder (filtered conversations)
         ├── David Snyder (filtered conversations)
-        ├── All Messages (all mapped person conversations)
         └── Manual Review (if applicable)
 ```
 
@@ -386,6 +392,8 @@ forensic_message_analyzer/
 │   │   ├── data_extractor.py    # Unified extraction orchestrator
 │   │   ├── imessage_extractor.py # iMessage database extraction
 │   │   ├── whatsapp_extractor.py # WhatsApp export parsing
+│   │   ├── email_extractor.py   # Email .eml/.mbox extraction
+│   │   ├── teams_extractor.py   # Microsoft Teams export extraction
 │   │   └── screenshot_extractor.py # Screenshot cataloging
 │   ├── analyzers/               # Analysis engines
 │   │   ├── threat_analyzer.py   # Threat detection
@@ -438,9 +446,15 @@ forensic_message_analyzer/
   - `extract_messages()`: Extract from iMessage database
 
 - **WhatsAppExtractor(export_dir, forensic_recorder, forensic_integrity)**
-  - `extract_messages()`: Parse WhatsApp export files
+  - `extract_all()`: Parse WhatsApp export files
 
-- **DataExtractor(forensic_recorder)**: Coordinates all extraction
+- **EmailExtractor(source_dir, forensic_recorder, forensic_integrity, third_party_registry=None)**
+  - `extract_all()`: Parse .eml and .mbox email files
+
+- **TeamsExtractor(source_dir, forensic_recorder, forensic_integrity, third_party_registry=None)**
+  - `extract_all()`: Parse Microsoft Teams personal export TAR archives
+
+- **DataExtractor(forensic_recorder, third_party_registry=None)**: Coordinates all extraction
   - `extract_all()`: Returns list of message dicts from all sources
 
 #### Analyzers
@@ -532,11 +546,11 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
     - Includes integrated threat and sentiment columns
     - Columns: timestamp, sender, recipient, content, source, threat_detected, threat_categories, 
       threat_confidence, harmful_content, sentiment_score, sentiment_polarity, sentiment_subjectivity
-  - **All Messages**: Complete dataset filtered to only configured persons
   - **Manual Review**: Review decisions (if applicable)
   - Note: Random phone numbers and chat IDs are excluded (only shows legally relevant parties)
   
 - `forensic_report_YYYYMMDD_HHMMSS.docx` - Word document report with:
+  - Legal team summary (AI-generated narrative explaining findings and output files)
   - Executive summary
   - Data extraction statistics (total messages, date range, sources, screenshots)
   - Threat analysis (count and high-priority examples)
@@ -551,6 +565,11 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
 - `timeline_YYYYMMDD_HHMMSS.html` - Interactive timeline visualization
   - Chronological message view with filtering
   - Threat highlighting and sentiment indicators
+
+- `legal_team_summary_YYYYMMDD_HHMMSS.txt` - AI-generated narrative summary for attorneys
+  - Explains key findings in plain language
+  - Describes how to use each output file
+  - Includes recommended next steps for the legal team
 
 ### Documentation
 - `chain_of_custody_YYYYMMDD_HHMMSS.json` - Complete audit trail with:
@@ -573,18 +592,10 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
 ├── forensic_report_20251006_011543.docx
 ├── forensic_report_20251006_011543.pdf
 ├── timeline_20251006_011545.html
+├── legal_team_summary_20251006_011545.txt
 ├── chain_of_custody_20251006_011530.json
 └── run_manifest_20251006_011545.json
 ```
-
-### Typical Results
-- **Message Count**: 50,000-100,000 messages (varies by data source)
-  - iMessages: 20,000-50,000 (depends on Messages database size)
-  - WhatsApp: 30,000-50,000 (depends on export archive)
-- **Threat Detection**: 500-2,000 threats (depends on content and patterns)
-- **Processing Time**: 2-5 minutes (for ~50K messages on modern hardware)
-- **Excel File Size**: 5-10 MB (with threat/sentiment integration)
-- **Memory Usage**: ~2-4 GB peak (for ~50K messages)
 
 ## Contributing
 

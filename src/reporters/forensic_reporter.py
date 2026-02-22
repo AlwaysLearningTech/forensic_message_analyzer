@@ -58,11 +58,17 @@ class ForensicReporter:
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         reports = {}
-        
+
+        # Generate legal team summary first (used in Word/PDF reports)
+        legal_summary = self._generate_legal_team_summary(
+            extracted_data, analysis_results, review_decisions
+        )
+
         # Generate Word report
         try:
             word_path = self._generate_word_report(
-                extracted_data, analysis_results, review_decisions, timestamp
+                extracted_data, analysis_results, review_decisions, timestamp,
+                legal_summary=legal_summary
             )
             reports['word'] = word_path
             logger.info(f"Generated Word report: {word_path}")
@@ -78,7 +84,8 @@ class ForensicReporter:
         # Generate PDF report
         try:
             pdf_path = self._generate_pdf_report(
-                extracted_data, analysis_results, review_decisions, timestamp
+                extracted_data, analysis_results, review_decisions, timestamp,
+                legal_summary=legal_summary
             )
             reports['pdf'] = pdf_path
             logger.info(f"Generated PDF report: {pdf_path}")
@@ -91,11 +98,29 @@ class ForensicReporter:
         
         # Generate JSON report (always succeeds)
         json_path = self._generate_json_report(
-            extracted_data, analysis_results, review_decisions, timestamp
+            extracted_data, analysis_results, review_decisions, timestamp,
+            legal_summary=legal_summary
         )
         reports['json'] = json_path
         logger.info(f"Generated JSON report: {json_path}")
-        
+
+        # Save legal team summary as standalone text file
+        if legal_summary:
+            try:
+                summary_path = self.output_dir / f"legal_team_summary_{timestamp}.txt"
+                with open(summary_path, 'w') as f:
+                    f.write(legal_summary)
+                reports['legal_summary'] = summary_path
+                file_hash = self.forensic.compute_hash(summary_path)
+                self.forensic.record_action(
+                    "legal_summary_generated",
+                    f"Generated legal team summary with hash {file_hash}",
+                    {"path": str(summary_path), "hash": file_hash}
+                )
+                logger.info(f"Generated legal team summary: {summary_path}")
+            except Exception as e:
+                logger.error(f"Failed to save legal team summary: {e}")
+
         # Record report generation
         self.forensic.record_action(
             "reports_generated",
@@ -109,7 +134,8 @@ class ForensicReporter:
         return reports
     
     def _generate_word_report(self, extracted_data: Dict, analysis_results: Dict,
-                            review_decisions: Dict, timestamp: str) -> Path:
+                            review_decisions: Dict, timestamp: str,
+                            legal_summary: str = None) -> Path:
         """Generate Word document report."""
         doc = Document()
         
@@ -216,6 +242,20 @@ class ForensicReporter:
                 for rec in recommendations:
                     doc.add_paragraph(f'  {rec}')
 
+            doc.add_page_break()
+
+        # === Legal Team Summary ===
+        if legal_summary:
+            doc.add_heading('Legal Team Summary', 1)
+            doc.add_paragraph(
+                'This section provides a comprehensive narrative summary of the analysis '
+                'results, written for the legal team. It explains the key findings and '
+                'how to use the accompanying output files.'
+            )
+            for paragraph in legal_summary.split('\n\n'):
+                stripped = paragraph.strip()
+                if stripped:
+                    doc.add_paragraph(stripped)
             doc.add_page_break()
 
         # Executive Summary
@@ -375,7 +415,8 @@ class ForensicReporter:
         return output_path
     
     def _generate_pdf_report(self, extracted_data: Dict, analysis_results: Dict,
-                           review_decisions: Dict, timestamp: str) -> Path:
+                           review_decisions: Dict, timestamp: str,
+                           legal_summary: str = None) -> Path:
         """Generate PDF report."""
         output_path = self.output_dir / f"forensic_report_{timestamp}.pdf"
         
@@ -527,6 +568,23 @@ class ForensicReporter:
                     elements.append(Paragraph(f"&nbsp;&nbsp;{rec}", styles['Normal']))
                 elements.append(Spacer(1, 12))
 
+            elements.append(PageBreak())
+
+        # === Legal Team Summary ===
+        if legal_summary:
+            elements.append(Paragraph("Legal Team Summary", styles['Heading1']))
+            elements.append(Paragraph(
+                'This section provides a comprehensive narrative summary of the analysis '
+                'results, written for the legal team. It explains the key findings and '
+                'how to use the accompanying output files.',
+                styles['Normal']
+            ))
+            elements.append(Spacer(1, 12))
+            for paragraph in legal_summary.split('\n\n'):
+                stripped = paragraph.strip()
+                if stripped:
+                    elements.append(Paragraph(stripped, styles['Normal']))
+                    elements.append(Spacer(1, 8))
             elements.append(PageBreak())
 
         # Executive Summary
@@ -731,7 +789,8 @@ class ForensicReporter:
         return output_path
     
     def _generate_json_report(self, extracted_data: Dict, analysis_results: Dict,
-                            review_decisions: Dict, timestamp: str) -> Path:
+                            review_decisions: Dict, timestamp: str,
+                            legal_summary: str = None) -> Path:
         """Generate JSON report."""
         report = {
             "metadata": {
@@ -743,6 +802,7 @@ class ForensicReporter:
             "extraction": extracted_data,
             "analysis": analysis_results,
             "review": review_decisions,
+            "legal_team_summary": legal_summary,
             "summary": {
                 "total_messages": extracted_data.get('total_messages', 0),
                 "threats_detected": analysis_results.get('threats', {}).get('summary', {}).get('messages_with_threats', 0),
@@ -766,6 +826,185 @@ class ForensicReporter:
         
         return output_path
     
+    def _generate_legal_team_summary(self, extracted_data: Dict,
+                                     analysis_results: Dict,
+                                     review_decisions: Dict) -> str:
+        """
+        Generate a comprehensive narrative summary for the legal team using Claude.
+
+        Explains all findings and how to interpret the output files.
+        Returns None if AI is not available.
+        """
+        try:
+            from anthropic import Anthropic
+        except ImportError:
+            logger.info("Anthropic not available, skipping legal team summary")
+            return None
+
+        if not config.ai_api_key:
+            logger.info("AI API key not configured, skipping legal team summary")
+            return None
+
+        # Collect all stats for the prompt
+        messages = extracted_data.get('messages', extracted_data.get('combined', []))
+        total_messages = len(messages) if isinstance(messages, list) else 0
+
+        # Source breakdown
+        source_counts = {}
+        if messages and isinstance(messages, list):
+            for msg in messages:
+                src = msg.get('source', 'unknown')
+                source_counts[src] = source_counts.get(src, 0) + 1
+
+        # Date range
+        date_range = 'N/A'
+        if messages and total_messages > 0:
+            timestamps = [msg.get('timestamp') for msg in messages if msg.get('timestamp')]
+            if timestamps:
+                try:
+                    dt_timestamps = []
+                    for ts in timestamps:
+                        if isinstance(ts, str):
+                            parsed = pd.to_datetime(ts)
+                            if not pd.isna(parsed):
+                                dt_timestamps.append(parsed)
+                        elif hasattr(ts, 'year') and not pd.isna(ts):
+                            dt_timestamps.append(ts)
+                    if dt_timestamps:
+                        date_range = (
+                            f"{min(dt_timestamps).strftime('%Y-%m-%d')} to "
+                            f"{max(dt_timestamps).strftime('%Y-%m-%d')}"
+                        )
+                except Exception:
+                    pass
+
+        # Threat stats
+        threats = analysis_results.get('threats', {})
+        threat_count = threats.get('summary', {}).get('messages_with_threats', 0)
+        threat_categories = threats.get('summary', {}).get('category_counts', {})
+
+        # Sentiment stats
+        sentiment = analysis_results.get('sentiment', [])
+        sentiment_dist = {'positive': 0, 'neutral': 0, 'negative': 0}
+        if sentiment and isinstance(sentiment, list):
+            for s in sentiment:
+                pol = s.get('sentiment_polarity', 'neutral')
+                if pol in sentiment_dist:
+                    sentiment_dist[pol] += 1
+
+        # AI analysis stats
+        ai_analysis = analysis_results.get('ai_analysis', {})
+        risk_indicators = ai_analysis.get('risk_indicators', [])
+        ai_threat_severity = ai_analysis.get('threat_assessment', {}).get('severity', 'none')
+        recommendations = ai_analysis.get('recommendations', [])
+
+        # Review stats
+        total_reviewed = review_decisions.get('total_reviewed', 0)
+        relevant = review_decisions.get('relevant', 0)
+
+        # Third-party contacts
+        third_party = extracted_data.get('third_party_contacts', [])
+
+        # Build the prompt
+        context = (
+            f"DATASET OVERVIEW:\n"
+            f"- Total messages analyzed: {total_messages}\n"
+            f"- Date range: {date_range}\n"
+            f"- Sources: {', '.join(f'{src}: {count}' for src, count in source_counts.items())}\n"
+            f"- Screenshots cataloged: {len(extracted_data.get('screenshots', []))}\n\n"
+            f"THREAT ANALYSIS:\n"
+            f"- Messages with threats detected: {threat_count}\n"
+            f"- Threat categories: {json.dumps(threat_categories) if threat_categories else 'None'}\n\n"
+            f"AI RISK ASSESSMENT:\n"
+            f"- Overall threat severity: {ai_threat_severity}\n"
+            f"- Risk indicators found: {len(risk_indicators)}\n"
+        )
+        for ri in risk_indicators[:10]:
+            if isinstance(ri, dict):
+                sev = ri.get('severity', 'unknown')
+                desc = ri.get('indicator', ri.get('description', ''))
+                context += f"  [{sev}] {desc}\n"
+            else:
+                context += f"  {ri}\n"
+
+        context += (
+            f"\nSENTIMENT ANALYSIS:\n"
+            f"- Positive messages: {sentiment_dist['positive']}\n"
+            f"- Neutral messages: {sentiment_dist['neutral']}\n"
+            f"- Negative messages: {sentiment_dist['negative']}\n\n"
+            f"MANUAL REVIEW:\n"
+            f"- Items reviewed: {total_reviewed}\n"
+            f"- Confirmed relevant: {relevant}\n\n"
+            f"THIRD-PARTY CONTACTS:\n"
+            f"- Unmapped contacts discovered: {len(third_party)}\n\n"
+            f"AI RECOMMENDATIONS:\n"
+        )
+        for rec in recommendations[:10]:
+            context += f"- {rec}\n"
+
+        context += (
+            f"\nOUTPUT FILES GENERATED:\n"
+            f"- Excel report (.xlsx): Contains per-person tabs with filtered messages, "
+            f"threat indicators, and sentiment data for each configured party\n"
+            f"- Word report (.docx): Narrative analysis with findings summary, "
+            f"risk indicators, threat details, and chain of custody\n"
+            f"- PDF report (.pdf): Same content as Word, formatted for court submission\n"
+            f"- Timeline (.html): Interactive chronological visualization of all messages\n"
+            f"- Chain of custody (.json): Complete forensic audit trail\n"
+            f"- Run manifest (.json): Documentation of all inputs, outputs, and processing steps\n"
+        )
+
+        system_prompt = (
+            "You are a forensic analyst writing a comprehensive summary for "
+            "attorneys and paralegals working on a family law matter. Your summary "
+            "should be written in plain, professional language suitable for legal "
+            "professionals who are NOT technicians.\n\n"
+            "Write a narrative summary that:\n"
+            "1. Opens with a brief overview of what was analyzed and the scope of the data\n"
+            "2. Summarizes the most important findings — threats, risks, and concerning patterns\n"
+            "3. Explains the sentiment analysis results and what they mean for the case\n"
+            "4. Notes any third-party contacts discovered that may be relevant\n"
+            "5. Describes what each output file contains and how the legal team should use it:\n"
+            "   - Which file to open first\n"
+            "   - How to find specific conversations in the Excel report\n"
+            "   - How to interpret threat and sentiment columns\n"
+            "   - When to reference the timeline vs. the Excel report\n"
+            "6. Closes with recommended next steps for the legal team\n\n"
+            "Keep it to 4-6 paragraphs. Use factual language. Do not speculate beyond "
+            "what the data shows. Reference specific numbers from the analysis."
+        )
+
+        try:
+            client = Anthropic(api_key=config.ai_api_key)
+            response = client.messages.create(
+                model=config.ai_model or 'claude-opus-4-6',
+                system=[{
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }],
+                messages=[{"role": "user", "content": context}],
+                temperature=0.3,
+                max_tokens=2048,
+            )
+            result = response.content[0].text
+
+            self.forensic.record_action(
+                "legal_team_summary_generated",
+                "Generated AI-powered legal team summary",
+                {"model": config.ai_model, "length": len(result)}
+            )
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to generate legal team summary: {e}")
+            self.forensic.record_action(
+                "legal_team_summary_error",
+                f"Error generating legal team summary: {str(e)}",
+                {"error": str(e)}
+            )
+            return None
+
     def _generate_executive_summary(self, extracted_data: Dict,
                                    analysis_results: Dict,
                                    review_decisions: Dict) -> str:

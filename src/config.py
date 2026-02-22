@@ -89,7 +89,7 @@ class Config:
         self.review_threshold = float(os.getenv('MANUAL_REVIEW_THRESHOLD', '0.5'))
         
         # Analysis settings
-        self.batch_size = int(os.getenv('BATCH_SIZE', '10'))
+        self.batch_size = int(os.getenv('BATCH_SIZE', '50'))
         self.max_retries = int(os.getenv('MAX_RETRIES', '3'))
         self.enable_image_analysis = os.getenv('ENABLE_IMAGE_ANALYSIS', 'true').lower() == 'true'
         self.enable_sentiment = os.getenv('ENABLE_SENTIMENT_ANALYSIS', 'true').lower() == 'true'
@@ -99,6 +99,7 @@ class Config:
         self.whatsapp_source_dir = self._expand_path(os.getenv('WHATSAPP_SOURCE_DIR'))
         self.screenshot_source_dir = self._expand_path(os.getenv('SCREENSHOT_SOURCE_DIR'))
         self.email_source_dir = self._expand_path(os.getenv('EMAIL_SOURCE_DIR'))
+        self.teams_source_dir = self._expand_path(os.getenv('TEAMS_SOURCE_DIR'))
         self.messages_db_path = self._expand_path(os.getenv('MESSAGES_DB_PATH'))
         self.messages_db_wal = self._expand_path(os.getenv('MESSAGES_DB_WAL'))
         self.messages_db_shm = self._expand_path(os.getenv('MESSAGES_DB_SHM'))
@@ -285,8 +286,8 @@ class Config:
             errors.append("OUTPUT_DIR not configured")
         
         # Check for at least one data source
-        if not any([self.messages_db_path, self.whatsapp_source_dir, self.screenshot_source_dir, self.email_source_dir]):
-            errors.append("No data sources configured (need iMessage, WhatsApp, email, or screenshots)")
+        if not any([self.messages_db_path, self.whatsapp_source_dir, self.screenshot_source_dir, self.email_source_dir, self.teams_source_dir]):
+            errors.append("No data sources configured (need iMessage, WhatsApp, email, Teams, or screenshots)")
         
         # Check AI configuration if analysis is expected
         if self.ai_endpoint and not self.ai_api_key:
@@ -311,5 +312,7 @@ class Config:
             sources['Screenshots'] = self.screenshot_source_dir
         if self.email_source_dir:
             sources['Email'] = self.email_source_dir
+        if self.teams_source_dir:
+            sources['Teams'] = self.teams_source_dir
             
         return sources

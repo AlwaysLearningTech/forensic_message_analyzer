@@ -26,7 +26,8 @@ class JSONReporter:
         self.output_dir = Path(config.output_dir)
     
     def generate_report(self, extracted_data: Dict, analysis_results: Dict,
-                       review_decisions: Dict, output_path: Path) -> Path:
+                       review_decisions: Dict, output_path: Path,
+                       legal_team_summary: str = None) -> Path:
         """Generate comprehensive JSON report."""
         report = {
             "metadata": {
@@ -44,6 +45,7 @@ class JSONReporter:
                 "recommendations": analysis_results.get('ai_analysis', {}).get('recommendations', []),
                 "notable_quotes": analysis_results.get('ai_analysis', {}).get('notable_quotes', []),
             },
+            "legal_team_summary": legal_team_summary,
             "summary": {
                 "total_messages": extracted_data.get('total_messages', len(extracted_data.get('messages', []))),
                 "threats_detected": analysis_results.get('threats', {}).get('summary', {}).get('messages_with_threats', 0),
