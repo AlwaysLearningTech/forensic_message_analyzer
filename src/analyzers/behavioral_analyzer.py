@@ -32,6 +32,11 @@ class BehavioralAnalyzer:
         Returns:
             Dictionary of behavioral analysis results
         """
+        # Normalize timestamps to UTC so sort/compare never mixes tz-naive and tz-aware
+        if 'timestamp' in df.columns:
+            df = df.copy()
+            df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
+
         results = {
             'behavioral_profiles': self._create_behavioral_profiles(df),
             'sentiment_progression': self._analyze_sentiment_progression(df),

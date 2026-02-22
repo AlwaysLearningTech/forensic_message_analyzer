@@ -114,7 +114,7 @@ def main():
     mapped_names_with_me = set(config.contact_mappings.keys()) | {'Me'}
     mapped_messages = [
         m for m in messages
-        if m.get('sender') in mapped_names_with_me or m.get('recipient') in mapped_names_with_me
+        if m.get('sender') in mapped_names_with_me and m.get('recipient') in mapped_names_with_me
     ]
     skipped = len(messages) - len(mapped_messages)
     print(f"  Total messages:  {len(messages):,}")

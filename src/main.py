@@ -179,11 +179,12 @@ class ForensicAnalyzer:
             from src.analyzers.ai_analyzer import AIAnalyzer
             ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic)
             if ai_analyzer.client:
-                # Filter to only messages involving mapped contacts
+                # Filter to only conversations between mapped contacts
+                # Both sender AND recipient must be mapped (or 'Me')
                 mapped_names = set(self.config.contact_mappings.keys()) | {'Me'}
                 mapped_messages = [
                     m for m in messages
-                    if m.get('sender') in mapped_names or m.get('recipient') in mapped_names
+                    if m.get('sender') in mapped_names and m.get('recipient') in mapped_names
                 ]
                 skipped = len(messages) - len(mapped_messages)
                 if skipped:
