@@ -141,6 +141,34 @@ class WhatsAppExtractor:
             # Find all messages
             matches = self.message_pattern.findall(content)
             
+            # First pass: identify unique senders to determine chat participants
+            # This lets us correctly assign recipients in 1:1 chats even when
+            # the filename doesn't contain the contact name.
+            person1 = getattr(config, 'person1_name', None)
+            raw_senders = set()
+            for match in matches:
+                raw_senders.add(match[1].strip())
+            
+            # Map raw senders to person names
+            mapped_senders = set()
+            for raw in raw_senders:
+                for person_name, person_handles in config.contact_mappings.items():
+                    if raw in person_handles:
+                        mapped_senders.add(person_name)
+                        break
+                else:
+                    if raw.lower() in ['you', 'me']:
+                        if person1:
+                            mapped_senders.add(person1)
+                    else:
+                        mapped_senders.add(raw)
+            
+            # For 1:1 chats: the "other person" is whoever isn't PERSON1
+            other_person = None
+            non_person1 = mapped_senders - {person1} if person1 else mapped_senders
+            if len(non_person1) == 1:
+                other_person = non_person1.pop()
+            
             for match in matches:
                 timestamp_str, sender, message_content = match
                 
@@ -164,26 +192,25 @@ class WhatsAppExtractor:
                         break
                 
                 # If sender resolved to PERSON1 (device owner), treat as "from me"
-                person1 = getattr(config, 'person1_name', None)
                 if person1 and sender_name == person1:
                     is_from_me = True
                 
-                # Determine recipient using smart mapping
+                # Determine recipient
                 # For 1:1 chats: if sender is Me/PERSON1 → recipient is the other person
-                # If sender is mapped person → recipient is Me
+                # If sender is another person → recipient is Me/PERSON1
                 if is_from_me or sender_name == 'Me':
-                    # Sender is me, so recipient is the mapped person
-                    # Try to find recipient from contact mappings
-                    recipient = 'Unknown'
-                    for person_name, identifiers in config.contact_mappings.items():
-                        # Skip PERSON1 — they're the sender, not recipient
-                        if person1 and person_name == person1:
-                            continue
-                        # Check if this file relates to this person
-                        # Look at filename or sender name in other messages
-                        if any(identifier.lower() in file_path.name.lower() for identifier in identifiers):
-                            recipient = person_name
-                            break
+                    # Use the other participant detected in first pass
+                    if other_person:
+                        recipient = other_person
+                    else:
+                        # Fallback: try filename-based matching
+                        recipient = 'Unknown'
+                        for person_name, identifiers in config.contact_mappings.items():
+                            if person1 and person_name == person1:
+                                continue
+                            if any(identifier.lower() in file_path.name.lower() for identifier in identifiers):
+                                recipient = person_name
+                                break
                 else:
                     # Sender is another person, so recipient is Me
                     recipient = 'Me'

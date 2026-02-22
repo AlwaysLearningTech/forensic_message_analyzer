@@ -54,3 +54,10 @@ for i, ((src, sender), cnt) in enumerate(sorted(all_by.items(), key=lambda x: (-
     if i >= 20:
         break
     print(f"  {src:12s}  {sender:20s}  {cnt:,}")
+
+print()
+print("=== WHATSAPP: sender -> recipient pairs ===")
+wa = [m for m in messages if m.get('source') == 'whatsapp']
+wa_pairs = Counter((m.get('sender'), m.get('recipient')) for m in wa)
+for (s, r), c in wa_pairs.most_common():
+    print(f"  {s:20s} -> {r:20s}: {c:,}")
