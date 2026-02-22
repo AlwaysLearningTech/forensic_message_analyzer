@@ -27,6 +27,7 @@ from src.analyzers.communication_metrics import CommunicationMetricsAnalyzer
 from src.reporters.excel_reporter import ExcelReporter
 from src.reporters.forensic_reporter import ForensicReporter
 from src.reporters.json_reporter import JSONReporter
+from src.reporters.html_reporter import HtmlReporter
 from src.review.manual_review_manager import ManualReviewManager
 from src.utils.run_manifest import RunManifest
 from src.utils.timeline_generator import TimelineGenerator
@@ -379,6 +380,20 @@ class ForensicAnalyzer:
                 import traceback
                 traceback.print_exc()
         
+        # Generate HTML/PDF report with inline images
+        print("\n[*] Generating HTML/PDF report (with inline images)...")
+        try:
+            html_reporter = HtmlReporter(self.forensic)
+            html_base = Path(self.config.output_dir) / f"report_{timestamp}"
+            html_paths = html_reporter.generate_report(data, analysis, review, html_base)
+            for fmt, path in html_paths.items():
+                reports[fmt] = str(path)
+                print(f"    {fmt.upper()} report: {path.name}")
+        except Exception as e:
+            print(f"    Error generating HTML/PDF report: {e}")
+            import traceback
+            traceback.print_exc()
+
         # Generate JSON report if needed
         if 'json' not in reports:
             print("\n[*] Generating JSON report...")
