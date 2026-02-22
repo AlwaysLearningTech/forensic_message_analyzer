@@ -23,7 +23,6 @@ class AttachmentProcessor:
         
         self.forensic.record_action(
             "ATTACHMENT_PROCESSOR_INIT",
-            "attachment_processing",
             "Initialized attachment processor"
         )
     
@@ -58,7 +57,6 @@ class AttachmentProcessor:
         
         self.forensic.record_action(
             "ATTACHMENTS_PROCESSED",
-            "attachment_processing",
             f"Processed {len(attachments)} media files"
         )
         
@@ -107,7 +105,6 @@ class AttachmentProcessor:
         
         self.forensic.record_action(
             "ATTACHMENT_CATALOGED",
-            "attachment_processing",
             f"Cataloged {file_path.name}: {mime_type}, {stat.st_size} bytes"
         )
         

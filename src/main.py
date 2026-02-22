@@ -159,7 +159,24 @@ class ForensicAnalyzer:
         metrics_results = metrics_analyzer.analyze_messages(messages)
         results['metrics'] = metrics_results
         print("    Communication metrics calculated")
-        
+
+        # AI analysis (Azure OpenAI GPT-4o)
+        print("\n[*] Running AI analysis...")
+        try:
+            from src.analyzers.ai_analyzer import AIAnalyzer
+            ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic)
+            if ai_analyzer.client:
+                ai_results = ai_analyzer.analyze_messages(messages, batch_size=self.config.batch_size)
+                results['ai_analysis'] = ai_results
+                risk_count = len(ai_results.get('risk_indicators', []))
+                print(f"    AI analysis complete - {risk_count} risk indicators found")
+            else:
+                results['ai_analysis'] = ai_analyzer._empty_analysis()
+                print("    AI analysis skipped - Azure OpenAI not configured")
+        except Exception as e:
+            print(f"    AI analysis error: {e}")
+            results['ai_analysis'] = {}
+
         # Save analysis results
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file = Path(self.config.output_dir) / f"analysis_results_{timestamp}.json"
@@ -176,15 +193,12 @@ class ForensicAnalyzer:
         print("\n" + "="*60)
         print("PHASE 3: INTERACTIVE MANUAL REVIEW")
         print("="*60)
-        
-        from .review.interactive_review import InteractiveReview
-        
+
         manager = ManualReviewManager()
-        interactive = InteractiveReview(manager)
-        
+
         # Present items for review
         items_for_review = []
-        
+
         # Add ALL threats for review (not just high-confidence)
         if 'threats' in analysis_results:
             threat_details = analysis_results['threats'].get('details', [])
@@ -198,20 +212,60 @@ class ForensicAnalyzer:
                             'type': 'threat',
                             'content': item.get('content', ''),
                             'categories': item.get('threat_categories', ''),
-                            'confidence': item.get('threat_confidence', 0)
+                            'confidence': item.get('threat_confidence', 0),
+                            'message_id': item.get('message_id', ''),
                         })
-        
+
+        # Add AI-detected threats to review queue
+        ai_analysis = analysis_results.get('ai_analysis', {})
+        if ai_analysis.get('threat_assessment', {}).get('found'):
+            for i, detail in enumerate(ai_analysis['threat_assessment'].get('details', [])):
+                if isinstance(detail, dict):
+                    items_for_review.append({
+                        'id': f"ai_threat_{i}",
+                        'type': 'ai_threat',
+                        'content': detail.get('quote', detail.get('type', '')),
+                        'categories': detail.get('type', ''),
+                        'confidence': 0.0,
+                        'severity': detail.get('severity', ''),
+                        'threat_type': detail.get('type', ''),
+                    })
+
         print(f"\n[*] {len(items_for_review)} items flagged for review")
-        
-        # Run interactive review with context
+
+        # Choose review mode (web or terminal)
         messages = extracted_data.get('messages', [])
-        interactive.review_flagged_items(messages, items_for_review)
-        
+        screenshots = extracted_data.get('screenshots', [])
+
+        review_mode = 'terminal'
+        if items_for_review:
+            try:
+                choice = input("\n    Review mode: (W)eb interface or (T)erminal? [W]: ").strip().upper()
+                if choice != 'T':
+                    review_mode = 'web'
+            except (EOFError, KeyboardInterrupt):
+                review_mode = 'terminal'
+
+        if review_mode == 'web' and items_for_review:
+            try:
+                from .review.web_review import WebReview
+                web = WebReview(manager, forensic_recorder=self.forensic)
+                web.start_review(messages, items_for_review, screenshots=screenshots)
+            except ImportError:
+                print("    Flask not installed. Falling back to terminal review.")
+                from .review.interactive_review import InteractiveReview
+                interactive = InteractiveReview(manager)
+                interactive.review_flagged_items(messages, items_for_review)
+        else:
+            from .review.interactive_review import InteractiveReview
+            interactive = InteractiveReview(manager)
+            interactive.review_flagged_items(messages, items_for_review)
+
         # Get review summary
         relevant = manager.get_reviews_by_decision('relevant')
         not_relevant = manager.get_reviews_by_decision('not_relevant')
         uncertain = manager.get_reviews_by_decision('uncertain')
-        
+
         review_summary = {
             'total_reviewed': len(relevant) + len(not_relevant) + len(uncertain),
             'relevant': len(relevant),
@@ -219,13 +273,13 @@ class ForensicAnalyzer:
             'uncertain': len(uncertain),
             'reviews': manager.reviews
         }
-        
+
         print(f"    Relevant: {review_summary['relevant']}")
         print(f"    Not Relevant: {review_summary['not_relevant']}")
         print(f"    Uncertain: {review_summary['uncertain']}")
-        
+
         print("\n[✓] Review phase complete")
-        
+
         return review_summary
     
     def run_behavioral_phase(self, extracted_data: Dict, analysis_results: Dict, review_results: Dict) -> Dict:
@@ -242,7 +296,7 @@ class ForensicAnalyzer:
             return {}
         
         # Get confirmed threats from review
-        relevant_ids = [r['item_id'] for r in review_results.get('reviews', {}).values() 
+        relevant_ids = [r.get('item_id', '') for r in review_results.get('reviews', [])
                        if r.get('decision') == 'relevant']
         
         print(f"\n[*] Analyzing behavioral patterns on {len(relevant_ids)} reviewed threats")
@@ -262,7 +316,7 @@ class ForensicAnalyzer:
     def run_reporting_phase(self, data: Dict, analysis: Dict, review: Dict) -> Dict:
         """Generate reports in multiple formats."""
         print("\n" + "="*60)
-        print("PHASE 4: REPORT GENERATION")
+        print("PHASE 5: REPORT GENERATION")
         print("="*60)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -315,10 +369,10 @@ class ForensicAnalyzer:
         
         return reports
     
-    def run_documentation_phase(self, data: Dict) -> Dict:
+    def run_documentation_phase(self, data: Dict, analysis_results: Dict = None) -> Dict:
         """Generate final documentation and chain of custody."""
         print("\n" + "="*60)
-        print("PHASE 5: DOCUMENTATION")
+        print("PHASE 6: DOCUMENTATION")
         print("="*60)
         
         # Generate chain of custody
@@ -328,20 +382,34 @@ class ForensicAnalyzer:
         
         # Generate timeline if we have message data
         timeline_path = None
-        combined_data = data.get('combined', [])
+        combined_data = data.get('messages', data.get('combined', []))
         if combined_data:
             print("\n[*] Generating timeline...")
             timeline_gen = TimelineGenerator(self.forensic)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             timeline_path = Path(self.config.output_dir) / f"timeline_{timestamp}.html"
-            
-            # Convert to DataFrame if needed
+
+            # Convert to DataFrame
             import pandas as pd
             if isinstance(combined_data, list):
                 df = pd.DataFrame(combined_data)
             else:
                 df = combined_data
-            
+
+            # Merge analysis columns if available
+            if analysis_results:
+                # Threats have details as list of dicts with analysis columns
+                threat_details = analysis_results.get('threats', {}).get('details', [])
+                if threat_details and isinstance(threat_details, list):
+                    analysis_df = pd.DataFrame(threat_details)
+                    # Only merge columns that aren't already in df
+                    analysis_cols = ['threat_detected', 'threat_categories', 'threat_confidence',
+                                   'harmful_content', 'sentiment_score', 'sentiment_polarity',
+                                   'sentiment_subjectivity', 'patterns_detected', 'pattern_score']
+                    for col in analysis_cols:
+                        if col in analysis_df.columns and col not in df.columns:
+                            df[col] = analysis_df[col].values[:len(df)] if len(analysis_df) >= len(df) else None
+
             timeline_gen.create_timeline(df, timeline_path)
             print(f"    Saved to {timeline_path}")
         else:
@@ -374,19 +442,23 @@ class ForensicAnalyzer:
         try:
             # Phase 1: Extraction
             extracted_data = self.run_extraction_phase()
-            
+
             # Phase 2: Analysis
             analysis_results = self.run_analysis_phase(extracted_data)
-            
+
             # Phase 3: Review
-            review_results = self.run_review_phase(analysis_results)
-            
-            # Phase 4: Reporting
+            review_results = self.run_review_phase(analysis_results, extracted_data)
+
+            # Phase 4: Behavioral Analysis (post-review)
+            behavioral_results = self.run_behavioral_phase(extracted_data, analysis_results, review_results)
+            analysis_results['behavioral'] = behavioral_results
+
+            # Phase 5: Reporting
             reports = self.run_reporting_phase(extracted_data, analysis_results, review_results)
-            
-            # Phase 5: Documentation
-            documentation = self.run_documentation_phase(extracted_data)
-            
+
+            # Phase 6: Documentation (pass analysis_results for enriched timeline)
+            documentation = self.run_documentation_phase(extracted_data, analysis_results)
+
             print("\n" + "="*80)
             print(" WORKFLOW COMPLETE ")
             print("="*80)
@@ -396,9 +468,11 @@ class ForensicAnalyzer:
                 print(f"  - {report_type}: {Path(path).name}")
             for doc_type, path in documentation.items():
                 print(f"  - {doc_type}: {Path(path).name}")
-            
+
         except Exception as e:
             print(f"\n[ERROR] Workflow failed: {e}")
+            import traceback
+            traceback.print_exc()
             raise
 
 

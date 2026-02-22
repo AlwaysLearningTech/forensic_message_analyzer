@@ -48,7 +48,6 @@ class ThreatAnalyzer:
         
         self.forensic.record_action(
             "THREAT_ANALYZER_INIT",
-            "threat_analysis",
             f"Initialized with {len(self.threat_patterns)} threat categories"
         )
     
@@ -96,7 +95,6 @@ class ThreatAnalyzer:
         
         self.forensic.record_action(
             "THREAT_DETECTION_COMPLETE",
-            "threat_analysis",
             f"Detected threats in {threats_found} of {len(df)} messages"
         )
         
@@ -122,7 +120,6 @@ class ThreatAnalyzer:
         
         self.forensic.record_action(
             "THREAT_SUMMARY_GENERATED",
-            "threat_analysis",
             f"Summary generated for {summary['messages_with_threats']} threats"
         )
         

@@ -37,9 +37,16 @@ class JSONReporter:
             "extraction": extracted_data,
             "analysis": analysis_results,
             "review": review_decisions,
+            "findings_summary": {
+                "ai_executive_summary": analysis_results.get('ai_analysis', {}).get('conversation_summary', ''),
+                "risk_indicators": analysis_results.get('ai_analysis', {}).get('risk_indicators', []),
+                "threat_assessment": analysis_results.get('ai_analysis', {}).get('threat_assessment', {}),
+                "recommendations": analysis_results.get('ai_analysis', {}).get('recommendations', []),
+                "notable_quotes": analysis_results.get('ai_analysis', {}).get('notable_quotes', []),
+            },
             "summary": {
-                "total_messages": extracted_data.get('total_messages', 0),
-                "threats_detected": analysis_results.get('threats', {}).get('count', 0),
+                "total_messages": extracted_data.get('total_messages', len(extracted_data.get('messages', []))),
+                "threats_detected": analysis_results.get('threats', {}).get('summary', {}).get('messages_with_threats', 0),
                 "items_reviewed": review_decisions.get('total_reviewed', 0),
                 "relevant_items": review_decisions.get('relevant', 0)
             }

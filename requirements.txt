@@ -20,15 +20,22 @@ reportlab>=3.6.0  # PDF reports
 plotly>=5.0.0  # Interactive charts for timeline visualization
 matplotlib>=3.5.0  # Static charts as fallback
 
-# AI/ML capabilities (for advanced analysis)
-openai>=1.0.0  # For Azure OpenAI GPT-4 Turbo integration
-azure-identity>=1.14.0  # For Azure authentication
-tiktoken>=0.5.0  # For accurate token counting
+# AI analysis (Anthropic Claude via direct API or Azure AI)
+anthropic>=0.40.0
+
+# Web-based interactive review
+Flask>=3.0.0
 
 # Testing
 pytest>=7.0.0
 pytest-mock>=3.6.0
 pytest-cov>=3.0.0
+
+# NLP and text analysis
+textblob>=0.17.1  # Sentiment analysis
+
+# Timezone support
+pytz>=2023.3
 
 # Additional forensic utilities
 python-dateutil>=2.8.2  # Date parsing

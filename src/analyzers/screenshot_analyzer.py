@@ -22,7 +22,6 @@ class ScreenshotAnalyzer:
         
         self.forensic.record_action(
             "SCREENSHOT_ANALYZER_INIT",
-            "screenshot_analysis",
             "Initialized screenshot OCR analyzer"
         )
     
@@ -81,7 +80,6 @@ class ScreenshotAnalyzer:
                 
                 self.forensic.record_action(
                     "SCREENSHOT_PROCESSED",
-                    "screenshot_analysis",
                     f"Processed {filename}: {len(extracted_text)} chars extracted"
                 )
                 
@@ -89,7 +87,6 @@ class ScreenshotAnalyzer:
                 self.logger.error(f"Failed to process {image_file}: {e}")
                 self.forensic.record_action(
                     "SCREENSHOT_PROCESSING_FAILED",
-                    "screenshot_analysis",
                     f"Failed to process {image_file.name}: {str(e)}"
                 )
         

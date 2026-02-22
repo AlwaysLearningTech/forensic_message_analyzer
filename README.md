@@ -122,10 +122,10 @@ cp .env.example ~/workspace/data/forensic_message_analyzer/.env
 
 3. Edit `~/workspace/data/forensic_message_analyzer/.env` with your settings:
 ```bash
-# Azure OpenAI (optional, for AI analysis)
-AZURE_OPENAI_ENDPOINT=your-endpoint
-AZURE_OPENAI_API_KEY=your-key
-AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment
+# Anthropic Claude (optional, for AI analysis)
+AI_ENDPOINT=your-endpoint
+AI_API_KEY=your-key
+AI_MODEL=claude-opus-4-5-20251101
 
 # Contact Mapping - Define names for reports and their identifiers
 # PERSON(x)_NAME: The name used in all reports (e.g., "David Snyder")

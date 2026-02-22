@@ -12,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
+import pytz
+
 
 class ForensicRecorder:
     """
@@ -149,23 +151,47 @@ class ForensicRecorder:
         """
         Generate chain of custody document for legal proceedings.
         Satisfies FRE 901 authentication and business records exception (FRE 803(6)).
-        
+        Includes case/examiner information and timezone-aware timestamps per
+        SWGDE guidelines and NIST SP 800-86.
+
         Args:
             output_file: Optional path for the output file
-            
+
         Returns:
             Path to the generated file, or None if failed
         """
         if not output_file:
             output_file = str(self.output_dir / f"chain_of_custody_{self.session_id}.json")
-        
+
+        # Load case identification from config (best-effort; avoid hard failure)
+        case_number = ""
+        examiner_name = ""
+        organization = ""
+        tz_name = "America/Chicago"
+        try:
+            from src.config import Config
+            cfg = Config()
+            case_number = cfg.case_number
+            examiner_name = cfg.examiner_name
+            organization = cfg.organization
+            tz_name = cfg.timezone
+        except (ImportError, Exception):
+            pass
+
+        tz = pytz.timezone(tz_name)
+        now_aware = datetime.now(tz)
+
         try:
             # Create comprehensive custody document
             custody_doc = {
-                "generated_at": datetime.now().isoformat(),
+                "generated_at": now_aware.isoformat(),
+                "timezone": tz_name,
                 "session_id": self.session_id,
+                "case_number": case_number,
+                "examiner_name": examiner_name,
+                "organization": organization,
                 "start_time": self.start_time.isoformat(),
-                "end_time": datetime.now().isoformat(),
+                "end_time": now_aware.isoformat(),
                 "duration_seconds": (datetime.now() - self.start_time).total_seconds(),
                 "total_actions": len(self.actions),
                 "actions": self.actions,
@@ -173,39 +199,48 @@ class ForensicRecorder:
                     "platform": platform.system(),
                     "platform_version": platform.version(),
                     "python_version": sys.version,
-                    "analyzer_version": "1.0.0"
+                    "analyzer_version": "4.0.0"
                 },
+                "standards_references": [
+                    "FRE 901 - Authentication of Evidence",
+                    "FRE 803(6) - Business Records Exception",
+                    "FRE 1001-1008 - Best Evidence Rule",
+                    "SWGDE Best Practices for Digital Evidence",
+                    "NIST SP 800-86 - Guide to Integrating Forensic Techniques into Incident Response",
+                ],
                 "legal_notice": (
                     "This chain of custody document was generated automatically "
-                    "as part of forensic analysis. All timestamps are in ISO 8601 format. "
+                    "as part of forensic analysis. All timestamps are in ISO 8601 format "
+                    f"and expressed in the {tz_name} timezone. "
                     "SHA-256 hashes verify file integrity. This document satisfies "
-                    "FRE 901 authentication requirements."
+                    "FRE 901 authentication requirements and is maintained in accordance "
+                    "with SWGDE guidelines and NIST SP 800-86."
                 )
             }
-            
+
             # Write initial document
             with open(output_file, 'w') as f:
                 json.dump(custody_doc, f, indent=2)
-            
+
             # Hash the chain of custody document itself
             doc_hash = self.compute_hash(Path(output_file))
-            
+
             # Append self-hash to the document
             custody_doc["document_hash"] = doc_hash
             custody_doc["hash_algorithm"] = "SHA-256"
-            
+
             # Re-save with hash
             with open(output_file, 'w') as f:
                 json.dump(custody_doc, f, indent=2)
-            
+
             self.record_action(
                 "chain_of_custody_generated",
                 f"Generated chain of custody document with {len(self.actions)} actions",
                 {"file": output_file, "hash": doc_hash}
             )
-            
+
             return output_file
-            
+
         except Exception as e:
             self.record_action(
                 "chain_of_custody_error",

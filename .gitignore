@@ -46,7 +46,7 @@ htmlcov/
 source_files/
 output/
 logs/
-review/
+/review/
 data/
 
 # Temporary files

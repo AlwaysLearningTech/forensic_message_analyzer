@@ -19,7 +19,6 @@ class SentimentAnalyzer:
         
         self.forensic.record_action(
             "SENTIMENT_ANALYZER_INIT",
-            "sentiment_analysis",
             "Initialized sentiment analyzer"
         )
     
@@ -78,7 +77,6 @@ class SentimentAnalyzer:
         
         self.forensic.record_action(
             "SENTIMENT_ANALYSIS_COMPLETE",
-            "sentiment_analysis",
             f"Analyzed {len(df)} messages: {positive_count} pos, {negative_count} neg, {neutral_count} neutral"
         )
         

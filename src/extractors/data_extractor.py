@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .imessage_extractor import iMessageExtractor
 from .whatsapp_extractor import WhatsAppExtractor
+from .email_extractor import EmailExtractor
 from ..config import Config
 from ..forensic_utils import ForensicIntegrity
 
@@ -35,14 +36,20 @@ class DataExtractor:
         
         # WhatsApp extractor needs: export_dir, forensic_recorder, forensic_integrity
         self.whatsapp = WhatsAppExtractor(
-            self.config.whatsapp_source_dir, 
-            forensic, 
+            self.config.whatsapp_source_dir,
+            forensic,
             self.integrity
         ) if self.config.whatsapp_source_dir else None
-        
+
+        # Email extractor needs: source_dir, forensic_recorder, forensic_integrity
+        self.email = EmailExtractor(
+            self.config.email_source_dir,
+            forensic,
+            self.integrity
+        ) if self.config.email_source_dir else None
+
         self.forensic.record_action(
             "DATA_EXTRACTOR_INIT",
-            "extraction",
             "Initialized unified data extractor"
         )
     
@@ -70,8 +77,7 @@ class DataExtractor:
             self.logger.error(f"Failed to extract iMessages: {e}")
             self.forensic.record_action(
                 "IMESSAGE_EXTRACTION_FAILED",
-                "extraction",
-                str(e)
+                f"iMessage extraction failed: {str(e)}"
             )
         
         # Extract WhatsApp messages
@@ -85,14 +91,26 @@ class DataExtractor:
             self.logger.error(f"Failed to extract WhatsApp messages: {e}")
             self.forensic.record_action(
                 "WHATSAPP_EXTRACTION_FAILED",
-                "extraction",
-                str(e)
+                f"WhatsApp extraction failed: {str(e)}"
             )
-        
+
+        # Extract email messages
+        try:
+            self.logger.info("Extracting email messages...")
+            email_messages = self.email.extract_all()
+            if email_messages:  # List check
+                all_messages.extend(email_messages)
+                self.logger.info(f"Extracted {len(email_messages)} email messages")
+        except Exception as e:
+            self.logger.error(f"Failed to extract email messages: {e}")
+            self.forensic.record_action(
+                "EMAIL_EXTRACTION_FAILED",
+                f"Email extraction failed: {str(e)}"
+            )
+
         # Record extraction summary
         self.forensic.record_action(
             "EXTRACTION_COMPLETE",
-            "extraction",
             f"Extracted {len(all_messages)} total messages from all sources"
         )
         
@@ -147,7 +165,6 @@ class DataExtractor:
         
         self.forensic.record_action(
             "EXTRACTION_VALIDATED",
-            "extraction",
             f"Validation {'passed' if validation['validation_passed'] else 'failed'}"
         )
         

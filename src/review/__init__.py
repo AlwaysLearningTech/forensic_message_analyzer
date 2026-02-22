@@ -1,7 +1,7 @@
 """Manual review module."""
 from .manual_review_manager import ManualReviewManager
 
-# If you have a ReviewManager class somewhere, import it too
-# from .review_manager import ReviewManager
+# WebReview requires Flask; import on demand to avoid hard dependency
+# Usage: from src.review.web_review import WebReview
 
 __all__ = ['ManualReviewManager']

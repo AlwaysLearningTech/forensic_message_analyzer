@@ -25,7 +25,6 @@ class YamlPatternAnalyzer:
         
         self.forensic.record_action(
             "YAML_PATTERN_ANALYZER_INIT",
-            "pattern_analysis",
             f"Loaded {len(self.patterns)} pattern categories"
         )
     
@@ -139,7 +138,6 @@ class YamlPatternAnalyzer:
         
         self.forensic.record_action(
             "PATTERN_ANALYSIS_COMPLETE",
-            "pattern_analysis",
             f"Found patterns in {patterns_found} of {len(df)} messages"
         )
         

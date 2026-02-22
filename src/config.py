@@ -50,11 +50,10 @@ class Config:
     
     def _load_config(self):
         """Load configuration from environment variables."""
-        # Azure OpenAI settings
-        self.azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
-        self.azure_api_key = os.getenv('AZURE_OPENAI_API_KEY')
-        self.azure_deployment = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME')
-        self.azure_api_version = os.getenv('AZURE_OPENAI_API_VERSION')
+        # AI / Anthropic Claude settings
+        self.ai_endpoint = os.getenv('AI_ENDPOINT')
+        self.ai_api_key = os.getenv('AI_API_KEY')
+        self.ai_model = os.getenv('AI_MODEL')
         
         # Contact mappings - flexible system that allows custom names
         # PERSON1_NAME defines the name used in reports (e.g., "David Snyder")
@@ -99,6 +98,7 @@ class Config:
         # Data sources (expand ~ to home directory)
         self.whatsapp_source_dir = self._expand_path(os.getenv('WHATSAPP_SOURCE_DIR'))
         self.screenshot_source_dir = self._expand_path(os.getenv('SCREENSHOT_SOURCE_DIR'))
+        self.email_source_dir = self._expand_path(os.getenv('EMAIL_SOURCE_DIR'))
         self.messages_db_path = self._expand_path(os.getenv('MESSAGES_DB_PATH'))
         self.messages_db_wal = self._expand_path(os.getenv('MESSAGES_DB_WAL'))
         self.messages_db_shm = self._expand_path(os.getenv('MESSAGES_DB_SHM'))
@@ -118,6 +118,13 @@ class Config:
             os.getenv('OUTPUT_DIR', '~/workspace/output/forensic_message_analyzer')
         )
         
+        # Legal compliance / case identification
+        self.examiner_name = os.getenv('EXAMINER_NAME', '')
+        self.case_number = os.getenv('CASE_NUMBER', '')
+        self.case_name = os.getenv('CASE_NAME', '')
+        self.timezone = os.getenv('ANALYSIS_TIMEZONE', 'America/Chicago')
+        self.organization = os.getenv('ORGANIZATION', '')
+
         # Logging
         self.log_level = os.getenv('LOG_LEVEL', 'INFO')
         self.content_filter_log = self._expand_path(os.getenv('CONTENT_FILTER_LOG'))
@@ -275,12 +282,12 @@ class Config:
             errors.append("OUTPUT_DIR not configured")
         
         # Check for at least one data source
-        if not any([self.messages_db_path, self.whatsapp_source_dir, self.screenshot_source_dir]):
-            errors.append("No data sources configured (need iMessage, WhatsApp, or screenshots)")
+        if not any([self.messages_db_path, self.whatsapp_source_dir, self.screenshot_source_dir, self.email_source_dir]):
+            errors.append("No data sources configured (need iMessage, WhatsApp, email, or screenshots)")
         
-        # Check Azure configuration if AI analysis is expected
-        if self.azure_endpoint and not self.azure_api_key:
-            errors.append("Azure endpoint configured but API key missing")
+        # Check AI configuration if analysis is expected
+        if self.ai_endpoint and not self.ai_api_key:
+            errors.append("AI endpoint configured but API key missing")
         
         return len(errors) == 0, errors
     
@@ -299,5 +306,7 @@ class Config:
             sources['WhatsApp'] = self.whatsapp_source_dir
         if self.screenshot_source_dir:
             sources['Screenshots'] = self.screenshot_source_dir
+        if self.email_source_dir:
+            sources['Email'] = self.email_source_dir
             
         return sources

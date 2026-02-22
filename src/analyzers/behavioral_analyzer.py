@@ -19,7 +19,6 @@ class BehavioralAnalyzer:
         
         self.forensic.record_action(
             "BEHAVIORAL_ANALYZER_INIT",
-            "behavioral_analysis",
             "Initialized behavioral pattern analyzer"
         )
     
@@ -41,14 +40,12 @@ class BehavioralAnalyzer:
             'relationship_dynamics': self._analyze_relationship_dynamics(df),
             'threat_assessment': self._comprehensive_threat_assessment(df),
             'visitation_analysis': self._analyze_visitation_patterns(df),
-            'communication_patterns': self._analyze_communication_patterns(df),
             'response_patterns': self._analyze_response_patterns(df),
             'time_patterns': self._analyze_time_patterns(df)
         }
         
         self.forensic.record_action(
             "BEHAVIORAL_ANALYSIS_COMPLETE",
-            "behavioral_analysis",
             f"Analyzed {len(df)} messages for behavioral patterns"
         )
         
@@ -69,7 +66,7 @@ class BehavioralAnalyzer:
             
             profile = {
                 'message_count': len(sender_msgs),
-                'avg_message_length': sender_msgs['message'].str.len().mean() if 'message' in df.columns else 0,
+                'avg_message_length': sender_msgs['content'].str.len().mean() if 'content' in df.columns else 0,
                 'active_hours': self._get_active_hours(sender_msgs),
                 'communication_style': self._analyze_communication_style(sender_msgs)
             }
@@ -175,7 +172,7 @@ class BehavioralAnalyzer:
             'scheduling_conflicts': 0
         }
         
-        if 'message' not in df.columns:
+        if 'content' not in df.columns:
             return visitation
         
         # Keywords related to visitation
@@ -183,7 +180,7 @@ class BehavioralAnalyzer:
                          'weekend', 'schedule', 'exchange', 'parenting time']
         
         for _, row in df.iterrows():
-            msg_lower = str(row.get('message', '')).lower()
+            msg_lower = str(row.get('content', '')).lower()
             if any(keyword in msg_lower for keyword in visit_keywords):
                 visitation['mentions'] += 1
                 
@@ -324,15 +321,15 @@ class BehavioralAnalyzer:
         """Analyze communication style characteristics."""
         style = {}
         
-        if 'message' not in df.columns:
+        if 'content' not in df.columns:
             return style
-        
+
         # Message length patterns
-        msg_lengths = df['message'].str.len()
+        msg_lengths = df['content'].str.len()
         style['avg_length'] = msg_lengths.mean()
-        style['uses_caps'] = df['message'].str.isupper().sum() / len(df)
-        style['uses_questions'] = df['message'].str.contains('\\?').sum() / len(df)
-        style['uses_exclamations'] = df['message'].str.contains('!').sum() / len(df)
+        style['uses_caps'] = df['content'].str.isupper().sum() / len(df)
+        style['uses_questions'] = df['content'].str.contains('\\?').sum() / len(df)
+        style['uses_exclamations'] = df['content'].str.contains('!').sum() / len(df)
         
         return style
     
@@ -373,18 +370,18 @@ class BehavioralAnalyzer:
                     current_period = {
                         'start': row['timestamp'],
                         'end': row['timestamp'],
-                        'messages': [row['message']] if 'message' in row else []
+                        'messages': [row['content']] if 'content' in row else []
                     }
                 elif row['time_diff'] < timedelta(hours=24):
                     current_period['end'] = row['timestamp']
-                    if 'message' in row:
-                        current_period['messages'].append(row['message'])
+                    if 'content' in row:
+                        current_period['messages'].append(row['content'])
                 else:
                     periods.append(current_period)
                     current_period = {
                         'start': row['timestamp'],
                         'end': row['timestamp'],
-                        'messages': [row['message']] if 'message' in row else []
+                        'messages': [row['content']] if 'content' in row else []
                     }
             
             if current_period['start'] is not None:

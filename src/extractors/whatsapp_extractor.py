@@ -132,7 +132,8 @@ class WhatsAppExtractor:
             List of message dictionaries
         """
         messages = []
-        
+        msg_counter = 0
+
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -145,7 +146,10 @@ class WhatsAppExtractor:
                 
                 # Parse timestamp (handle different formats)
                 timestamp = self._parse_timestamp(timestamp_str)
-                
+                if timestamp is None:
+                    logger.warning(f"Skipping message with unparseable timestamp: {timestamp_str}")
+                    continue
+
                 # Map sender to person name using contact mappings
                 sender_name = sender.strip()
                 is_from_me = False
@@ -176,7 +180,9 @@ class WhatsAppExtractor:
                     # Sender is another person, so recipient is Me
                     recipient = 'Me'
                 
+                msg_counter += 1
                 messages.append({
+                    'message_id': f"wa_{file_path.stem}_{msg_counter}",
                     'timestamp': timestamp,
                     'sender': sender_name,
                     'recipient': recipient,
@@ -229,6 +235,6 @@ class WhatsAppExtractor:
             except ValueError:
                 continue
         
-        # If no format matches, log and return current time
+        # If no format matches, log warning and return None to flag the issue
         logger.warning(f"Could not parse timestamp: {timestamp_str}")
-        return datetime.now()
+        return None
