@@ -223,17 +223,31 @@ class ForensicAnalyzer:
 
         manager = ManualReviewManager()
 
-        # Present items for review
+        # Present items for review — only from mapped contacts
         items_for_review = []
 
-        # Add ALL threats for review (not just high-confidence)
+        # Determine which contacts are legally relevant (same filter as AI analysis)
+        ai_contacts = self.config.ai_contacts
+        ai_specified = self.config.ai_contacts_specified
+
+        def _is_mapped(item: dict) -> bool:
+            """Check if a message involves only mapped contacts."""
+            sender = item.get('sender', '')
+            recipient = item.get('recipient', '')
+            if sender not in ai_contacts or recipient not in ai_contacts:
+                return False
+            if ai_specified is not None:
+                if sender not in ai_specified and recipient not in ai_specified:
+                    return False
+            return True
+
+        # Add threats from mapped contacts for review
         if 'threats' in analysis_results:
             threat_details = analysis_results['threats'].get('details', [])
             # threat_details is a list of dicts, not a DataFrame
             if isinstance(threat_details, list):
                 for idx, item in enumerate(threat_details):
-                    if item.get('threat_detected'):
-                        # Flag ALL threats for legal review, regardless of confidence
+                    if item.get('threat_detected') and _is_mapped(item):
                         items_for_review.append({
                             'id': f"threat_{idx}",
                             'type': 'threat',
@@ -258,10 +272,12 @@ class ForensicAnalyzer:
                         'threat_type': detail.get('type', ''),
                     })
 
-        print(f"\n[*] {len(items_for_review)} items flagged for review")
+        print(f"\n[*] {len(items_for_review)} items flagged for review (mapped contacts only)")
 
         # Choose review mode (web or terminal)
-        messages = extracted_data.get('messages', [])
+        # Only pass mapped-contact messages to the review UI
+        all_messages = extracted_data.get('messages', [])
+        messages = [m for m in all_messages if _is_mapped(m)]
         screenshots = extracted_data.get('screenshots', [])
 
         review_mode = 'terminal'
