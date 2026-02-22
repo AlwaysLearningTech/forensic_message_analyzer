@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 class RateLimiter:
     """Rate limiter for synchronous API calls to respect token limits."""
 
-    def __init__(self, max_requests_per_minute: int = 60, max_tokens_per_minute: int = 150000):
+    def __init__(self, max_requests_per_minute: int = 40, max_tokens_per_minute: int = 25000):
         self.max_requests_per_minute = max_requests_per_minute
         self.max_tokens_per_minute = max_tokens_per_minute
         self.request_times: List[float] = []
@@ -96,11 +96,9 @@ class AIAnalyzer:
         self.model = config.ai_model or 'claude-opus-4-6'
 
         # Token limits from config
-        self.max_tokens_per_request = max(
-            getattr(config, 'max_tokens_per_request', 4096), 4096
-        )
-        self.max_tokens_per_minute = getattr(config, 'tokens_per_minute', 150000)
-        self.max_requests_per_minute = 60
+        self.max_tokens_per_request = getattr(config, 'max_tokens_per_request', 2048)
+        self.max_tokens_per_minute = getattr(config, 'tokens_per_minute', 25000)
+        self.max_requests_per_minute = getattr(config, 'max_requests_per_minute', 40)
         self.use_batch_api = getattr(config, 'use_batch_api', True)
 
         # Initialize Anthropic client if credentials available
@@ -298,7 +296,7 @@ class AIAnalyzer:
         # Based on actual batch data: avg ~1,800 output tokens per request
         # Based on actual billing: ~385 output tokens per batch average
         est_output_tokens = total_requests * 385
-        est_cost = (est_input_tokens / 1_000_000) * 7.50 + (est_output_tokens / 1_000_000) * 37.50
+        est_cost = (est_input_tokens / 1_000_000) * 2.50 + (est_output_tokens / 1_000_000) * 12.50
         print(
             f"    Submitting {total_requests} requests via Batch API (50% cost discount)...\n"
             f"    Estimated tokens: ~{est_input_tokens:,} input + ~{est_output_tokens:,} output\n"
@@ -348,6 +346,7 @@ class AIAnalyzer:
         total_input_tokens = 0
         total_output_tokens = 0
         cache_read_tokens = 0
+        cache_creation_tokens = 0
 
         for result in self.client.messages.batches.results(batch_id):
             if result.result.type == "succeeded":
@@ -358,7 +357,7 @@ class AIAnalyzer:
                 if hasattr(msg.usage, 'cache_read_input_tokens'):
                     cache_read_tokens += msg.usage.cache_read_input_tokens or 0
                 if hasattr(msg.usage, 'cache_creation_input_tokens'):
-                    cache_read_tokens += msg.usage.cache_creation_input_tokens or 0
+                    cache_creation_tokens += msg.usage.cache_creation_input_tokens or 0
                 try:
                     batch_analysis = _extract_json(msg.content[0].text)
                     self._merge_analysis(analysis_results, batch_analysis)
@@ -378,23 +377,32 @@ class AIAnalyzer:
         analysis_results["processing_stats"]["input_tokens"] = total_input_tokens
         analysis_results["processing_stats"]["output_tokens"] = total_output_tokens
         analysis_results["processing_stats"]["cache_read_tokens"] = cache_read_tokens
+        analysis_results["processing_stats"]["cache_creation_tokens"] = cache_creation_tokens
         analysis_results["processing_stats"]["batch_id"] = batch_id
         analysis_results["processing_stats"]["batch_api"] = True
 
         # Estimate cost (Batch API = 50% discount on standard rates)
-        # Claude Opus: $15/MTok input, $75/MTok output (standard)
-        # Batch API: $7.50/MTok input, $37.50/MTok output
-        # Cache reads: $1.50/MTok (batch) vs $0.30/MTok standard reads
+        # Claude Opus 4.6: $5/MTok input, $25/MTok output (standard)
+        # Batch API: $2.50/MTok input, $12.50/MTok output
+        # Cache reads: 10% of base batch input = $0.25/MTok
+        # Cache writes: 125% of base batch input = $3.125/MTok
+        uncached_input = total_input_tokens - cache_read_tokens
         estimated_cost = (
-            (total_input_tokens / 1_000_000) * 7.50
-            + (total_output_tokens / 1_000_000) * 37.50
+            (uncached_input / 1_000_000) * 2.50
+            + (cache_read_tokens / 1_000_000) * 0.25
+            + (cache_creation_tokens / 1_000_000) * 3.125
+            + (total_output_tokens / 1_000_000) * 12.50
         )
         analysis_results["processing_stats"]["estimated_cost_usd"] = round(estimated_cost, 2)
+
+        cache_info = ""
+        if cache_read_tokens or cache_creation_tokens:
+            cache_info = f" (cache: {cache_read_tokens:,} read, {cache_creation_tokens:,} written)"
 
         print(
             f"    Batch complete: {counts.succeeded} succeeded, "
             f"{total_input_tokens:,} input + {total_output_tokens:,} output tokens"
-            + (f" ({cache_read_tokens:,} from cache)" if cache_read_tokens else "")
+            + cache_info
             + f"\n    Estimated cost: ${estimated_cost:.2f}"
         )
 
@@ -414,6 +422,7 @@ class AIAnalyzer:
                 "input_tokens": total_input_tokens,
                 "output_tokens": total_output_tokens,
                 "cache_read_tokens": cache_read_tokens,
+                "cache_creation_tokens": cache_creation_tokens,
                 "errors": len(analysis_results["processing_stats"]["errors"]),
                 "risk_indicators_found": len(analysis_results["risk_indicators"]),
             },
