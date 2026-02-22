@@ -16,7 +16,7 @@ class ThreatAnalyzer:
         """Initialize threat analyzer with forensic integrity tracking."""
         self.forensic = forensic
         self.logger = logging.getLogger(__name__)
-        
+
         # Define threat patterns
         self.threat_patterns = {
             'physical_threat': [
@@ -45,50 +45,49 @@ class ThreatAnalyzer:
                 r'\b(court|judge|custody).*\b(violat|ignor|defy)\b'
             ]
         }
-        
+
+        # Pre-compile a single regex per category for vectorized matching
+        self._compiled_patterns: Dict[str, re.Pattern] = {}
+        for category, patterns in self.threat_patterns.items():
+            combined = '|'.join(f'(?:{p})' for p in patterns)
+            self._compiled_patterns[category] = re.compile(combined, re.IGNORECASE)
+
         self.forensic.record_action(
             "THREAT_ANALYZER_INIT",
             f"Initialized with {len(self.threat_patterns)} threat categories"
         )
-    
+
     def detect_threats(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Detect threats and harmful content in messages.
-        
+
         Args:
             df: DataFrame with messages to analyze
-            
+
         Returns:
             DataFrame with threat detection columns added
         """
         self.logger.info(f"Analyzing {len(df)} messages for threats")
-        
-        # Initialize new columns
-        df['harmful_content'] = False
-        df['threat_detected'] = False
-        df['threat_categories'] = ''
-        df['threat_confidence'] = 0.0
-        
-        for idx, row in df.iterrows():
-            if pd.isna(row.get('content')):
-                continue
-                
-            text = str(row['content']).lower()
-            detected_categories = []
-            
-            # Check each threat category
-            for category, patterns in self.threat_patterns.items():
-                for pattern in patterns:
-                    if re.search(pattern, text, re.IGNORECASE):
-                        detected_categories.append(category)
-                        break
-            
-            if detected_categories:
-                df.at[idx, 'harmful_content'] = True
-                df.at[idx, 'threat_detected'] = True
-                df.at[idx, 'threat_categories'] = ', '.join(detected_categories)
-                # Simple confidence based on number of categories matched
-                df.at[idx, 'threat_confidence'] = min(len(detected_categories) * 0.25, 1.0)
+
+        content = df['content'].fillna('').astype(str).str.lower()
+
+        # Vectorized: test each category against all messages at once
+        category_hits = {}
+        for category, pattern in self._compiled_patterns.items():
+            category_hits[category] = content.str.contains(pattern, regex=True, na=False)
+
+        # Build result columns from the per-category boolean series
+        categories_list = []
+        confidence_list = []
+        for i in range(len(df)):
+            matched = [cat for cat, hits in category_hits.items() if hits.iloc[i]]
+            categories_list.append(', '.join(matched) if matched else '')
+            confidence_list.append(min(len(matched) * 0.25, 1.0))
+
+        df['threat_categories'] = categories_list
+        df['threat_confidence'] = confidence_list
+        df['threat_detected'] = df['threat_confidence'] > 0
+        df['harmful_content'] = df['threat_detected']
         
         threats_found = df['threat_detected'].sum()
         self.logger.info(f"Found threats in {threats_found} messages")

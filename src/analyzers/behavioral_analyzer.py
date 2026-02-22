@@ -303,7 +303,7 @@ class BehavioralAnalyzer:
         return {
             'late_night_messages': len(late_night),
             'early_morning_messages': len(early_morning),
-            'most_active_hour': df_time['hour'].mode()[0] if len(df_time) > 0 else None,
+            'most_active_hour': int(df_time['hour'].mode().iloc[0]) if len(df_time) > 0 and not df_time['hour'].mode().empty else None,
             'weekend_vs_weekday': {
                 'weekend': len(df_time[df_time['weekday'].isin([5, 6])]),
                 'weekday': len(df_time[~df_time['weekday'].isin([5, 6])])

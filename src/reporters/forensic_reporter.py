@@ -896,8 +896,15 @@ class ForensicReporter:
                     df[col].astype(str).str.len().max() if len(df) > 0 else 0,
                     len(col)
                 )
-                # Cap column width at 80 characters
-                worksheet.column_dimensions[chr(65 + i)].width = min(max_len + 2, 80)
+                # Convert column index to Excel letter(s) (A, B, ..., Z, AA, AB, ...)
+                col_letter = ''
+                idx = i
+                while True:
+                    col_letter = chr(65 + idx % 26) + col_letter
+                    idx = idx // 26 - 1
+                    if idx < 0:
+                        break
+                worksheet.column_dimensions[col_letter].width = min(max_len + 2, 80)
 
         xlsx_hash = self.forensic.compute_hash(xlsx_path)
         self.forensic.record_action(

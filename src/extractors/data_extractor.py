@@ -81,62 +81,66 @@ class DataExtractor:
             List of extracted messages from all sources
         """
         all_messages = []
-        
+
         # Extract iMessages
-        try:
-            self.logger.info("Extracting iMessages...")
-            imessages = self.imessage.extract_messages()
-            if imessages:  # List check instead of DataFrame.empty
-                all_messages.extend(imessages)
-                self.logger.info(f"Extracted {len(imessages)} iMessages")
-        except Exception as e:
-            self.logger.error(f"Failed to extract iMessages: {e}")
-            self.forensic.record_action(
-                "IMESSAGE_EXTRACTION_FAILED",
-                f"iMessage extraction failed: {str(e)}"
-            )
-        
+        if self.imessage:
+            try:
+                self.logger.info("Extracting iMessages...")
+                imessages = self.imessage.extract_messages() or []
+                if imessages:
+                    all_messages.extend(imessages)
+                    self.logger.info(f"Extracted {len(imessages)} iMessages")
+            except Exception as e:
+                self.logger.error(f"Failed to extract iMessages: {e}")
+                self.forensic.record_action(
+                    "IMESSAGE_EXTRACTION_FAILED",
+                    f"iMessage extraction failed: {str(e)}"
+                )
+
         # Extract WhatsApp messages
-        try:
-            self.logger.info("Extracting WhatsApp messages...")
-            whatsapp_messages = self.whatsapp.extract_all()
-            if whatsapp_messages:  # List check
-                all_messages.extend(whatsapp_messages)
-                self.logger.info(f"Extracted {len(whatsapp_messages)} WhatsApp messages")
-        except Exception as e:
-            self.logger.error(f"Failed to extract WhatsApp messages: {e}")
-            self.forensic.record_action(
-                "WHATSAPP_EXTRACTION_FAILED",
-                f"WhatsApp extraction failed: {str(e)}"
-            )
+        if self.whatsapp:
+            try:
+                self.logger.info("Extracting WhatsApp messages...")
+                whatsapp_messages = self.whatsapp.extract_all() or []
+                if whatsapp_messages:
+                    all_messages.extend(whatsapp_messages)
+                    self.logger.info(f"Extracted {len(whatsapp_messages)} WhatsApp messages")
+            except Exception as e:
+                self.logger.error(f"Failed to extract WhatsApp messages: {e}")
+                self.forensic.record_action(
+                    "WHATSAPP_EXTRACTION_FAILED",
+                    f"WhatsApp extraction failed: {str(e)}"
+                )
 
         # Extract email messages
-        try:
-            self.logger.info("Extracting email messages...")
-            email_messages = self.email.extract_all()
-            if email_messages:  # List check
-                all_messages.extend(email_messages)
-                self.logger.info(f"Extracted {len(email_messages)} email messages")
-        except Exception as e:
-            self.logger.error(f"Failed to extract email messages: {e}")
-            self.forensic.record_action(
-                "EMAIL_EXTRACTION_FAILED",
-                f"Email extraction failed: {str(e)}"
-            )
+        if self.email:
+            try:
+                self.logger.info("Extracting email messages...")
+                email_messages = self.email.extract_all() or []
+                if email_messages:
+                    all_messages.extend(email_messages)
+                    self.logger.info(f"Extracted {len(email_messages)} email messages")
+            except Exception as e:
+                self.logger.error(f"Failed to extract email messages: {e}")
+                self.forensic.record_action(
+                    "EMAIL_EXTRACTION_FAILED",
+                    f"Email extraction failed: {str(e)}"
+                )
 
         # Extract Teams messages
-        try:
-            self.logger.info("Extracting Teams messages...")
-            teams_messages = self.teams.extract_all()
-            if teams_messages:  # List check
-                all_messages.extend(teams_messages)
-                self.logger.info(f"Extracted {len(teams_messages)} Teams messages")
-        except Exception as e:
-            self.logger.error(f"Failed to extract Teams messages: {e}")
-            self.forensic.record_action(
-                "TEAMS_EXTRACTION_FAILED",
-                f"Teams extraction failed: {str(e)}"
-            )
+        if self.teams:
+            try:
+                self.logger.info("Extracting Teams messages...")
+                teams_messages = self.teams.extract_all() or []
+                if teams_messages:
+                    all_messages.extend(teams_messages)
+                    self.logger.info(f"Extracted {len(teams_messages)} Teams messages")
+            except Exception as e:
+                self.logger.error(f"Failed to extract Teams messages: {e}")
+                self.forensic.record_action(
+                    "TEAMS_EXTRACTION_FAILED",
+                    f"Teams extraction failed: {str(e)}"
+                )
 
         # Normalize 'Me' → PERSON1_NAME so the entire downstream pipeline uses
         # a single consistent identity for the device owner.  Extractors assign

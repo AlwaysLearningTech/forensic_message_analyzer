@@ -85,7 +85,7 @@ class SentimentAnalyzer:
     def _clean_text(self, text: str) -> str:
         """Clean text for sentiment analysis."""
         # Remove URLs
-        text = re.sub(r'http\S+|www.\S+', '', text)
+        text = re.sub(r'http\S+|www\.\S+', '', text)
         
         # Remove excessive punctuation
         text = re.sub(r'[!?]{2,}', '!', text)
@@ -97,19 +97,23 @@ class SentimentAnalyzer:
     
     def generate_sentiment_summary(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Generate sentiment analysis summary."""
-        if 'sentiment_score' not in df.columns:
+        if 'sentiment_score' not in df.columns or len(df) == 0:
             return {}
-        
+
+        scores = df['sentiment_score'].dropna()
+        if scores.empty:
+            return {}
+
         summary = {
-            'average_sentiment': df['sentiment_score'].mean(),
-            'sentiment_std': df['sentiment_score'].std(),
+            'average_sentiment': scores.mean(),
+            'sentiment_std': scores.std(),
             'most_positive': {
-                'score': df['sentiment_score'].max(),
-                'message': df.loc[df['sentiment_score'].idxmax(), 'content'][:100] if len(df) > 0 else ''
+                'score': scores.max(),
+                'message': df.loc[scores.idxmax(), 'content'][:100]
             },
             'most_negative': {
-                'score': df['sentiment_score'].min(),
-                'message': df.loc[df['sentiment_score'].idxmin(), 'content'][:100] if len(df) > 0 else ''
+                'score': scores.min(),
+                'message': df.loc[scores.idxmin(), 'content'][:100]
             },
             'polarity_distribution': {
                 'positive': (df['sentiment_polarity'] == 'positive').sum(),
