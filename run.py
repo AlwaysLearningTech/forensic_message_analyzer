@@ -29,7 +29,7 @@ def _pre_run_validation() -> bool:
     non_blocking = []
     blocking = []
     for err in errors:
-        if "Azure" in err or "API key" in err:
+        if "API key" in err:
             non_blocking.append(err)
         else:
             blocking.append(err)

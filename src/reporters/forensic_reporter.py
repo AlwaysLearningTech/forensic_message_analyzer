@@ -150,7 +150,7 @@ class ForensicReporter:
         # === AI-Powered Findings Summary ===
         ai_analysis = analysis_results.get('ai_analysis', {})
         if ai_analysis and ai_analysis.get('conversation_summary') and \
-           ai_analysis.get('conversation_summary') != 'AI analysis not available - Azure OpenAI not configured.':
+           'not configured' not in ai_analysis.get('conversation_summary', '').lower():
             doc.add_heading('Findings Summary', 1)
             doc.add_paragraph(
                 'This section provides AI-assisted analysis findings for rapid legal team review. '
@@ -442,7 +442,7 @@ class ForensicReporter:
         # === AI-Powered Findings Summary ===
         ai_analysis = analysis_results.get('ai_analysis', {})
         if ai_analysis and ai_analysis.get('conversation_summary') and \
-           ai_analysis.get('conversation_summary') != 'AI analysis not available - Azure OpenAI not configured.':
+           'not configured' not in ai_analysis.get('conversation_summary', '').lower():
             elements.append(Paragraph("Findings Summary", styles['Heading1']))
             elements.append(Paragraph(
                 'This section provides AI-assisted analysis findings for rapid legal team review. '
@@ -749,7 +749,7 @@ class ForensicReporter:
 
         if ai_summary and 'not available' not in ai_summary.lower() and 'not configured' not in ai_summary.lower():
             summary += (
-                f"\n\nAI-assisted analysis (GPT-4o) identified {risk_count} distinct risk "
+                f"\n\nAI-assisted analysis (Claude Opus) identified {risk_count} distinct risk "
                 f"indicators. "
             )
             if ai_threats_found:

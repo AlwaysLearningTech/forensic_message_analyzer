@@ -160,7 +160,7 @@ class ForensicAnalyzer:
         results['metrics'] = metrics_results
         print("    Communication metrics calculated")
 
-        # AI analysis (Azure OpenAI GPT-4o)
+        # AI analysis (Anthropic Claude)
         print("\n[*] Running AI analysis...")
         try:
             from src.analyzers.ai_analyzer import AIAnalyzer
@@ -172,7 +172,7 @@ class ForensicAnalyzer:
                 print(f"    AI analysis complete - {risk_count} risk indicators found")
             else:
                 results['ai_analysis'] = ai_analyzer._empty_analysis()
-                print("    AI analysis skipped - Azure OpenAI not configured")
+                print("    AI analysis skipped - Anthropic Claude not configured")
         except Exception as e:
             print(f"    AI analysis error: {e}")
             results['ai_analysis'] = {}
@@ -248,16 +248,16 @@ class ForensicAnalyzer:
 
         if review_mode == 'web' and items_for_review:
             try:
-                from .review.web_review import WebReview
+                from src.review.web_review import WebReview
                 web = WebReview(manager, forensic_recorder=self.forensic)
                 web.start_review(messages, items_for_review, screenshots=screenshots)
             except ImportError:
                 print("    Flask not installed. Falling back to terminal review.")
-                from .review.interactive_review import InteractiveReview
+                from src.review.interactive_review import InteractiveReview
                 interactive = InteractiveReview(manager)
                 interactive.review_flagged_items(messages, items_for_review)
         else:
-            from .review.interactive_review import InteractiveReview
+            from src.review.interactive_review import InteractiveReview
             interactive = InteractiveReview(manager)
             interactive.review_flagged_items(messages, items_for_review)
 

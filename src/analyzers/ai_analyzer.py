@@ -674,7 +674,7 @@ class AIAnalyzer:
                 self.forensic.record_action(
                     "ai_threat_detected",
                     f"AI detected {result['threat_level']} threat level",
-                    {"message_id": message.get("id"), "concerns": result.get("concerns", [])},
+                    {"message_id": message.get("message_id"), "concerns": result.get("concerns", [])},
                 )
 
             return result
