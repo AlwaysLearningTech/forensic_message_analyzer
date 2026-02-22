@@ -299,7 +299,7 @@ class IMessageExtractor:
                             break
                 
                 # Convert timestamp string to datetime object
-                timestamp_dt = pd.to_datetime(timestamp) if timestamp else None
+                timestamp_dt = pd.to_datetime(timestamp, utc=True) if timestamp else None
                 
                 messages.append({
                     'message_id': message_id,

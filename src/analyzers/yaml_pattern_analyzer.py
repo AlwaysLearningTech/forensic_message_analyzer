@@ -148,8 +148,8 @@ class YamlPatternAnalyzer:
         if 'timestamp' not in df.columns:
             return {}
         
-        df['date'] = pd.to_datetime(df['timestamp']).dt.date
-        df['hour'] = pd.to_datetime(df['timestamp']).dt.hour
+        df['date'] = pd.to_datetime(df['timestamp'], utc=True).dt.date
+        df['hour'] = pd.to_datetime(df['timestamp'], utc=True).dt.hour
         
         # Messages per day
         daily_counts = df.groupby('date').size()

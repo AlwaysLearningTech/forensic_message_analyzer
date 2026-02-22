@@ -173,13 +173,22 @@ class ForensicAnalyzer:
         results['metrics'] = metrics_results
         print("    Communication metrics calculated")
 
-        # AI analysis (Anthropic Claude)
+        # AI analysis (Anthropic Claude) — only for messages involving mapped contacts
         print("\n[*] Running AI analysis...")
         try:
             from src.analyzers.ai_analyzer import AIAnalyzer
             ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic)
             if ai_analyzer.client:
-                ai_results = ai_analyzer.analyze_messages(messages, batch_size=self.config.batch_size)
+                # Filter to only messages involving mapped contacts
+                mapped_names = set(self.config.contact_mappings.keys()) | {'Me'}
+                mapped_messages = [
+                    m for m in messages
+                    if m.get('sender') in mapped_names or m.get('recipient') in mapped_names
+                ]
+                skipped = len(messages) - len(mapped_messages)
+                if skipped:
+                    print(f"    Filtered to {len(mapped_messages)} mapped-contact messages (skipped {skipped} unmapped)")
+                ai_results = ai_analyzer.analyze_messages(mapped_messages, batch_size=self.config.batch_size)
                 results['ai_analysis'] = ai_results
                 risk_count = len(ai_results.get('risk_indicators', []))
                 print(f"    AI analysis complete - {risk_count} risk indicators found")

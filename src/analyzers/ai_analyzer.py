@@ -291,7 +291,18 @@ class AIAnalyzer:
             })
 
         total_requests = len(batch_requests)
-        print(f"    Submitting {total_requests} requests via Batch API (50% cost discount)...")
+
+        # Pre-submission cost estimate based on token estimation
+        est_input_tokens = sum(self._estimate_tokens(r["params"]["messages"][0]["content"]) for r in batch_requests)
+        est_input_tokens += self._estimate_tokens(self._SYSTEM_PROMPT) * total_requests
+        # Assume output averages ~1000 tokens per request
+        est_output_tokens = total_requests * 1000
+        est_cost = (est_input_tokens / 1_000_000) * 7.50 + (est_output_tokens / 1_000_000) * 37.50
+        print(
+            f"    Submitting {total_requests} requests via Batch API (50% cost discount)...\n"
+            f"    Estimated tokens: ~{est_input_tokens:,} input + ~{est_output_tokens:,} output\n"
+            f"    Estimated cost: ~${est_cost:.2f} (before cache savings)"
+        )
 
         self.forensic.record_action(
             "batch_api_submit",
@@ -340,14 +351,17 @@ class AIAnalyzer:
         for result in self.client.messages.batches.results(batch_id):
             if result.result.type == "succeeded":
                 msg = result.result.message
+                # Always count tokens, even if JSON parsing fails
+                total_input_tokens += msg.usage.input_tokens
+                total_output_tokens += msg.usage.output_tokens
+                if hasattr(msg.usage, 'cache_read_input_tokens'):
+                    cache_read_tokens += msg.usage.cache_read_input_tokens or 0
+                if hasattr(msg.usage, 'cache_creation_input_tokens'):
+                    cache_read_tokens += msg.usage.cache_creation_input_tokens or 0
                 try:
                     batch_analysis = _extract_json(msg.content[0].text)
                     self._merge_analysis(analysis_results, batch_analysis)
                     analysis_results["processing_stats"]["batches_processed"] += 1
-                    total_input_tokens += msg.usage.input_tokens
-                    total_output_tokens += msg.usage.output_tokens
-                    if hasattr(msg.usage, 'cache_read_input_tokens'):
-                        cache_read_tokens += msg.usage.cache_read_input_tokens or 0
                 except Exception as e:
                     analysis_results["processing_stats"]["errors"].append(
                         f"Parse error for {result.custom_id}: {str(e)}"
@@ -366,10 +380,21 @@ class AIAnalyzer:
         analysis_results["processing_stats"]["batch_id"] = batch_id
         analysis_results["processing_stats"]["batch_api"] = True
 
+        # Estimate cost (Batch API = 50% discount on standard rates)
+        # Claude Opus: $15/MTok input, $75/MTok output (standard)
+        # Batch API: $7.50/MTok input, $37.50/MTok output
+        # Cache reads: $1.50/MTok (batch) vs $0.30/MTok standard reads
+        estimated_cost = (
+            (total_input_tokens / 1_000_000) * 7.50
+            + (total_output_tokens / 1_000_000) * 37.50
+        )
+        analysis_results["processing_stats"]["estimated_cost_usd"] = round(estimated_cost, 2)
+
         print(
             f"    Batch complete: {counts.succeeded} succeeded, "
-            f"{total_input_tokens + total_output_tokens:,} tokens used"
-            + (f", {cache_read_tokens:,} from cache" if cache_read_tokens else "")
+            f"{total_input_tokens:,} input + {total_output_tokens:,} output tokens"
+            + (f" ({cache_read_tokens:,} from cache)" if cache_read_tokens else "")
+            + f"\n    Estimated cost: ${estimated_cost:.2f}"
         )
 
         # Generate summary, risks, recommendations (synchronous - only 2 API calls)

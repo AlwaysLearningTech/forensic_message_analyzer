@@ -202,7 +202,7 @@ class BehavioralAnalyzer:
         if 'timestamp' not in df.columns:
             return {}
         
-        df['date'] = pd.to_datetime(df['timestamp']).dt.date
+        df['date'] = pd.to_datetime(df['timestamp'], utc=True).dt.date
         daily_counts = df.groupby('date').size()
         
         # Identify bursts (days with unusually high message volume)
@@ -288,8 +288,8 @@ class BehavioralAnalyzer:
         
         # Work with a copy to avoid SettingWithCopyWarning
         df_time = df.copy()
-        df_time['hour'] = pd.to_datetime(df_time['timestamp']).dt.hour
-        df_time['weekday'] = pd.to_datetime(df_time['timestamp']).dt.dayofweek
+        df_time['hour'] = pd.to_datetime(df_time['timestamp'], utc=True).dt.hour
+        df_time['weekday'] = pd.to_datetime(df_time['timestamp'], utc=True).dt.dayofweek
         
         # Identify unusual timing patterns
         late_night = df_time[(df_time['hour'] >= 23) | (df_time['hour'] <= 4)]
@@ -311,7 +311,7 @@ class BehavioralAnalyzer:
             return []
         
         # Extract hours without modifying the original DataFrame
-        hours = pd.to_datetime(df['timestamp']).dt.hour
+        hours = pd.to_datetime(df['timestamp'], utc=True).dt.hour
         hour_counts = hours.value_counts()
         
         # Return top 3 most active hours
@@ -404,7 +404,7 @@ class BehavioralAnalyzer:
         if len(daily_counts) < 2:
             return 0
         
-        dates = pd.to_datetime(daily_counts.index)
+        dates = pd.to_datetime(daily_counts.index, utc=True)
         max_gap = 0
         
         for i in range(1, len(dates)):

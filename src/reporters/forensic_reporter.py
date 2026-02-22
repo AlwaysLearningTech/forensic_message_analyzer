@@ -291,10 +291,12 @@ class ForensicReporter:
                 for ts in timestamps:
                     try:
                         if isinstance(ts, str):
-                            parsed = pd.to_datetime(ts)
+                            parsed = pd.to_datetime(ts, utc=True)
                             if not pd.isna(parsed):
                                 dt_timestamps.append(parsed)
                         elif hasattr(ts, 'year') and not pd.isna(ts):
+                            if hasattr(ts, 'tzinfo') and ts.tzinfo is None:
+                                ts = ts.replace(tzinfo=pd.Timestamp.now(tz='UTC').tzinfo)
                             dt_timestamps.append(ts)
                     except Exception:
                         pass
@@ -619,10 +621,12 @@ class ForensicReporter:
                 for ts in timestamps:
                     try:
                         if isinstance(ts, str):
-                            parsed = pd.to_datetime(ts)
+                            parsed = pd.to_datetime(ts, utc=True)
                             if not pd.isna(parsed):
                                 dt_timestamps.append(parsed)
                         elif hasattr(ts, 'year') and not pd.isna(ts):
+                            if hasattr(ts, 'tzinfo') and ts.tzinfo is None:
+                                ts = ts.replace(tzinfo=pd.Timestamp.now(tz='UTC').tzinfo)
                             dt_timestamps.append(ts)
                     except Exception:
                         pass
@@ -865,7 +869,7 @@ class ForensicReporter:
 
         # Sort chronologically
         if 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+            df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
             df = df.sort_values('timestamp', na_position='last')
 
         paths = {}
@@ -945,10 +949,12 @@ class ForensicReporter:
                     dt_timestamps = []
                     for ts in timestamps:
                         if isinstance(ts, str):
-                            parsed = pd.to_datetime(ts)
+                            parsed = pd.to_datetime(ts, utc=True)
                             if not pd.isna(parsed):
                                 dt_timestamps.append(parsed)
                         elif hasattr(ts, 'year') and not pd.isna(ts):
+                            if hasattr(ts, 'tzinfo') and ts.tzinfo is None:
+                                ts = ts.replace(tzinfo=pd.Timestamp.now(tz='UTC').tzinfo)
                             dt_timestamps.append(ts)
                     if dt_timestamps:
                         date_range = (
