@@ -163,14 +163,22 @@ class WhatsAppExtractor:
                         is_from_me = True
                         break
                 
+                # If sender resolved to PERSON1 (device owner), treat as "from me"
+                person1 = getattr(config, 'person1_name', None)
+                if person1 and sender_name == person1:
+                    is_from_me = True
+                
                 # Determine recipient using smart mapping
-                # For 1:1 chats: if sender is Me → recipient is the other person
+                # For 1:1 chats: if sender is Me/PERSON1 → recipient is the other person
                 # If sender is mapped person → recipient is Me
                 if is_from_me or sender_name == 'Me':
                     # Sender is me, so recipient is the mapped person
                     # Try to find recipient from contact mappings
                     recipient = 'Unknown'
                     for person_name, identifiers in config.contact_mappings.items():
+                        # Skip PERSON1 — they're the sender, not recipient
+                        if person1 and person_name == person1:
+                            continue
                         # Check if this file relates to this person
                         # Look at filename or sender name in other messages
                         if any(identifier.lower() in file_path.name.lower() for identifier in identifiers):
