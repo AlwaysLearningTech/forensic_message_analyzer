@@ -89,6 +89,22 @@ class WebReview:
                 return send_from_directory(screenshot_dir, filename)
             return ("Screenshot not found", 404)
 
+        @self.app.route("/attachments/<path:filename>")
+        def serve_attachment(filename):
+            """Serve message attachment files (WhatsApp photos, iMessage images, etc.)."""
+            # Try absolute path first (iMessage attachments use full paths)
+            abs_path = Path("/") / filename
+            if abs_path.is_file():
+                return send_from_directory(str(abs_path.parent), abs_path.name)
+            # Search WhatsApp source directories
+            wa_dir = config.whatsapp_source_dir
+            if wa_dir:
+                wa_path = Path(wa_dir)
+                for candidate in [wa_path / filename, *wa_path.rglob(filename)]:
+                    if candidate.is_file():
+                        return send_from_directory(str(candidate.parent), candidate.name)
+            return ("Attachment not found", 404)
+
         @self.app.route("/api/complete", methods=["POST"])
         def complete_review():
             if self.forensic:
@@ -321,7 +337,7 @@ class WebReview:
         """Return a JSON-safe subset of a message dict."""
         if msg is None:
             return None
-        return {
+        result = {
             "message_id": msg.get("message_id"),
             "sender": msg.get("sender", "Unknown"),
             "recipient": msg.get("recipient", "Unknown"),
@@ -329,6 +345,16 @@ class WebReview:
             "timestamp": str(msg.get("timestamp", "")),
             "source": msg.get("source", ""),
         }
+        if msg.get("attachment_name"):
+            att_name = msg["attachment_name"]
+            # For iMessage: attachment field is an absolute path; use it directly
+            # For WhatsApp: attachment_name is just a filename
+            if msg.get("attachment", "").startswith("/"):
+                result["attachment_url"] = f"/attachments{msg['attachment']}"
+            else:
+                result["attachment_url"] = f"/attachments/{att_name}"
+            result["attachment_name"] = att_name
+        return result
 
     # ------------------------------------------------------------------
     # HTML template
@@ -378,6 +404,10 @@ class WebReview:
   .msg .content {{ word-wrap: break-word; }}
   .flag-label {{ display: inline-block; background: #e65100; color: #fff; font-size: 10px;
                  padding: 2px 6px; border-radius: 4px; margin-bottom: 6px; }}
+
+  /* Inline attachments (WhatsApp photos) */
+  .msg .attachment {{ margin-top: 8px; }}
+  .msg .attachment img {{ max-width: 100%; max-height: 400px; border-radius: 4px; border: 1px solid #ccc; }}
 
   /* Screenshots */
   .screenshots {{ margin-top: 16px; }}
@@ -567,6 +597,10 @@ function msgBubble(m, isFlagged) {{
   html += '<div class="meta">' + escapeHtml(m.timestamp || '') + ' &mdash; '
         + escapeHtml(m.sender || '') + ' &rarr; ' + escapeHtml(m.recipient || '') + '</div>';
   html += '<div class="content">' + escapeHtml(m.content || '') + '</div>';
+  if (m.attachment_url) {{
+    html += '<div class="attachment"><img src="' + escapeHtml(m.attachment_url)
+          + '" alt="' + escapeHtml(m.attachment_name || 'photo') + '"></div>';
+  }}
   html += '</div>';
   return html;
 }}

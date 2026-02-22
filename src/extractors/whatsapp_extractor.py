@@ -220,16 +220,29 @@ class WhatsAppExtractor:
                 clean_content = message_content.strip()
                 clean_content = re.sub(r'[\u200e\u200f\u202a-\u202e\ufffc\ufeff]', '', clean_content)
                 
+                # Detect attachment references (e.g. <attached: FILENAME.jpg>)
+                attachment_match = re.search(r'<attached:\s*(.+?)>', clean_content)
+                attachment_path = None
+                if attachment_match:
+                    attachment_name = attachment_match.group(1).strip()
+                    candidate = file_path.parent / attachment_name
+                    if candidate.exists():
+                        attachment_path = str(candidate)
+
                 msg_counter += 1
-                messages.append({
+                msg_dict = {
                     'message_id': f"wa_{file_path.stem}_{msg_counter}",
                     'timestamp': timestamp,
                     'sender': sender_name,
                     'recipient': recipient,
                     'content': clean_content,
                     'source': 'whatsapp',
-                    'file': file_path.name
-                })
+                    'file': file_path.name,
+                }
+                if attachment_path:
+                    msg_dict['attachment'] = attachment_path
+                    msg_dict['attachment_name'] = attachment_name
+                messages.append(msg_dict)
             
             logger.info(f"Extracted {len(messages)} messages from {file_path.name}")
             

@@ -113,11 +113,15 @@ class InteractiveReview:
                         print(f"{'*' * 80}")
                         print(f"[{timestamp}] {sender}:")
                         print(f"  {content}")
+                        if msg.get('attachment'):
+                            print(f"  PHOTO: {msg['attachment']}")
                         print(f"\nThreat: {item.get('threat_type', 'N/A')}")
                         print(f"Confidence: {item.get('confidence', 'N/A')}")
                         print(f"{'*' * 80}\n")
                     else:
                         print(f"[{timestamp}] {sender}: {content}")
+                        if msg.get('attachment'):
+                            print(f"  PHOTO: {msg['attachment']}")
 
             # Get decision
             while True:
@@ -201,9 +205,13 @@ class InteractiveReview:
             if is_flagged:
                 print(f"\n>>> FLAGGED <<<")
                 print(f"[{timestamp}] {sender}: {content}")
+                if msg.get('attachment'):
+                    print(f"  PHOTO: {msg['attachment']}")
                 print(f">>> END FLAGGED <<<\n")
             else:
                 print(f"[{timestamp}] {sender}: {content}")
+                if msg.get('attachment'):
+                    print(f"  PHOTO: {msg['attachment']}")
         
         # Get decision
         decision_input = input(f"\nFlag for legal review? (Y/N): ").strip().upper()

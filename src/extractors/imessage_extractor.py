@@ -27,6 +27,8 @@ class IMessageExtractor:
     Includes attributedBody decoding for modern iMessage format.
     """
     
+    IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.heic', '.heif', '.webp', '.tiff', '.bmp'}
+
     def __init__(self, db_path: str, forensic_recorder: ForensicRecorder, forensic_integrity: ForensicIntegrity):
         """
         Initialize iMessage extractor.
@@ -210,6 +212,47 @@ class IMessageExtractor:
         # Return None if no text found
         return None
     
+    def _get_attachments_for_message(self, cursor, message_rowid: int) -> list:
+        """
+        Query attachments for a given message using the message_attachment_join table.
+        Based on imessage-exporter's approach (attachment.rs from_message query).
+
+        Args:
+            cursor: SQLite cursor on the open chat.db connection.
+            message_rowid: The ROWID of the message.
+
+        Returns:
+            List of attachment dicts with resolved paths.
+        """
+        query = """
+        SELECT a.rowid, a.filename, a.mime_type, a.transfer_name, a.total_bytes
+        FROM message_attachment_join j
+        LEFT JOIN attachment a ON j.attachment_id = a.ROWID
+        WHERE j.message_id = ?
+        """
+        try:
+            cursor.execute(query, (message_rowid,))
+            rows = cursor.fetchall()
+        except Exception:
+            return []
+
+        attachments = []
+        home_dir = str(Path.home())
+        for row in rows:
+            rowid, filename, mime_type, transfer_name, total_bytes = row
+            if not filename:
+                continue
+            # Resolve macOS path: expand ~ to home directory
+            resolved = filename.replace('~', home_dir, 1) if filename.startswith('~') else filename
+            display_name = transfer_name or Path(resolved).name
+            attachments.append({
+                'path': resolved,
+                'name': display_name,
+                'mime_type': mime_type or '',
+                'size_bytes': total_bytes or 0,
+            })
+        return attachments
+
     def extract_messages(self) -> list:
         """
         Extract messages from iMessage database.
@@ -236,10 +279,10 @@ class IMessageExtractor:
             # Create placeholders for SQL IN clause
             placeholders = ','.join('?' * len(all_handles))
             
-            # Query to extract messages with attributedBody
+            # Query to extract messages with attributedBody and attachment count
             # Exclude tapbacks/reactions (associated_message_type 2000-3007)
             query = f"""
-            SELECT 
+            SELECT
                 m.ROWID as message_id,
                 m.guid,
                 m.text,
@@ -249,34 +292,34 @@ class IMessageExtractor:
                 c.chat_identifier,
                 datetime(m.date/1000000000 + strftime('%s','2001-01-01'), 'unixepoch', 'localtime') as timestamp,
                 m.service,
-                m.associated_message_type
+                m.associated_message_type,
+                (SELECT COUNT(*) FROM message_attachment_join a WHERE m.ROWID = a.message_id) as num_attachments
             FROM message m
             LEFT JOIN handle h ON m.handle_id = h.ROWID
             LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
             LEFT JOIN chat c ON cmj.chat_id = c.ROWID
             WHERE (h.id IN ({placeholders}) OR m.is_from_me = 1)
-              AND (m.associated_message_type IS NULL 
+              AND (m.associated_message_type IS NULL
                    OR m.associated_message_type NOT BETWEEN 2000 AND 3007)
             ORDER BY m.date ASC
             """
-            
+
             # Execute query
             cursor.execute(query, all_handles)
             rows = cursor.fetchall()
-            conn.close()
-            
+
             # Process messages and extract text
             messages = []
             for row in rows:
-                message_id, guid, text, attributed_body, is_from_me, handle, chat_id, timestamp, service, assoc_type = row
+                message_id, guid, text, attributed_body, is_from_me, handle, chat_id, timestamp, service, assoc_type, num_attachments = row
                 
                 # Extract text with fallback to attributedBody
                 content = self.extract_text_with_fallback(text, attributed_body)
                 
-                # Skip messages with no text content
-                if not content:
+                # Skip messages with no text content and no attachments
+                if not content and num_attachments == 0:
                     continue
-                
+
                 # Determine sender and recipient
                 if is_from_me == 1:
                     sender = 'Me'
@@ -297,21 +340,38 @@ class IMessageExtractor:
                         if handle in person_handles:
                             sender = person_name
                             break
-                
+
                 # Convert timestamp string to datetime object
                 timestamp_dt = pd.to_datetime(timestamp, utc=True) if timestamp else None
-                
-                messages.append({
+
+                msg_dict = {
                     'message_id': message_id,
                     'guid': guid,
-                    'content': content,
+                    'content': content or '',
                     'sender': sender,
                     'recipient': recipient,
                     'timestamp': timestamp_dt,
                     'service': service,
-                    'source': 'imessage'
-                })
-            
+                    'source': 'imessage',
+                }
+
+                # Query attachments for this message if any exist
+                if num_attachments > 0:
+                    attachments = self._get_attachments_for_message(cursor, message_id)
+                    # Find the first image attachment for inline display
+                    for att in attachments:
+                        ext = Path(att['path']).suffix.lower()
+                        if ext in self.IMAGE_EXTENSIONS and Path(att['path']).exists():
+                            msg_dict['attachment'] = att['path']
+                            msg_dict['attachment_name'] = att['name']
+                            break
+                    if attachments:
+                        msg_dict['attachments'] = attachments
+
+                messages.append(msg_dict)
+
+            conn.close()
+
             # Record extraction
             self.forensic.record_action(
                 "imessage_extraction",
