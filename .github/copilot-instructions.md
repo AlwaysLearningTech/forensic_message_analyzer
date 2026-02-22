@@ -6,6 +6,7 @@
 3. **CHECK METHOD NAMES IN SOURCE** - Always look at the actual source file, not guess!
 4. **BASH SCRIPTS GO IN EDITOR** - When creating bash scripts, output them to a new editor file, NOT to the terminal!
 5. **NO GUESSING ALLOWED** - You MUST check the actual source files or documentation. Never guess method names, parameters, or return types. If you're not sure, look at the file!
+6. **COMMIT AND PUSH EVERY CHANGE** - After every code change, immediately `git add`, `git commit` with a descriptive message, and `git push`. Do not batch changes or wait for the user to ask.
 
 ## Project Architecture
 - The system is a multi-phase digital evidence processor for legal use, written in Python.
