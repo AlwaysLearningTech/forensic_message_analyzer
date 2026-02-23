@@ -108,10 +108,14 @@ class AIAnalyzer:
             try:
                 client_kwargs = {"api_key": self.api_key}
 
-                # If an endpoint is configured, use it as base_url
+                # If an endpoint is configured, use it as base_url;
+                # otherwise force the default to prevent env vars
+                # (e.g. VS Code's ANTHROPIC_BASE_URL) from hijacking requests.
                 if self.endpoint:
                     base = self.endpoint.rstrip("/")
                     client_kwargs["base_url"] = base
+                else:
+                    client_kwargs["base_url"] = "https://api.anthropic.com"
 
                 self.client = Anthropic(**client_kwargs)
 

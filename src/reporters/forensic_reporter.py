@@ -1070,7 +1070,10 @@ class ForensicReporter:
         )
 
         try:
-            client = Anthropic(api_key=config.ai_api_key)
+            client = Anthropic(
+                api_key=config.ai_api_key,
+                base_url="https://api.anthropic.com",
+            )
             response = client.messages.create(
                 model=config.ai_model or 'claude-opus-4-6',
                 system=[{
