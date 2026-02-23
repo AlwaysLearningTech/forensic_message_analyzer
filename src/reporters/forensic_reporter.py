@@ -871,10 +871,38 @@ class ForensicReporter:
             logger.warning("No messages to export for all-messages forensic record")
             return {}
 
-        # Core columns only — no analysis enrichment
-        export_columns = ['timestamp', 'sender', 'recipient', 'content', 'source', 'message_id']
+        # Core columns plus all forensic fields — no analysis enrichment
+        export_columns = [
+            'timestamp', 'sender', 'recipient', 'content', 'source', 'message_id',
+            'guid', 'service',
+            # Forensic timestamps
+            'date_read', 'date_delivered', 'is_read',
+            'date_edited', 'date_retracted',
+            # Threading
+            'reply_to_guid', 'thread_originator_guid',
+            # Classification
+            'subject', 'item_type', 'is_audio_message',
+            'expressive_send_style_id', 'was_detonated',
+            # Transport
+            'destination_caller_id', 'was_downgraded',
+            # Emergency / app
+            'is_sos', 'balloon_bundle_id',
+            # Group management
+            'group_title', 'group_action_type',
+            # Tapback
+            'is_tapback', 'associated_message_guid', 'associated_message_type',
+            # Reactions on parent message
+            'reactions',
+        ]
 
         df = pd.DataFrame(messages)
+
+        # Serialize reactions list to JSON string for tabular export
+        if 'reactions' in df.columns:
+            import json
+            df['reactions'] = df['reactions'].apply(
+                lambda x: json.dumps(x, default=str) if isinstance(x, list) and x else ''
+            )
 
         # Keep only columns that exist in the data
         available_columns = [col for col in export_columns if col in df.columns]
@@ -886,6 +914,8 @@ class ForensicReporter:
             df = df.sort_values('timestamp', na_position='last')
             # Strip timezone for Excel compatibility (values are already UTC)
             df['timestamp'] = df['timestamp'].dt.tz_convert(None)
+            # Label column explicitly as UTC for forensic clarity
+            df = df.rename(columns={'timestamp': 'timestamp (UTC)'})
 
         paths = {}
 
@@ -957,10 +987,6 @@ class ForensicReporter:
         if total_messages == 0:
             logger.info("No messages to summarize, skipping legal team summary")
             return None
-
-        # Collect all stats for the prompt
-        messages = extracted_data.get('messages', extracted_data.get('combined', []))
-        total_messages = len(messages) if isinstance(messages, list) else 0
 
         # Source breakdown
         source_counts = {}
@@ -1107,10 +1133,31 @@ class ForensicReporter:
             )
             result = response.content[0].text
 
+            # Track tokens from this sync API call (standard rates, not batch)
+            legal_input = response.usage.input_tokens
+            legal_output = response.usage.output_tokens
+            sync_cost = (legal_input / 1_000_000) * 5.0 + (legal_output / 1_000_000) * 25.0
+
+            # Update AI processing stats if available
+            ai_stats = analysis_results.get('ai_analysis', {}).get('processing_stats')
+            if ai_stats is not None:
+                ai_stats["input_tokens"] = ai_stats.get("input_tokens", 0) + legal_input
+                ai_stats["output_tokens"] = ai_stats.get("output_tokens", 0) + legal_output
+                ai_stats["tokens_used"] = ai_stats.get("tokens_used", 0) + legal_input + legal_output
+                ai_stats["api_calls"] = ai_stats.get("api_calls", 0) + 1
+                ai_stats["legal_summary_sync_cost_usd"] = round(sync_cost, 4)
+                ai_stats["estimated_cost_usd"] = round(
+                    ai_stats.get("estimated_cost_usd", 0) + sync_cost, 4
+                )
+
+            print(f"    Legal team summary: {legal_input:,} input + {legal_output:,} output tokens (~${sync_cost:.4f})")
+
             self.forensic.record_action(
                 "legal_team_summary_generated",
                 "Generated AI-powered legal team summary",
-                {"model": config.ai_model, "length": len(result)}
+                {"model": config.ai_model, "length": len(result),
+                 "input_tokens": legal_input, "output_tokens": legal_output,
+                 "estimated_cost_usd": round(sync_cost, 4)}
             )
             return result
 

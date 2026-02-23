@@ -11,6 +11,7 @@ import logging
 from ..config import Config
 from ..forensic_utils import ForensicRecorder
 from ..utils.conversation_threading import ConversationThreader
+from ..utils.legal_compliance import LegalComplianceManager
 
 # Initialize config
 config = Config()
@@ -153,6 +154,15 @@ class ExcelReporter:
                 )
         
         # Reorder columns for better readability
+        # Convert timestamps to local timezone for display
+        import pytz
+        tz = pytz.timezone(config.timezone)
+        tz_abbr = datetime.now(tz).strftime('%Z')
+        if 'timestamp' in person_messages.columns:
+            person_messages['timestamp'] = pd.to_datetime(
+                person_messages['timestamp'], utc=True, errors='coerce'
+            ).dt.tz_convert(tz).dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+
         column_order = ['timestamp', 'sender', 'recipient', 'content', 'source']
         
         # Add threat columns if they exist
@@ -175,7 +185,13 @@ class ExcelReporter:
         column_order = [col for col in column_order if col in person_messages.columns]
         
         person_messages = person_messages[column_order]
-        
+
+        # Label timestamp column with timezone abbreviation
+        if 'timestamp' in person_messages.columns:
+            person_messages = person_messages.rename(
+                columns={'timestamp': f'Timestamp ({tz_abbr})'}
+            )
+
         # Create sheet name (Excel limits to 31 characters and disallows certain characters)
         # Remove invalid characters: : \ / ? * [ ]
         sheet_name = person_name[:31]
@@ -187,9 +203,10 @@ class ExcelReporter:
         
         logger.info(f"Created sheet '{sheet_name}' with {len(person_messages)} messages")
     
-    def _write_overview_sheet(self, writer, extracted_data: Dict, 
+    def _write_overview_sheet(self, writer, extracted_data: Dict,
                             analysis_results: Dict, review_decisions: Dict):
         """Write overview sheet with summary statistics."""
+        compliance = LegalComplianceManager(config=config, forensic_recorder=self.forensic)
         overview = {
             'Metric': [
                 'Total Messages',
@@ -207,7 +224,7 @@ class ExcelReporter:
                 analysis_results.get('threats', {}).get('summary', {}).get('messages_with_threats', 0),
                 review_decisions.get('total_reviewed', 0),
                 review_decisions.get('relevant', 0),
-                datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                compliance.format_timestamp()
             ]
         }
         

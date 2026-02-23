@@ -143,7 +143,7 @@ class Config:
         self.examiner_name = os.getenv('EXAMINER_NAME', '')
         self.case_number = os.getenv('CASE_NUMBER', '')
         self.case_name = os.getenv('CASE_NAME', '')
-        self.timezone = os.getenv('ANALYSIS_TIMEZONE', 'America/Chicago')
+        self.timezone = os.getenv('ANALYSIS_TIMEZONE', 'America/Los_Angeles')
         self.organization = os.getenv('ORGANIZATION', '')
 
         # Logging

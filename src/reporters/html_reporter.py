@@ -15,6 +15,7 @@ from jinja2 import Environment, BaseLoader
 from ..config import Config
 from ..forensic_utils import ForensicRecorder
 from ..utils.conversation_threading import ConversationThreader
+from ..utils.legal_compliance import LegalComplianceManager
 
 config = Config()
 logger = logging.getLogger(__name__)
@@ -66,6 +67,12 @@ REPORT_TEMPLATE = """\
   tr:nth-child(even) { background: #fafafa; }
   .threat { background: #fff3cd; }
   .threat-high { background: #f8d7da; }
+  .tapback { background: #f0f0f0; font-style: italic; }
+  .sos-flag { color: #dc3545; font-weight: bold; }
+  .retracted-flag { color: #6c757d; text-decoration: line-through; }
+  .downgraded-flag { color: #856404; }
+  .edited-flag { color: #0c5460; font-size: 9px; }
+  .reactions-list { font-size: 9px; color: #555; margin-top: 2px; }
   .attachment-img { max-width: 320px; max-height: 240px; border: 1px solid #ccc;
                     border-radius: 4px; margin: 4px 0; }
   .overview-grid { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 16px; }
@@ -140,29 +147,40 @@ REPORT_TEMPLATE = """\
 <h2>{{ person.name }} &mdash; Messages ({{ person.messages|length }})</h2>
 <table>
   <tr>
-    <th style="width:120px">Timestamp</th>
+    <th style="width:140px">Timestamp ({{ timezone }})</th>
     <th style="width:80px">From</th>
     <th style="width:80px">To</th>
     <th>Content</th>
     <th style="width:60px">Source</th>
     <th style="width:80px">Threat</th>
+    <th style="width:60px">Status</th>
   </tr>
   {% for m in person.messages %}
-  <tr class="{{ 'threat-high' if m.threat_confidence and m.threat_confidence >= 0.75 else ('threat' if m.threat_detected else '') }}">
+  <tr class="{{ 'tapback' if m.is_tapback else ('threat-high' if m.threat_confidence and m.threat_confidence >= 0.75 else ('threat' if m.threat_detected else '')) }}">
     <td>{{ m.timestamp }}</td>
     <td>{{ m.sender }}</td>
     <td>{{ m.recipient }}</td>
     <td>
-      {{ m.content }}
+      {% if m.date_retracted %}<span class="retracted-flag">{{ m.content }}</span>
+      {% else %}{{ m.content }}{% endif %}
       {% if m.attachment_data_uri %}
       <br><img class="attachment-img" src="{{ m.attachment_data_uri }}"
                alt="{{ m.attachment_name or 'photo' }}">
       {% elif m.attachment_name %}
       <br><em>[Attachment: {{ m.attachment_name }}]</em>
       {% endif %}
+      {% if m.reactions %}<div class="reactions-list">{{ m.reactions }}</div>{% endif %}
+      {% if m.thread_originator_guid %}<div class="edited-flag">Thread: {{ m.thread_originator_guid }}</div>{% endif %}
     </td>
     <td>{{ m.source }}</td>
     <td>{{ m.threat_categories or '' }}</td>
+    <td>
+      {% if m.is_sos %}<span class="sos-flag">SOS</span> {% endif %}
+      {% if m.date_retracted %}<span class="retracted-flag">Unsent</span> {% endif %}
+      {% if m.date_edited %}<span class="edited-flag">Edited</span> {% endif %}
+      {% if m.was_downgraded %}<span class="downgraded-flag">SMS</span> {% endif %}
+      {% if m.is_tapback %}Tapback{% endif %}
+    </td>
   </tr>
   {% endfor %}
 </table>
@@ -332,7 +350,8 @@ class HtmlReporter:
         recommendations = ai.get('recommendations', [])
 
         # --- per-person messages with inline images ---
-        persons = self._build_person_data(messages, mapped_persons, analysis_results)
+        compliance = LegalComplianceManager(config=config, forensic_recorder=self.forensic)
+        persons = self._build_person_data(messages, mapped_persons, analysis_results, compliance)
 
         # --- conversation threads ---
         threads: List[Dict] = []
@@ -364,7 +383,8 @@ class HtmlReporter:
             'total_messages': len(messages),
             'threat_count': threat_count,
             'sources': ', '.join(sorted(sources)),
-            'report_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'report_date': compliance.format_timestamp(),
+            'timezone': compliance.tz_abbreviation,
             'ai_summary': ai_summary,
             'risk_indicators': risk_indicators,
             'recommendations': recommendations,
@@ -379,6 +399,7 @@ class HtmlReporter:
         messages: list,
         mapped_persons: list,
         analysis_results: Dict,
+        compliance: LegalComplianceManager = None,
     ) -> List[Dict[str, Any]]:
         """Build a per-person list of messages with embedded attachment images."""
         # Build a lookup of threat info by message_id
@@ -408,8 +429,24 @@ class HtmlReporter:
                 if att_path:
                     attachment_data_uri = _b64_img(att_path)
 
+                # Format reactions list for display
+                reactions_display = ''
+                reactions = m.get('reactions', [])
+                if reactions and isinstance(reactions, list):
+                    parts = []
+                    for r in reactions:
+                        if isinstance(r, dict):
+                            parts.append(f"{r.get('type', '')} {r.get('sender', '')}")
+                        else:
+                            parts.append(str(r))
+                    reactions_display = ', '.join(parts)
+
+                # Convert timestamp to local timezone for display
+                raw_ts = m.get('timestamp', '')
+                display_ts = compliance.convert_to_local(raw_ts) if compliance else str(raw_ts)
+
                 rows.append({
-                    'timestamp': str(m.get('timestamp', '')),
+                    'timestamp': display_ts,
                     'sender': m.get('sender', ''),
                     'recipient': m.get('recipient', ''),
                     'content': m.get('content', ''),
@@ -419,6 +456,14 @@ class HtmlReporter:
                     'threat_detected': threat_info.get('threat_detected', False),
                     'threat_categories': threat_info.get('threat_categories', ''),
                     'threat_confidence': threat_info.get('threat_confidence', 0),
+                    # New forensic fields
+                    'is_tapback': m.get('is_tapback', False),
+                    'date_edited': m.get('date_edited'),
+                    'date_retracted': m.get('date_retracted'),
+                    'is_sos': m.get('is_sos', False),
+                    'was_downgraded': m.get('was_downgraded', False),
+                    'thread_originator_guid': m.get('thread_originator_guid'),
+                    'reactions': reactions_display,
                 })
 
             persons.append({'name': person, 'messages': rows})

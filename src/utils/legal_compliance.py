@@ -94,6 +94,32 @@ class LegalComplianceManager:
             dt = self.tz.localize(dt)
         return dt.strftime("%Y-%m-%d %H:%M:%S %Z")
 
+    @property
+    def tz_abbreviation(self) -> str:
+        """Current timezone abbreviation (e.g. 'PST', 'PDT')."""
+        return self.now().strftime('%Z')
+
+    def convert_to_local(self, ts) -> str:
+        """Convert a UTC timestamp to the configured local timezone for display.
+
+        Accepts pd.Timestamp, datetime, or string. Returns formatted string
+        like '2024-03-15 15:30:00 PDT'. Returns the original value as a string
+        if conversion fails.
+        """
+        if ts is None or (isinstance(ts, str) and not ts.strip()):
+            return ''
+        try:
+            import pandas as pd
+            # Parse to pandas Timestamp (handles strings, datetimes, Timestamps)
+            parsed = pd.to_datetime(ts, utc=True)
+            if pd.isna(parsed):
+                return str(ts)
+            # Convert to local timezone
+            local_dt = parsed.to_pydatetime().astimezone(self.tz)
+            return local_dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+        except Exception:
+            return str(ts)
+
     # ------------------------------------------------------------------
     # 1. Methodology Statement (Daubert Standard)
     # ------------------------------------------------------------------
