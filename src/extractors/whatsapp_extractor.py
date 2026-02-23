@@ -138,16 +138,16 @@ class WhatsAppExtractor:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            # Find all messages
-            matches = self.message_pattern.findall(content)
-            
+            # Find all message boundaries using finditer (captures multiline content)
+            boundaries = list(self.message_pattern.finditer(content))
+
             # First pass: identify unique senders to determine chat participants
             # This lets us correctly assign recipients in 1:1 chats even when
             # the filename doesn't contain the contact name.
             person1 = getattr(config, 'person1_name', None)
             raw_senders = set()
-            for match in matches:
-                raw_senders.add(match[1].strip())
+            for match in boundaries:
+                raw_senders.add(match.group(2).strip())
             
             # Map raw senders to person names
             mapped_senders = set()
@@ -169,9 +169,25 @@ class WhatsAppExtractor:
             if len(non_person1) == 1:
                 other_person = non_person1.pop()
             
-            for match in matches:
-                timestamp_str, sender, message_content = match
-                
+            for idx, match in enumerate(boundaries):
+                timestamp_str = match.group(1)
+                sender = match.group(2)
+                first_line = match.group(3)
+
+                # Capture continuation lines between this boundary and the next.
+                # Any text after the first matched line up to the next message
+                # header belongs to this message (multiline messages).
+                first_line_end = match.end()
+                if idx + 1 < len(boundaries):
+                    next_start = boundaries[idx + 1].start()
+                else:
+                    next_start = len(content)
+                continuation = content[first_line_end:next_start].strip()
+                if continuation:
+                    message_content = first_line + '\n' + continuation
+                else:
+                    message_content = first_line
+
                 # Parse timestamp (handle different formats)
                 timestamp = self._parse_timestamp(timestamp_str)
                 if timestamp is None:
@@ -190,11 +206,11 @@ class WhatsAppExtractor:
                         sender_name = 'Me'
                         is_from_me = True
                         break
-                
+
                 # If sender resolved to PERSON1 (device owner), treat as "from me"
                 if person1 and sender_name == person1:
                     is_from_me = True
-                
+
                 # Determine recipient
                 # For 1:1 chats: if sender is Me/PERSON1 → recipient is the other person
                 # If sender is another person → recipient is Me/PERSON1
@@ -214,12 +230,12 @@ class WhatsAppExtractor:
                 else:
                     # Sender is another person, so recipient is Me
                     recipient = 'Me'
-                
+
                 # Clean Unicode control characters (WhatsApp embeds LTR marks,
                 # object replacement chars, etc.)
                 clean_content = message_content.strip()
                 clean_content = re.sub(r'[\u200e\u200f\u202a-\u202e\ufffc\ufeff]', '', clean_content)
-                
+
                 # Detect attachment references (e.g. <attached: FILENAME.jpg>)
                 attachment_match = re.search(r'<attached:\s*(.+?)>', clean_content)
                 attachment_path = None
