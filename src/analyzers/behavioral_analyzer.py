@@ -43,11 +43,15 @@ class BehavioralAnalyzer:
             'communication_frequency': self._analyze_communication_patterns(df),
             'escalation_patterns': self._identify_escalation_patterns(df),
             'relationship_dynamics': self._analyze_relationship_dynamics(df),
-            'threat_assessment': self._comprehensive_threat_assessment(df),
             'visitation_analysis': self._analyze_visitation_patterns(df),
             'response_patterns': self._analyze_response_patterns(df),
             'time_patterns': self._analyze_time_patterns(df)
         }
+
+        # Threat assessment reuses cached escalation_patterns to avoid redundant computation
+        results['threat_assessment'] = self._comprehensive_threat_assessment(
+            df, escalation=results['escalation_patterns']
+        )
         
         self.forensic.record_action(
             "BEHAVIORAL_ANALYSIS_COMPLETE",
@@ -135,26 +139,32 @@ class BehavioralAnalyzer:
         
         return dynamics
     
-    def _comprehensive_threat_assessment(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Comprehensive threat and risk assessment."""
+    def _comprehensive_threat_assessment(self, df: pd.DataFrame, escalation: Dict = None) -> Dict[str, Any]:
+        """Comprehensive threat and risk assessment.
+
+        Args:
+            df: DataFrame with messages (may include threat/sentiment columns)
+            escalation: Pre-computed escalation patterns (avoids redundant call)
+        """
         assessment = {
             'threat_level': 'low',
             'risk_factors': [],
             'protective_factors': []
         }
-        
+
         if 'threat_detected' in df.columns:
             threat_rate = df['threat_detected'].mean()
-            
+
             if threat_rate > 0.3:
                 assessment['threat_level'] = 'high'
                 assessment['risk_factors'].append('High frequency of threatening language')
             elif threat_rate > 0.1:
                 assessment['threat_level'] = 'moderate'
                 assessment['risk_factors'].append('Moderate presence of concerning language')
-        
-        # Check for escalation
-        escalation = self._identify_escalation_patterns(df)
+
+        # Use pre-computed escalation if provided, otherwise compute
+        if escalation is None:
+            escalation = self._identify_escalation_patterns(df)
         if escalation.get('sentiment_escalation'):
             assessment['risk_factors'].append('Escalating negative sentiment')
         

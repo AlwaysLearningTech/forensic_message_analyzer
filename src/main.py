@@ -215,6 +215,10 @@ class ForensicAnalyzer:
         results['metrics'] = metrics_results
         print("    Communication metrics calculated")
 
+        # Save the enriched DataFrame for Phase 4 behavioral analysis.
+        # At this point combined_df has threat, sentiment, and pattern columns.
+        self._enriched_df = combined_df.copy()
+
         # AI analysis (Anthropic Claude) — only for messages involving mapped contacts
         print("\n[*] Running AI analysis...")
         try:
@@ -380,34 +384,63 @@ class ForensicAnalyzer:
         return review_summary
     
     def run_behavioral_phase(self, extracted_data: Dict, analysis_results: Dict, review_results: Dict) -> Dict:
-        """Run behavioral analysis on reviewed data (Phase 4)."""
+        """Run behavioral analysis on review-filtered data (Phase 4).
+
+        Uses the enriched DataFrame from Phase 2 (with threat, sentiment, and
+        pattern columns) and applies Phase 3 review decisions so behavioral
+        analysis only considers confirmed threats.
+        """
         print("\n" + "="*60)
         print("PHASE 4: BEHAVIORAL ANALYSIS (POST-REVIEW)")
         print("="*60)
-        
+
         import pandas as pd
-        
-        messages = extracted_data.get('messages', [])
-        if not messages:
-            print("\n[!] No message data to analyze")
-            return {}
-        
-        # Get confirmed threats from review
-        relevant_ids = [r.get('item_id', '') for r in review_results.get('reviews', [])
-                       if r.get('decision') == 'relevant']
-        
-        print(f"\n[*] Analyzing behavioral patterns on {len(relevant_ids)} reviewed threats")
-        
-        # Convert to DataFrame
-        combined_df = pd.DataFrame(messages)
-        
-        # Run behavioral analysis
+
+        # Use the enriched DataFrame from Phase 2 (has threat/sentiment/pattern columns)
+        enriched_df = getattr(self, '_enriched_df', None)
+
+        if enriched_df is None or enriched_df.empty:
+            # Fallback: create from raw messages (no enrichment columns)
+            messages = extracted_data.get('messages', [])
+            if not messages:
+                print("\n[!] No message data to analyze")
+                return {}
+            enriched_df = pd.DataFrame(messages)
+            print("    Note: Using raw messages (enriched DataFrame not available)")
+
+        # Apply Phase 3 review decisions: clear threat annotations not confirmed in review
+        approved_ids = set()
+        for r in review_results.get('reviews', []):
+            if r.get('decision') in ('relevant', 'uncertain'):
+                approved_ids.add(r.get('item_id', ''))
+
+        cleared_count = 0
+        if 'threat_detected' in enriched_df.columns:
+            for idx in enriched_df.index:
+                if enriched_df.at[idx, 'threat_detected']:
+                    item_id = f"threat_{idx}"
+                    if item_id not in approved_ids:
+                        enriched_df.at[idx, 'threat_detected'] = False
+                        enriched_df.at[idx, 'threat_categories'] = ''
+                        enriched_df.at[idx, 'threat_confidence'] = 0
+                        enriched_df.at[idx, 'harmful_content'] = False
+                        cleared_count += 1
+
+        confirmed_threats = int(enriched_df['threat_detected'].sum()) if 'threat_detected' in enriched_df.columns else 0
+        has_sentiment = 'sentiment_score' in enriched_df.columns
+
+        if cleared_count:
+            print(f"\n[*] Cleared {cleared_count} unconfirmed threats from behavioral input")
+        print(f"[*] Behavioral analysis: {len(enriched_df)} messages, "
+              f"{confirmed_threats} confirmed threats, "
+              f"sentiment data: {'yes' if has_sentiment else 'no'}")
+
+        # Run behavioral analysis on the review-filtered enriched data
         behavioral_analyzer = BehavioralAnalyzer(self.forensic)
-        behavioral_results = behavioral_analyzer.analyze_patterns(combined_df)
-        
+        behavioral_results = behavioral_analyzer.analyze_patterns(enriched_df)
+
         print("    Behavioral analysis complete")
-        print(f"    Analyzed communication patterns across {len(combined_df)} messages")
-        
+
         return behavioral_results
     
     def _filter_analysis_by_review(self, analysis: Dict, review: Dict) -> Dict:

@@ -206,6 +206,7 @@ def main():
 
         # Estimate input tokens: system prompt per batch + message content
         system_tokens = ai._estimate_tokens(ai._SYSTEM_PROMPT) * num_batches
+        system_prompt_tokens = ai._estimate_tokens(ai._SYSTEM_PROMPT)
         message_tokens = 0
         for i in range(0, len(mapped_messages), batch_size):
             batch = mapped_messages[i:i + batch_size]
@@ -216,31 +217,37 @@ def main():
         # (previous estimate of 385 was from billing aggregates that didn't match per-request data)
         est_output = num_batches * 1600
 
-        # Batch API rates for Opus 4.6: $2.50/MTok input, $12.50/MTok output
-        est_cost = (est_input / 1_000_000) * 2.50 + (est_output / 1_000_000) * 12.50
-
-        # With caching (system prompt only counted once at full price)
-        # Cache reads = $0.25/MTok (10% of batch input rate)
-        cache_savings = (system_tokens - ai._estimate_tokens(ai._SYSTEM_PROMPT)) * (2.50 - 0.25) / 1_000_000
-        est_cost_cached = est_cost - cache_savings
-
-        # Per-component breakdown
-        input_cost = (est_input / 1_000_000) * 2.50
+        # Batch API rates for Opus 4.6:
+        # Cache creation: $3.125/MTok (first request system prompt)
+        # Cache reads: $0.25/MTok (subsequent request system prompts)
+        # Standard batch input: $2.50/MTok (message content)
+        # Batch output: $12.50/MTok
+        cache_creation_cost = (system_prompt_tokens / 1_000_000) * 3.125
+        cache_read_cost = (system_prompt_tokens * max(0, num_batches - 1) / 1_000_000) * 0.25
+        message_input_cost = (message_tokens / 1_000_000) * 2.50
         output_cost = (est_output / 1_000_000) * 12.50
+        est_batch_cost = cache_creation_cost + cache_read_cost + message_input_cost + output_cost
+
+        # Sync API calls (standard rates: $5/$25 per MTok)
+        # Executive summary: ~500 input + ~800 output tokens
+        # Legal team summary: ~1500 input + ~1500 output tokens
+        est_sync_cost = (2000 / 1_000_000) * 5.0 + (2300 / 1_000_000) * 25.0
+        est_total = est_batch_cost + est_sync_cost
 
         print(f"  Messages to analyze: {len(mapped_messages):,}")
         print(f"  Batch size: {batch_size}")
         print(f"  Number of batches: {num_batches}")
-        print(f"  Estimated input tokens:  ~{est_input:,}  (${input_cost:.2f})")
+        print(f"  Estimated input tokens:  ~{est_input:,}  (${message_input_cost:.2f} message + ${cache_creation_cost:.4f} cache create + ${cache_read_cost:.4f} cache read)")
         print(f"  Estimated output tokens: ~{est_output:,}  (${output_cost:.2f})")
-        print(f"  Estimated cost (no cache): ~${est_cost:.2f}")
-        print(f"  Estimated cost (with cache): ~${est_cost_cached:.2f}")
+        print(f"  Estimated batch cost: ~${est_batch_cost:.2f}")
+        print(f"  Estimated sync summaries: ~${est_sync_cost:.4f} (executive + legal team)")
+        print(f"  Estimated total cost: ~${est_total:.2f}")
         print()
 
-        if est_cost > 50:
+        if est_total > 50:
             print(f"  WARNING: Estimated cost > $50! Consider reducing batch size or message count.")
             warnings += 1
-        elif est_cost > 20:
+        elif est_total > 20:
             print(f"  CAUTION: Estimated cost > $20.")
             warnings += 1
 

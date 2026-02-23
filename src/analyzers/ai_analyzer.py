@@ -306,16 +306,32 @@ class AIAnalyzer:
         total_requests = len(batch_requests)
 
         # Pre-submission cost estimate based on token estimation
+        system_prompt_tokens = self._estimate_tokens(self._SYSTEM_PROMPT)
         est_input_tokens = sum(self._estimate_tokens(r["params"]["messages"][0]["content"]) for r in batch_requests)
-        est_input_tokens += self._estimate_tokens(self._SYSTEM_PROMPT) * total_requests
+        est_input_tokens += system_prompt_tokens * total_requests
         # Based on actual run data: avg ~1,600 output tokens per batch
         # (previous estimate of 385 was from billing aggregates that didn't match per-request data)
         est_output_tokens = total_requests * 1600
-        est_cost = (est_input_tokens / 1_000_000) * 2.50 + (est_output_tokens / 1_000_000) * 12.50
+
+        # Batch API rates for Opus 4.6: $2.50/MTok input, $12.50/MTok output
+        # Cache creation: $3.125/MTok (first request), cache reads: $0.25/MTok (subsequent)
+        message_input_tokens = est_input_tokens - (system_prompt_tokens * total_requests)
+        cache_creation_cost = (system_prompt_tokens / 1_000_000) * 3.125  # first request
+        cache_read_cost = (system_prompt_tokens * max(0, total_requests - 1) / 1_000_000) * 0.25
+        message_cost = (message_input_tokens / 1_000_000) * 2.50
+        output_cost = (est_output_tokens / 1_000_000) * 12.50
+        est_cost = cache_creation_cost + cache_read_cost + message_cost + output_cost
+
+        # Add estimated sync summary call (~500 input, ~800 output at standard $5/$25)
+        est_sync_cost = (500 / 1_000_000) * 5.0 + (800 / 1_000_000) * 25.0
+        est_total = est_cost + est_sync_cost
+
         print(
             f"    Submitting {total_requests} requests via Batch API (50% cost discount)...\n"
             f"    Estimated tokens: ~{est_input_tokens:,} input + ~{est_output_tokens:,} output\n"
-            f"    Estimated cost: ~${est_cost:.2f}"
+            f"    Estimated batch cost: ~${est_cost:.2f} (with prompt caching)\n"
+            f"    Estimated sync summary: ~${est_sync_cost:.4f}\n"
+            f"    Estimated total: ~${est_total:.2f}"
         )
 
         self.forensic.record_action(
@@ -428,7 +444,7 @@ class AIAnalyzer:
             f"    Batch complete: {counts.succeeded} succeeded, "
             f"{total_input_tokens:,} input + {total_output_tokens:,} output tokens"
             + cache_info
-            + f"\n    Estimated cost: ${estimated_cost:.2f}"
+            + f"\n    Batch cost: ${estimated_cost:.2f}"
         )
 
         # Generate summary, risks, recommendations (synchronous - only 2 API calls)
@@ -617,10 +633,6 @@ class AIAnalyzer:
             sender = msg.get("sender", "Unknown")
             content = msg.get("content", "")
 
-            # Truncate very long messages to save tokens
-            if len(content) > 500:
-                content = content[:500] + "...[truncated]"
-
             batch_text += f"[{timestamp}] {sender}: {content}\n"
 
         return batch_text
@@ -781,6 +793,23 @@ class AIAnalyzer:
                 temperature=0.3,
                 max_tokens=1024,
             )
+
+            # Track tokens from this sync API call (standard rates, not batch)
+            summary_input = response.usage.input_tokens
+            summary_output = response.usage.output_tokens
+            sync_cost = (summary_input / 1_000_000) * 5.0 + (summary_output / 1_000_000) * 25.0
+
+            stats = analysis.get("processing_stats", {})
+            stats["input_tokens"] = stats.get("input_tokens", 0) + summary_input
+            stats["output_tokens"] = stats.get("output_tokens", 0) + summary_output
+            stats["tokens_used"] = stats.get("tokens_used", 0) + summary_input + summary_output
+            stats["api_calls"] = stats.get("api_calls", 0) + 1
+            stats["summary_sync_cost_usd"] = round(sync_cost, 4)
+            stats["estimated_cost_usd"] = round(
+                stats.get("estimated_cost_usd", 0) + sync_cost, 4
+            )
+
+            print(f"    Summary: {summary_input:,} input + {summary_output:,} output tokens (~${sync_cost:.4f})")
 
             return response.content[0].text
 
