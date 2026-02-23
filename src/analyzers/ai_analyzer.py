@@ -248,7 +248,18 @@ class AIAnalyzer:
             try:
                 return self._analyze_messages_batch(messages, batch_size)
             except Exception as e:
-                logger.warning(f"Batch API failed, falling back to synchronous: {e}")
+                # If the batch was already submitted to Anthropic, do NOT
+                # fall back to sync (that would re-process everything at 2x cost).
+                # Only fall back for pre-submission errors.
+                if "Batch" in str(e) and ("timed out" in str(e).lower() or "batch_" in str(e).lower()):
+                    logger.error(f"Batch API failed after submission: {e}")
+                    self.forensic.record_action(
+                        "batch_api_post_submit_failure",
+                        f"Batch failed after submission — NOT falling back to sync to avoid double billing: {str(e)}",
+                        {"error": str(e)},
+                    )
+                    raise  # Let caller handle; do NOT re-run via sync
+                logger.warning(f"Batch API failed (pre-submission), falling back to synchronous: {e}")
                 self.forensic.record_action(
                     "batch_api_fallback",
                     f"Batch API unavailable, using synchronous mode: {str(e)}",
@@ -327,9 +338,11 @@ class AIAnalyzer:
             {"batch_id": batch_id},
         )
 
-        # Poll for completion
+        # Poll for completion (max 4 hours to avoid blocking forever)
         print(f"    Batch {batch_id} created. Waiting for completion...")
         poll_interval = 10  # seconds
+        max_wait = 4 * 60 * 60  # 4 hours
+        elapsed = 0
         while True:
             message_batch = self.client.messages.batches.retrieve(batch_id)
             counts = message_batch.request_counts
@@ -344,7 +357,15 @@ class AIAnalyzer:
                 print()  # newline after progress
                 break
 
+            if elapsed >= max_wait:
+                print(f"\n    Batch timed out after {max_wait // 3600} hours. "
+                      f"Batch ID: {batch_id} — check console.anthropic.com for status.")
+                raise TimeoutError(
+                    f"Batch {batch_id} did not complete within {max_wait // 3600} hours"
+                )
+
             time.sleep(poll_interval)
+            elapsed += poll_interval
 
         # Process results
         total_input_tokens = 0
@@ -414,6 +435,27 @@ class AIAnalyzer:
         analysis_results["conversation_summary"] = self._generate_summary(analysis_results)
         analysis_results["risk_indicators"] = self._identify_risks(analysis_results)
         analysis_results["recommendations"] = self._generate_recommendations(analysis_results)
+
+        # Compute overall sentiment from accumulated scores
+        scores = analysis_results.get("sentiment_analysis", {}).get("scores", [])
+        if scores:
+            avg = sum(scores) / len(scores)
+            if avg >= 6:
+                analysis_results["sentiment_analysis"]["overall"] = "negative"
+            elif avg <= 4:
+                analysis_results["sentiment_analysis"]["overall"] = "positive"
+            else:
+                analysis_results["sentiment_analysis"]["overall"] = "neutral"
+
+        # Deduplicate key_topics
+        seen_topics = set()
+        unique_topics = []
+        for topic in analysis_results.get("key_topics", []):
+            t = str(topic).lower().strip()
+            if t not in seen_topics:
+                seen_topics.add(t)
+                unique_topics.append(topic)
+        analysis_results["key_topics"] = unique_topics
 
         self.forensic.record_action(
             "batch_analysis_complete",
@@ -489,6 +531,27 @@ class AIAnalyzer:
             analysis_results["conversation_summary"] = self._generate_summary(analysis_results)
             analysis_results["risk_indicators"] = self._identify_risks(analysis_results)
             analysis_results["recommendations"] = self._generate_recommendations(analysis_results)
+
+            # Compute overall sentiment from accumulated scores
+            scores = analysis_results.get("sentiment_analysis", {}).get("scores", [])
+            if scores:
+                avg = sum(scores) / len(scores)
+                if avg >= 6:
+                    analysis_results["sentiment_analysis"]["overall"] = "negative"
+                elif avg <= 4:
+                    analysis_results["sentiment_analysis"]["overall"] = "positive"
+                else:
+                    analysis_results["sentiment_analysis"]["overall"] = "neutral"
+
+            # Deduplicate key_topics
+            seen_topics = set()
+            unique_topics = []
+            for topic in analysis_results.get("key_topics", []):
+                t = str(topic).lower().strip()
+                if t not in seen_topics:
+                    seen_topics.add(t)
+                    unique_topics.append(topic)
+            analysis_results["key_topics"] = unique_topics
 
             self.forensic.record_action(
                 "ai_analysis_complete",
