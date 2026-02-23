@@ -8,7 +8,7 @@ via ManualReviewManager and ForensicRecorder.
 
 import json
 import os
-import signal
+import threading
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -58,6 +58,7 @@ class WebReview:
         self.flagged_items: List[Dict] = []
         self.screenshots: List[Dict] = []
         self.reviewed_indices: set = set()
+        self._shutdown_event = threading.Event()
 
         # Build Flask app
         self.app = Flask(__name__)
@@ -93,16 +94,36 @@ class WebReview:
         @self.app.route("/attachments/<path:filename>")
         def serve_attachment(filename):
             """Serve message attachment files (WhatsApp photos, iMessage images, etc.)."""
+            # Security: only serve files that are actual message attachments.
+            # Build allowlist from loaded messages to prevent path traversal.
+            allowed_paths = set()
+            for msg in self.messages:
+                att = msg.get('attachment')
+                if att:
+                    try:
+                        allowed_paths.add(str(Path(att).resolve()))
+                    except (ValueError, OSError):
+                        pass
+
             # Try absolute path first (iMessage attachments use full paths)
             abs_path = Path("/") / filename
-            if abs_path.is_file():
+            try:
+                resolved = str(abs_path.resolve())
+            except (ValueError, OSError):
+                return ("Attachment not found", 404)
+            if resolved in allowed_paths and abs_path.is_file():
                 return send_from_directory(str(abs_path.parent), abs_path.name)
+
             # Search WhatsApp source directories
             wa_dir = config.whatsapp_source_dir
             if wa_dir:
                 wa_path = Path(wa_dir)
-                for candidate in [wa_path / filename, *wa_path.rglob(filename)]:
-                    if candidate.is_file():
+                for candidate in [wa_path / filename]:
+                    try:
+                        candidate_resolved = str(candidate.resolve())
+                    except (ValueError, OSError):
+                        continue
+                    if candidate_resolved in allowed_paths and candidate.is_file():
                         return send_from_directory(str(candidate.parent), candidate.name)
             return ("Attachment not found", 404)
 
@@ -114,12 +135,9 @@ class WebReview:
                     f"Web review session completed with {len(self.reviewed_indices)} items reviewed",
                     {"reviewed": len(self.reviewed_indices), "total": len(self.flagged_items)}
                 )
-            # Shut down Flask
-            func = request.environ.get("werkzeug.server.shutdown")
-            if func:
-                func()
-            else:
-                os.kill(os.getpid(), signal.SIGINT)
+            # Signal the main thread to stop waiting; Flask runs in a daemon
+            # thread and will terminate automatically when start_review returns.
+            self._shutdown_event.set()
             return jsonify({"status": "ok"})
 
     # ------------------------------------------------------------------
@@ -161,7 +179,20 @@ class WebReview:
         print(f"\n    Opening review interface at http://127.0.0.1:{port}")
         print(f"    Press Ctrl+C or click 'Complete Review' to finish.\n")
 
-        self.app.run(host="127.0.0.1", port=port, debug=False)
+        # Run Flask in a daemon thread so that 'Complete Review' doesn't
+        # need to SIGINT the whole process (which kills the parent pipeline).
+        server_thread = threading.Thread(
+            target=self.app.run,
+            kwargs={"host": "127.0.0.1", "port": port, "debug": False},
+            daemon=True,
+        )
+        server_thread.start()
+
+        # Block until the user clicks 'Complete Review' or presses Ctrl+C
+        try:
+            self._shutdown_event.wait()
+        except KeyboardInterrupt:
+            pass
 
     # ------------------------------------------------------------------
     # Private helpers
