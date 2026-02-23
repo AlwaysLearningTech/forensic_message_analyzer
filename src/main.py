@@ -102,6 +102,11 @@ class ForensicAnalyzer:
         except Exception as e:
             print(f"    Error extracting messages: {e}")
             all_messages = []
+
+        if not all_messages:
+            print("\n[ABORT] No messages extracted. Cannot proceed with analysis.")
+            print("    Check your data sources and contact mappings in .env")
+            raise RuntimeError("Extraction produced 0 messages — aborting to avoid wasting API credits")
         
         # Catalog screenshots
         print("\n[*] Cataloging screenshots...")
@@ -583,7 +588,10 @@ class ForensicAnalyzer:
         # Generate chain of custody
         print("\n[*] Generating chain of custody...")
         chain_path = self.forensic.generate_chain_of_custody()
-        print(f"    Saved to {chain_path}")
+        if chain_path:
+            print(f"    Saved to {chain_path}")
+        else:
+            print("    WARNING: Chain of custody generation failed")
         
         # Generate timeline if we have message data
         timeline_path = None
@@ -627,10 +635,10 @@ class ForensicAnalyzer:
         
         print("\n[✓] Documentation complete")
         
-        result = {
-            'chain_of_custody': str(chain_path),
-            'manifest': str(manifest_path)
-        }
+        result = {}
+        if chain_path:
+            result['chain_of_custody'] = str(chain_path)
+        result['manifest'] = str(manifest_path)
         if timeline_path:
             result['timeline'] = str(timeline_path)
         
