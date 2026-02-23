@@ -5,6 +5,44 @@ All notable changes to the Forensic Message Analyzer will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.0] - 2026-02-23
+
+### Added
+- **End-to-end pipeline validation**: Test 8 in `validate_before_run.py` runs auto-review, filtering, and report generation against temp data
+- **Interactive cleanup prompt**: Validation script now shows temp directory path and asks before deleting, so test output can be reviewed
+- **Batch polling timeout**: 4-hour max wait on batch API polling loop prevents infinite blocking
+- **Sync fallback guard**: Detects batch failures that occur after submission (timeout, partial) and refuses to re-run via sync, preventing double billing
+- **Sentiment overall computation**: Computes overall sentiment (positive/neutral/negative) from accumulated scores across batches
+- **Key topics deduplication**: Deduplicates topics across batch boundaries
+- **Empty extraction abort**: Pipeline aborts before AI analysis if zero messages were extracted, preventing waste of API credits
+- **Empty dataset guard in legal summary**: Skips AI-generated legal summary when there are no messages, saving API credits
+
+### Changed
+- **WebReview shutdown**: Flask now runs in a daemon thread with `threading.Event`-based shutdown instead of `os.kill(SIGINT)`, which was killing the entire parent pipeline
+- **Attachment serving**: `/attachments/` route now uses an allowlist built from actual message attachments instead of serving arbitrary filesystem paths
+- **Email message IDs**: Fallback IDs use deterministic SHA-256 hash of filename + date + subject instead of non-reproducible `id(msg)` memory addresses
+- **Email timestamp sorting**: Normalizes all timestamps to UTC via `pd.to_datetime(utc=True)` before sorting, preventing TypeError on mixed tz-aware/naive datetimes
+- **WhatsApp message parsing**: Uses `finditer` with continuation-line capture between message boundaries instead of `findall`, preserving multiline message content
+- **Teams timestamp parsing**: Converts raw ISO 8601 strings to proper datetime objects via `pd.to_datetime(utc=True)`, fixing cross-source sorting
+
+### Fixed
+- **Anthropic API 401 authentication**: VS Code injects `ANTHROPIC_BASE_URL=http://localhost:...` which the SDK reads even with explicit `api_key`. Fixed by always passing `base_url="https://api.anthropic.com"` in both `ai_analyzer.py` and `forensic_reporter.py`
+- **iMessage timestamps off by UTC offset**: SQL query had `'localtime'` modifier converting UTC to local time, then Python re-interpreted as UTC. Removed `'localtime'` so timestamps stay in UTC
+- **SQLite connection leak in iMessage extractor**: Wrapped processing in `try/finally` to ensure `conn.close()` is called
+- **Empty contact mappings crash**: Added guard against empty `IN ()` clause in iMessage SQL query
+- **Excel tz_localize TypeError**: Changed `dt.tz_localize(None)` to `dt.tz_convert(None)` for already tz-aware columns
+- **PDF crash on special characters**: Added `html.escape()` to all user content in ReportLab `Paragraph()` calls, preventing XML parse errors from `<`, `>`, `&` in messages
+- **Excel NaN column width**: Added `pd.isna()` guard for column width calculation when DataFrame has NaN values
+- **JSON report unprotected**: Wrapped JSON report generation in try/except
+- **Chain of custody None handling**: Added null guard so `None` return from `generate_chain_of_custody()` doesn't corrupt result dict
+- **Timeline XSS**: HTML-escaped all user content (sender names, message text) in `timeline_generator.py`
+- **BehavioralAnalyzer ZeroDivisionError**: Added `len(df) == 0` guard in `_analyze_communication_style` and `_comprehensive_threat_assessment`
+- **Path traversal vulnerability**: `/attachments/<path:filename>` route in `web_review.py` could serve any file on disk; now restricted to allowlist of actual message attachments
+
+### Security
+- **Path traversal in web review**: Replaced open filesystem access with allowlist-based attachment serving
+- **XSS in timeline HTML**: All user content now escaped before insertion into HTML output
+
 ## [4.0.0] - 2026-02-22
 
 ### Added
@@ -100,6 +138,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SWGDE/NIST guidelines compliance
 
 ---
-
-For detailed technical changes, see [IMPROVEMENTS_LOG.md](IMPROVEMENTS_LOG.md).
-For code review findings, see [CODE_REVIEW.md](CODE_REVIEW.md).

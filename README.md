@@ -98,7 +98,7 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/forensic_message_analyzer.git
+git clone https://github.com/AlwaysLearningTech/forensic_message_analyzer.git
 cd forensic_message_analyzer
 ```
 
@@ -233,7 +233,7 @@ python3 validate_before_run.py --no-ai
 python3 validate_before_run.py --ai-sample 10
 ```
 
-The script runs 7 checks:
+The script runs 8 checks:
 1. **Config validation** - Verifies .env settings
 2. **Contact mappings** - Confirms person identifiers are configured
 3. **Data extraction** - Extracts from all sources (free, local-only)
@@ -241,6 +241,7 @@ The script runs 7 checks:
 5. **Non-AI analysis** - Runs threat, sentiment, behavioral, and pattern analyzers
 6. **Cost estimate** - Calculates expected Batch API cost based on token estimation
 7. **AI test** - Sends a small sample to Claude to verify token counting works
+8. **End-to-end pipeline** - Runs auto-review, filtering, and report generation with temp data; prompts before cleanup so you can inspect output
 
 ### Full Analysis Pipeline
 

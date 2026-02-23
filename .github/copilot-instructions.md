@@ -148,10 +148,12 @@
 
 ## Developer Workflows
 - **Run full analysis:** `python3 run.py`
+- **Pre-run validation:** `python3 validate_before_run.py` (runs 8 checks including end-to-end pipeline test; prompts before cleaning temp output)
+- **Validate without AI spend:** `python3 validate_before_run.py --no-ai` or `python3 validate_before_run.py --estimate`
 - **Run all tests:** `python3 -m pytest tests/ -v`
 - **Run specific tests:** `python3 -m pytest tests/test_integration.py -v`
 - **Install dependencies:** `pip install -r requirements.txt`
-- **Configure environment:** 
+- **Configure environment:**
   1. Copy `.env.example` to `.env`
   2. Edit `.env` with your configuration
   3. Ensure data directories exist
@@ -230,7 +232,10 @@ Repository (code only)          Local Data Storage
 13. **TimelineGenerator needs df and path**: create_timeline(df, output_path) requires both parameters
 14. **DataExtractor needs config paths**: Extractors are None if config doesn't have paths set
 15. **Extractors need 3 params**: IMessageExtractor and WhatsAppExtractor need (path, forensic, integrity)
-15. **Extractors need 3 params**: IMessageExtractor and WhatsAppExtractor need (path, forensic, integrity)
+16. **Anthropic base_url override**: Always pass `base_url="https://api.anthropic.com"` when creating Anthropic clients. VS Code injects `ANTHROPIC_BASE_URL=http://localhost:...` which hijacks the SDK and causes 401 errors.
+17. **Batch API timeout**: Batch polling has a 4-hour max wait. If a batch doesn't complete in time, it raises TimeoutError instead of blocking forever.
+18. **Sync fallback guard**: If batch API fails AFTER submission (timeout, partial failure), do NOT fall back to sync — that would re-process everything at full price.
+19. **WebReview runs Flask in daemon thread**: `start_review()` uses `threading.Event` for shutdown, NOT `os.kill(SIGINT)`. This prevents killing the parent pipeline when the user clicks "Complete Review".
 
 ## Key Files Reference
 - **Main workflow**: `src/main.py`
