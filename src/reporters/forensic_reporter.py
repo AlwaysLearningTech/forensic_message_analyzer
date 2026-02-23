@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, List, Any
 import logging
 import json
+import html as html_module
 from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -40,6 +41,11 @@ class ForensicReporter:
         self.compliance = LegalComplianceManager(config=config, forensic_recorder=forensic_recorder)
         self.output_dir = Path(config.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _esc(text) -> str:
+        """Escape text for safe use in ReportLab Paragraph (XML/HTML context)."""
+        return html_module.escape(str(text)) if text else ''
     
     def generate_comprehensive_report(self, 
                                      extracted_data: Dict,
@@ -96,13 +102,20 @@ class ForensicReporter:
                 f"PDF report generation failed: {str(e)}"
             )
         
-        # Generate JSON report (always succeeds)
-        json_path = self._generate_json_report(
-            extracted_data, analysis_results, review_decisions, timestamp,
-            legal_summary=legal_summary
-        )
-        reports['json'] = json_path
-        logger.info(f"Generated JSON report: {json_path}")
+        # Generate JSON report
+        try:
+            json_path = self._generate_json_report(
+                extracted_data, analysis_results, review_decisions, timestamp,
+                legal_summary=legal_summary
+            )
+            reports['json'] = json_path
+            logger.info(f"Generated JSON report: {json_path}")
+        except Exception as e:
+            logger.error(f"Failed to generate JSON report: {e}")
+            self.forensic.record_action(
+                "report_generation_error",
+                f"JSON report generation failed: {str(e)}"
+            )
 
         # Save legal team summary as standalone text file
         if legal_summary:
@@ -521,7 +534,7 @@ class ForensicReporter:
             # AI Executive Summary
             elements.append(Paragraph("AI Analysis Overview", styles['Heading2']))
             elements.append(Paragraph(
-                ai_analysis.get('conversation_summary', 'Not available'), styles['Normal']
+                self._esc(ai_analysis.get('conversation_summary', 'Not available')), styles['Normal']
             ))
             elements.append(Spacer(1, 12))
 
@@ -535,14 +548,14 @@ class ForensicReporter:
                         indicator = risk.get('indicator', risk.get('description', ''))
                         action = risk.get('recommended_action', '')
                         elements.append(Paragraph(
-                            f"<b>[{severity}]</b> {indicator}", styles['Normal']
+                            f"<b>[{self._esc(severity)}]</b> {self._esc(indicator)}", styles['Normal']
                         ))
                         if action:
                             elements.append(Paragraph(
-                                f"&nbsp;&nbsp;&nbsp;&nbsp;Recommended: {action}", styles['Normal']
+                                f"&nbsp;&nbsp;&nbsp;&nbsp;Recommended: {self._esc(action)}", styles['Normal']
                             ))
                     else:
-                        elements.append(Paragraph(f"&nbsp;&nbsp;{risk}", styles['Normal']))
+                        elements.append(Paragraph(f"&nbsp;&nbsp;{self._esc(risk)}", styles['Normal']))
                 elements.append(Spacer(1, 12))
 
             # AI-Detected Threats with quotes and actions
@@ -556,18 +569,18 @@ class ForensicReporter:
                         quote = detail.get('quote', '')
                         action = detail.get('recommended_action', '')
                         elements.append(Paragraph(
-                            f"<b>[{severity}]</b> {threat_type}", styles['Normal']
+                            f"<b>[{self._esc(severity)}]</b> {self._esc(threat_type)}", styles['Normal']
                         ))
                         if quote:
                             elements.append(Paragraph(
-                                f'&nbsp;&nbsp;&nbsp;&nbsp;"{quote}"', styles['Normal']
+                                f'&nbsp;&nbsp;&nbsp;&nbsp;"{self._esc(quote)}"', styles['Normal']
                             ))
                         if action:
                             elements.append(Paragraph(
-                                f"&nbsp;&nbsp;&nbsp;&nbsp;Recommended: {action}", styles['Normal']
+                                f"&nbsp;&nbsp;&nbsp;&nbsp;Recommended: {self._esc(action)}", styles['Normal']
                             ))
                     else:
-                        elements.append(Paragraph(f"&nbsp;&nbsp;{detail}", styles['Normal']))
+                        elements.append(Paragraph(f"&nbsp;&nbsp;{self._esc(detail)}", styles['Normal']))
                 elements.append(Spacer(1, 12))
 
             # Recommendations
@@ -575,7 +588,7 @@ class ForensicReporter:
             if recommendations:
                 elements.append(Paragraph("Recommendations", styles['Heading2']))
                 for rec in recommendations:
-                    elements.append(Paragraph(f"&nbsp;&nbsp;{rec}", styles['Normal']))
+                    elements.append(Paragraph(f"&nbsp;&nbsp;{self._esc(rec)}", styles['Normal']))
                 elements.append(Spacer(1, 12))
 
             elements.append(PageBreak())
@@ -593,14 +606,14 @@ class ForensicReporter:
             for paragraph in legal_summary.split('\n\n'):
                 stripped = paragraph.strip()
                 if stripped:
-                    elements.append(Paragraph(stripped, styles['Normal']))
+                    elements.append(Paragraph(self._esc(stripped), styles['Normal']))
                     elements.append(Spacer(1, 8))
             elements.append(PageBreak())
 
         # Executive Summary
         elements.append(Paragraph("Executive Summary", styles['Heading1']))
         summary = self._generate_executive_summary(extracted_data, analysis_results, review_decisions)
-        elements.append(Paragraph(summary, styles['Normal']))
+        elements.append(Paragraph(self._esc(summary), styles['Normal']))
         elements.append(Spacer(1, 12))
         
         # Data Overview Table
@@ -686,7 +699,7 @@ class ForensicReporter:
                 elements.append(Paragraph("High Priority Threats", styles['Heading2']))
                 for threat in high_priority:
                     content = threat.get('content', '')[:100]
-                    elements.append(Paragraph(f"• {content}...", styles['Normal']))
+                    elements.append(Paragraph(f"• {self._esc(content)}...", styles['Normal']))
                 elements.append(Spacer(1, 12))
         
         # Sentiment Analysis Section
@@ -725,12 +738,12 @@ class ForensicReporter:
                         to_state = shift.get('to', 'unknown')
                         position = shift.get('approximate_position', '')
                         elements.append(Paragraph(
-                            f"&nbsp;&nbsp;&nbsp;&nbsp;{from_state} -&gt; {to_state} ({position})",
+                            f"&nbsp;&nbsp;&nbsp;&nbsp;{self._esc(from_state)} -&gt; {self._esc(to_state)} ({self._esc(position)})",
                             styles['Normal']
                         ))
                     else:
                         elements.append(Paragraph(
-                            f"&nbsp;&nbsp;&nbsp;&nbsp;{shift}", styles['Normal']
+                            f"&nbsp;&nbsp;&nbsp;&nbsp;{self._esc(shift)}", styles['Normal']
                         ))
                 elements.append(Spacer(1, 12))
 
@@ -872,7 +885,7 @@ class ForensicReporter:
             df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
             df = df.sort_values('timestamp', na_position='last')
             # Strip timezone for Excel compatibility (values are already UTC)
-            df['timestamp'] = df['timestamp'].dt.tz_localize(None)
+            df['timestamp'] = df['timestamp'].dt.tz_convert(None)
 
         paths = {}
 
@@ -894,10 +907,10 @@ class ForensicReporter:
             # Auto-size columns
             worksheet = writer.sheets['All Messages']
             for i, col in enumerate(df.columns):
-                max_len = max(
-                    df[col].astype(str).str.len().max() if len(df) > 0 else 0,
-                    len(col)
-                )
+                col_max = df[col].astype(str).str.len().max() if len(df) > 0 else 0
+                if pd.isna(col_max):
+                    col_max = 0
+                max_len = max(int(col_max), len(col))
                 # Convert column index to Excel letter(s) (A, B, ..., Z, AA, AB, ...)
                 col_letter = ''
                 idx = i
@@ -936,6 +949,13 @@ class ForensicReporter:
 
         if not config.ai_api_key:
             logger.info("AI API key not configured, skipping legal team summary")
+            return None
+
+        # Skip API call if there's no actual data to summarize
+        messages = extracted_data.get('messages', extracted_data.get('combined', []))
+        total_messages = len(messages) if isinstance(messages, list) else 0
+        if total_messages == 0:
+            logger.info("No messages to summarize, skipping legal team summary")
             return None
 
         # Collect all stats for the prompt
