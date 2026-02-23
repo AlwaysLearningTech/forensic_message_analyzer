@@ -37,5 +37,8 @@ textblob>=0.17.1  # Sentiment analysis
 # Timezone support
 pytz>=2023.3
 
+# iMessage attributedBody binary format parsing
+pytypedstream>=0.1.0
+
 # Additional forensic utilities
 python-dateutil>=2.8.2  # Date parsing
