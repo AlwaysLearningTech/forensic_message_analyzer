@@ -7,11 +7,13 @@ Extracts messages from .eml files, .mbox files, and directories of .eml files.
 import email
 import email.policy
 import email.utils
+import hashlib
 import mailbox
 import logging
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional
+import pandas as pd
 
 from ..config import Config
 from ..forensic_utils import ForensicRecorder, ForensicIntegrity
@@ -75,9 +77,13 @@ class EmailExtractor:
             messages = self._extract_from_mbox(mbox_file)
             all_messages.extend(messages)
 
-        # Sort by timestamp
+        # Sort by timestamp (normalize to UTC to avoid tz-aware/naive comparison)
         if all_messages:
-            all_messages.sort(key=lambda x: x['timestamp'] or datetime.min)
+            for msg in all_messages:
+                ts = msg.get('timestamp')
+                if ts is not None:
+                    msg['timestamp'] = pd.to_datetime(ts, utc=True, errors='coerce')
+            all_messages.sort(key=lambda x: x['timestamp'] if x['timestamp'] is not None and not pd.isna(x['timestamp']) else pd.Timestamp.min.tz_localize('UTC'))
 
         self.forensic.record_action(
             "email_extraction",
@@ -181,8 +187,11 @@ class EmailExtractor:
             # Extract Message-ID
             message_id = msg.get('Message-ID', '').strip().strip('<>')
             if not message_id:
-                # Generate a fallback ID from file and date
-                message_id = f"email_{source_path.stem}_{id(msg)}"
+                # Generate a deterministic fallback ID from file name + date + subject
+                date_str = msg.get('Date', '')
+                subject_str = msg.get('Subject', '')
+                hash_input = f"{source_path.name}:{date_str}:{subject_str}"
+                message_id = f"email_{hashlib.sha256(hash_input.encode()).hexdigest()[:16]}"
 
             # Extract sender
             sender_raw = msg.get('From', '')

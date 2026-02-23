@@ -162,7 +162,7 @@ class BehavioralAnalyzer:
             assessment['risk_factors'].append('Increasing threat frequency')
         
         # Check for protective factors
-        if 'sentiment_score' in df.columns:
+        if 'sentiment_score' in df.columns and len(df) > 0:
             positive_msgs = df[df['sentiment_score'] > 0.5]
             if len(positive_msgs) / len(df) > 0.3:
                 assessment['protective_factors'].append('Significant positive communication')
@@ -326,7 +326,7 @@ class BehavioralAnalyzer:
         """Analyze communication style characteristics."""
         style = {}
         
-        if 'content' not in df.columns:
+        if 'content' not in df.columns or len(df) == 0:
             return style
 
         # Message length patterns

@@ -5,6 +5,7 @@ Includes conversation context around flagged messages.
 """
 
 import logging
+import html as html_module
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
@@ -144,11 +145,13 @@ class TimelineGenerator:
 
         for event in events:
             context_section = event.get('context_html', '')
+            safe_sender = html_module.escape(str(event['sender']))
+            safe_content = html_module.escape(str(event['content']))
             html += f"""
                 <div class="event {event['type']}">
                     <div class="date">{event['date']}</div>
-                    <div class="sender">From: {event['sender']}</div>
-                    <div class="content">{event['content']}...</div>
+                    <div class="sender">From: {safe_sender}</div>
+                    <div class="content">{safe_content}...</div>
                     {context_section}
                 </div>
             """
@@ -196,9 +199,9 @@ class TimelineGenerator:
         )
 
         def _msg_line(msg, is_target=False):
-            sender = msg.get("sender", "?")
-            content = str(msg.get("content", ""))[:120]
-            ts = msg.get("timestamp", "")
+            sender = html_module.escape(str(msg.get("sender", "?")))
+            content = html_module.escape(str(msg.get("content", ""))[:120])
+            ts = html_module.escape(str(msg.get("timestamp", "")))
             cls = ' target' if is_target else ''
             return (
                 f'<div class="ctx-msg{cls}">'
