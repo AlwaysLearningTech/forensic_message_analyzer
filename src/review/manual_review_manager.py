@@ -27,25 +27,33 @@ class ManualReviewManager:
     made by analysts on messages flagged by the automated analysis system.
     """
     
-    def __init__(self, review_dir: Optional[Path] = None):
+    def __init__(self, review_dir: Optional[Path] = None, session_id: Optional[str] = None):
         """
         Initialize the ManualReviewManager.
-        
+
         Args:
-            review_dir: Directory for storing review decisions. 
+            review_dir: Directory for storing review decisions.
                        Defaults to config.review_dir if not provided.
+            session_id: Optional session ID to resume a previous session.
+                       If provided, loads existing reviews from that session.
         """
         self.review_dir = review_dir or Path(config.review_dir)
         self.review_dir.mkdir(parents=True, exist_ok=True)
         self.forensic = ForensicRecorder()
-        self.reviews = []
-        self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
+
+        if session_id:
+            self.session_id = session_id
+            self.reviews = self.load_reviews(session_id)
+        else:
+            self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.reviews = []
+
         # Record initialization
+        resumed = f" (resumed {len(self.reviews)} reviews)" if session_id else ""
         self.forensic.record_action(
             "manual_review_initialized",
-            f"Manual review manager initialized with session {self.session_id}",
-            {"review_dir": str(self.review_dir)}
+            f"Manual review manager initialized with session {self.session_id}{resumed}",
+            {"review_dir": str(self.review_dir), "resumed": bool(session_id), "loaded_reviews": len(self.reviews)}
         )
     
     def add_review(self, item_id: str, item_type: str, decision: str, notes: str = ""):
@@ -84,6 +92,11 @@ class ManualReviewManager:
         # Auto-save after each review
         self._save_reviews()
     
+    @property
+    def reviewed_item_ids(self) -> set:
+        """Return set of item_ids that have already been reviewed."""
+        return {r['item_id'] for r in self.reviews}
+
     def get_reviews_by_decision(self, decision: str) -> List[Dict]:
         """
         Get all reviews with a specific decision.

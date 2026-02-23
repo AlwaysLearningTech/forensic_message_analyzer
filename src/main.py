@@ -51,6 +51,40 @@ class ForensicAnalyzer:
         
         # Record session start
         self.forensic.record_action("session_start", "Forensic analysis session initialized")
+        self._extracted_data_path = None
+        self._analysis_results_path = None
+
+    # ------------------------------------------------------------------
+    # Pipeline state (for resume after crash)
+    # ------------------------------------------------------------------
+
+    def _save_pipeline_state(self, review_session_id: str = None):
+        """Save pipeline state so a crashed run can resume from the review phase."""
+        state = {
+            "timestamp": datetime.now().isoformat(),
+            "extracted_data_path": str(self._extracted_data_path) if self._extracted_data_path else None,
+            "analysis_results_path": str(self._analysis_results_path) if self._analysis_results_path else None,
+            "review_session_id": review_session_id,
+            "review_complete": False,
+        }
+        state_path = Path(self.config.output_dir) / "pipeline_state.json"
+        with open(state_path, 'w') as f:
+            json.dump(state, f, indent=2)
+        self.forensic.record_action("pipeline_state_saved", f"Pipeline state saved for resume", {"state_path": str(state_path)})
+
+    def _load_pipeline_state(self) -> Optional[Dict]:
+        """Load pipeline state from a previous run. Returns None if no state file."""
+        state_path = Path(self.config.output_dir) / "pipeline_state.json"
+        if not state_path.exists():
+            return None
+        with open(state_path) as f:
+            return json.load(f)
+
+    def _clear_pipeline_state(self):
+        """Remove pipeline state file after successful completion."""
+        state_path = Path(self.config.output_dir) / "pipeline_state.json"
+        if state_path.exists():
+            state_path.unlink()
         
     def run_extraction_phase(self) -> Dict:
         """Run the data extraction phase."""
@@ -98,9 +132,10 @@ class ForensicAnalyzer:
         
         with open(output_file, 'w') as f:
             json.dump(extraction_results, f, indent=2, default=str)
-        
+
+        self._extracted_data_path = output_file
         print(f"\n[✓] Extraction complete. Data saved to {output_file}")
-        
+
         return extraction_results
     
     def run_analysis_phase(self, data: Dict) -> Dict:
@@ -211,18 +246,20 @@ class ForensicAnalyzer:
         
         with open(output_file, 'w') as f:
             json.dump(results, f, indent=2, default=str)
-        
+
+        self._analysis_results_path = output_file
         print(f"\n[✓] Analysis complete. Results saved to {output_file}")
-        
+
         return results
     
-    def run_review_phase(self, analysis_results: Dict, extracted_data: Dict) -> Dict:
+    def run_review_phase(self, analysis_results: Dict, extracted_data: Dict, resume_session_id: str = None) -> Dict:
         """Run the interactive manual review phase on flagged items."""
         print("\n" + "="*60)
         print("PHASE 3: INTERACTIVE MANUAL REVIEW")
         print("="*60)
 
-        manager = ManualReviewManager()
+        manager = ManualReviewManager(session_id=resume_session_id)
+        already_reviewed = manager.reviewed_item_ids
 
         # Present items for review — only from mapped contacts
         items_for_review = []
@@ -274,6 +311,17 @@ class ForensicAnalyzer:
                     })
 
         print(f"\n[*] {len(items_for_review)} items flagged for review (mapped contacts only)")
+
+        # Filter out already-reviewed items (resume support)
+        if already_reviewed:
+            total_flagged = len(items_for_review)
+            items_for_review = [i for i in items_for_review if i['id'] not in already_reviewed]
+            skipped = total_flagged - len(items_for_review)
+            if skipped:
+                print(f"    Resuming: {skipped} already reviewed, {len(items_for_review)} remaining")
+
+        # Save pipeline state with review session ID (for crash recovery)
+        self._save_pipeline_state(review_session_id=manager.session_id)
 
         # Choose review mode (web or terminal)
         # Only pass mapped-contact messages to the review UI
@@ -588,23 +636,64 @@ class ForensicAnalyzer:
         
         return result
     
-    def run_full_analysis(self):
-        """Run the complete forensic analysis workflow."""
+    def run_full_analysis(self, resume: bool = False):
+        """Run the complete forensic analysis workflow.
+
+        Args:
+            resume: If True, skip extraction and AI analysis by loading
+                    saved state from a previous run. Resumes at the review phase.
+        """
         print("\n" + "="*80)
         print(" FORENSIC MESSAGE ANALYZER - FULL WORKFLOW ")
         print("="*80)
         print(f"Session started: {datetime.now()}")
         print(f"Output directory: {self.config.output_dir}")
-        
-        try:
-            # Phase 1: Extraction
-            extracted_data = self.run_extraction_phase()
 
-            # Phase 2: Analysis
-            analysis_results = self.run_analysis_phase(extracted_data)
+        resume_session_id = None
+
+        if resume:
+            state = self._load_pipeline_state()
+            if state and not state.get("review_complete"):
+                ext_path = state.get("extracted_data_path")
+                ana_path = state.get("analysis_results_path")
+                resume_session_id = state.get("review_session_id")
+
+                if ext_path and ana_path and Path(ext_path).exists() and Path(ana_path).exists():
+                    print(f"\n[*] Resuming from saved state ({state.get('timestamp', 'unknown')})")
+                    print(f"    Extraction: {Path(ext_path).name}")
+                    print(f"    Analysis:   {Path(ana_path).name}")
+                    if resume_session_id:
+                        print(f"    Review session: {resume_session_id}")
+
+                    with open(ext_path) as f:
+                        extracted_data = json.load(f)
+                    with open(ana_path) as f:
+                        analysis_results = json.load(f)
+
+                    self._extracted_data_path = Path(ext_path)
+                    self._analysis_results_path = Path(ana_path)
+
+                    print("\n    Skipping Phase 1 (extraction) and Phase 2 (analysis) — already completed.")
+                else:
+                    print("\n[!] State file found but data files missing. Starting fresh.")
+                    resume = False
+            else:
+                print("\n[!] No resumable state found. Starting fresh.")
+                resume = False
+
+        try:
+            if not resume:
+                # Phase 1: Extraction
+                extracted_data = self.run_extraction_phase()
+
+                # Phase 2: Analysis
+                analysis_results = self.run_analysis_phase(extracted_data)
+
+                # Save state so review can be resumed if process dies
+                self._save_pipeline_state()
 
             # Phase 3: Review
-            review_results = self.run_review_phase(analysis_results, extracted_data)
+            review_results = self.run_review_phase(analysis_results, extracted_data, resume_session_id=resume_session_id)
 
             # Phase 4: Behavioral Analysis (post-review)
             behavioral_results = self.run_behavioral_phase(extracted_data, analysis_results, review_results)
@@ -634,6 +723,9 @@ class ForensicAnalyzer:
             for doc_type, path in documentation.items():
                 print(f"  - {doc_type}: {Path(path).name}")
 
+            # Clean up pipeline state file after successful completion
+            self._clear_pipeline_state()
+
         except Exception as e:
             print(f"\n[ERROR] Workflow failed: {e}")
             import traceback
@@ -641,18 +733,19 @@ class ForensicAnalyzer:
             raise
 
 
-def main(config: Config = None):
+def main(config: Config = None, resume: bool = False):
     """Main entry point for the forensic analyzer.
-    
+
     Args:
         config: Configuration instance. If None, creates a new one.
-        
+        resume: If True, resume from saved pipeline state (skip extraction + AI).
+
     Returns:
         bool: True if analysis completed successfully, False otherwise.
     """
     try:
         analyzer = ForensicAnalyzer(config)
-        analyzer.run_full_analysis()
+        analyzer.run_full_analysis(resume=resume)
         return True
     except Exception as e:
         print(f"\n[ERROR] Analysis failed: {e}")

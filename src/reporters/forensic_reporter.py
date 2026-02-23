@@ -871,6 +871,8 @@ class ForensicReporter:
         if 'timestamp' in df.columns:
             df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
             df = df.sort_values('timestamp', na_position='last')
+            # Strip timezone for Excel compatibility (values are already UTC)
+            df['timestamp'] = df['timestamp'].dt.tz_localize(None)
 
         paths = {}
 

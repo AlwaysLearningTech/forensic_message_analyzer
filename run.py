@@ -5,6 +5,7 @@ Run this script to perform forensic analysis of messages.
 """
 
 import sys
+import argparse
 import logging
 from pathlib import Path
 
@@ -82,10 +83,17 @@ def _post_run_verification() -> None:
         logging.info("Post-run verification passed: core artifacts present (manifest, chain of custody).")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Forensic Message Analyzer")
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="Resume from last saved state (skip extraction + AI analysis)"
+    )
+    args = parser.parse_args()
+
     try:
         if not _pre_run_validation():
             sys.exit(2)
-        success = main(config)  # Pass config instance to main
+        success = main(config, resume=args.resume)
         try:
             _post_run_verification()
         except Exception as _e:
