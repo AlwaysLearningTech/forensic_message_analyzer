@@ -6,6 +6,7 @@ Coordinates extraction, analysis, review, and reporting phases.
 
 import sys
 import json
+import copy
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -356,52 +357,151 @@ class ForensicAnalyzer:
         
         return behavioral_results
     
+    def _filter_analysis_by_review(self, analysis: Dict, review: Dict) -> Dict:
+        """Filter analysis results to only include human-verified findings.
+
+        Only threats and risk indicators explicitly marked 'relevant' or
+        'uncertain' during manual review survive into analysis reports.
+        Unreviewed and rejected findings are cleared.
+
+        The forensic all-messages export is NOT affected by this filtering —
+        it uses extracted_data directly and remains a complete, unfiltered record.
+
+        Args:
+            analysis: Raw analysis results from Phase 2.
+            review: Review decisions from Phase 3.
+
+        Returns:
+            Deep copy of analysis with unverified findings removed.
+        """
+        filtered = copy.deepcopy(analysis)
+
+        # Build set of item IDs that were approved during review
+        approved_ids = set()
+        for r in review.get('reviews', []):
+            if r.get('decision') in ('relevant', 'uncertain'):
+                approved_ids.add(r.get('item_id', ''))
+
+        reviewed_count = review.get('total_reviewed', 0)
+        approved_count = len(approved_ids)
+
+        # --- Filter threat details ---
+        if 'threats' in filtered:
+            details = filtered['threats'].get('details', [])
+            cleared = 0
+            for idx, item in enumerate(details):
+                if item.get('threat_detected'):
+                    item_id = f"threat_{idx}"
+                    if item_id not in approved_ids:
+                        # Not approved: clear threat annotations
+                        item['threat_detected'] = False
+                        item['threat_categories'] = ''
+                        item['threat_confidence'] = 0
+                        item['harmful_content'] = False
+                        cleared += 1
+
+            # Regenerate summary from filtered data
+            confirmed = [d for d in details if d.get('threat_detected')]
+            old_summary = filtered['threats'].get('summary', {})
+            filtered['threats']['summary'] = {
+                'total_messages': old_summary.get('total_messages', len(details)),
+                'messages_with_threats': len(confirmed),
+                'threat_percentage': len(confirmed) / len(details) * 100 if details else 0,
+                'high_confidence_threats': sum(
+                    1 for d in confirmed if d.get('threat_confidence', 0) >= 0.75
+                ),
+                'timestamp': old_summary.get('timestamp', ''),
+            }
+
+            if cleared:
+                print(f"    Filtered {cleared} unverified threats from reports")
+
+        # --- Filter AI analysis findings ---
+        if 'ai_analysis' in filtered:
+            ai = filtered['ai_analysis']
+
+            # Filter AI-detected threat details
+            if ai.get('threat_assessment', {}).get('details'):
+                original = ai['threat_assessment']['details']
+                approved_ai = []
+                for i, detail in enumerate(original):
+                    if f"ai_threat_{i}" in approved_ids:
+                        approved_ai.append(detail)
+                ai_cleared = len(original) - len(approved_ai)
+                ai['threat_assessment']['details'] = approved_ai
+                ai['threat_assessment']['found'] = len(approved_ai) > 0
+                if ai_cleared:
+                    print(f"    Filtered {ai_cleared} unverified AI threats from reports")
+
+            # Filter risk indicators derived from threats
+            if not ai.get('threat_assessment', {}).get('found'):
+                ai['risk_indicators'] = [
+                    r for r in ai.get('risk_indicators', [])
+                    if r.get('type') != 'threat'
+                ]
+
+        self.forensic.record_action(
+            "analysis_filtered_by_review",
+            f"Filtered analysis for reports: {approved_count} approved of {reviewed_count} reviewed",
+            {
+                "reviewed": reviewed_count,
+                "approved": approved_count,
+                "approved_ids": list(approved_ids),
+            },
+        )
+
+        return filtered
+
     def run_reporting_phase(self, data: Dict, analysis: Dict, review: Dict) -> Dict:
         """Generate reports in multiple formats."""
         print("\n" + "="*60)
         print("PHASE 5: REPORT GENERATION")
         print("="*60)
-        
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         reports = {}
-        
+
+        # Filter analysis to only include human-verified findings
+        # The forensic all-messages export (CSV/Excel) uses extracted_data directly
+        # and is NOT affected by this filtering.
+        print("\n[*] Filtering analysis by review decisions...")
+        filtered_analysis = self._filter_analysis_by_review(analysis, review)
+
         # Use ForensicReporter for comprehensive reports
         forensic_reporter = ForensicReporter(self.forensic)
-        
-        # Generate all report formats
+
+        # Generate all report formats (with filtered analysis)
         print("\n[*] Generating comprehensive reports...")
         generated_reports = forensic_reporter.generate_comprehensive_report(
-            data, analysis, review
+            data, filtered_analysis, review
         )
-        
+
         for format_name, path in generated_reports.items():
             reports[format_name] = str(path)
             print(f"    {format_name.upper()} report: {path.name}")
-        
+
         # Also generate separate Excel report if needed
         if 'excel' not in reports:
             print("\n[*] Generating Excel report...")
             try:
-                # DON'T enrich - just pass the original data
-                # The Excel reporter will handle filtering and won't need all analysis columns
                 enriched_data = data.copy()
-                
+
                 excel_reporter = ExcelReporter(self.forensic)
                 excel_path = Path(self.config.output_dir) / f"report_{timestamp}.xlsx"
-                excel_reporter.generate_report(enriched_data, analysis, review, excel_path)
+                excel_reporter.generate_report(enriched_data, filtered_analysis, review, excel_path)
                 reports['excel'] = str(excel_path)
                 print(f"    Saved to {excel_path}")
             except Exception as e:
                 print(f"    Error generating Excel report: {e}")
                 import traceback
                 traceback.print_exc()
-        
+
         # Generate HTML/PDF report with inline images
         print("\n[*] Generating HTML/PDF report (with inline images)...")
         try:
             html_reporter = HtmlReporter(self.forensic)
             html_base = Path(self.config.output_dir) / f"report_{timestamp}"
-            html_paths = html_reporter.generate_report(data, analysis, review, html_base)
+            html_paths = html_reporter.generate_report(data, filtered_analysis, review, html_base)
             for fmt, path in html_paths.items():
                 reports[fmt] = str(path)
                 print(f"    {fmt.upper()} report: {path.name}")
@@ -416,14 +516,14 @@ class ForensicAnalyzer:
             try:
                 json_reporter = JSONReporter(self.forensic)
                 json_path = Path(self.config.output_dir) / f"report_{timestamp}.json"
-                json_reporter.generate_report(data, analysis, review, json_path)
+                json_reporter.generate_report(data, filtered_analysis, review, json_path)
                 reports['json'] = str(json_path)
                 print(f"    Saved to {json_path}")
             except Exception as e:
                 print(f"    Error generating JSON report: {e}")
-        
+
         print("\n[✓] Report generation complete")
-        
+
         return reports
     
     def run_documentation_phase(self, data: Dict, analysis_results: Dict = None) -> Dict:
