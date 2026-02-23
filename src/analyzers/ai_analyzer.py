@@ -450,6 +450,15 @@ class AIAnalyzer:
 
                 self.rate_limiter.wait_if_needed(token_count)
                 batch_analysis = self._analyze_batch(batch_text, batch)
+
+                # Check for API errors (surfaced from _analyze_batch)
+                if "_error" in batch_analysis:
+                    analysis_results["processing_stats"]["errors"].append(
+                        f"Batch {i // batch_size + 1}: {batch_analysis['_error']}"
+                    )
+                    analysis_results["processing_stats"]["api_calls"] += 1
+                    continue
+
                 self._merge_analysis(analysis_results, batch_analysis)
 
                 # Track actual token usage from API response metadata
@@ -593,7 +602,7 @@ class AIAnalyzer:
                 f"Error analyzing batch: {str(e)}",
                 {"error": str(e), "batch_size": len(messages)},
             )
-            return {}
+            return {"_error": str(e)}
 
     def _merge_analysis(self, results: Dict, batch_analysis: Dict):
         """
@@ -603,7 +612,7 @@ class AIAnalyzer:
             results: Overall analysis results
             batch_analysis: Analysis from a single batch
         """
-        if not batch_analysis:
+        if not batch_analysis or "_error" in batch_analysis:
             return
 
         # Merge sentiment
