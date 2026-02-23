@@ -495,7 +495,16 @@ def main():
             traceback.print_exc()
             failed += 1
         finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            print(f"\n  Test output directory: {temp_dir}")
+            try:
+                response = input("  Review complete? Delete temp directory? [Y/n]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                response = 'y'
+            if response in ('', 'y', 'yes'):
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                print("  Temp directory cleaned up.")
+            else:
+                print(f"  Keeping temp directory for review: {temp_dir}")
 
     # ---------------------------------------------------------------
     # Summary
