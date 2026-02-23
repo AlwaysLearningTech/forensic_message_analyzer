@@ -269,108 +269,114 @@ class IMessageExtractor:
         try:
             # Create read-only connection
             conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
-            cursor = conn.cursor()
-            
-            # Get all participant handles from config
-            all_handles = []
-            for person_mappings in config.contact_mappings.values():
-                all_handles.extend(person_mappings)
-            
-            # Create placeholders for SQL IN clause
-            placeholders = ','.join('?' * len(all_handles))
-            
-            # Query to extract messages with attributedBody and attachment count
-            # Exclude tapbacks/reactions (associated_message_type 2000-3007)
-            query = f"""
-            SELECT
-                m.ROWID as message_id,
-                m.guid,
-                m.text,
-                m.attributedBody,
-                m.is_from_me,
-                h.id as handle,
-                c.chat_identifier,
-                datetime(m.date/1000000000 + strftime('%s','2001-01-01'), 'unixepoch', 'localtime') as timestamp,
-                m.service,
-                m.associated_message_type,
-                (SELECT COUNT(*) FROM message_attachment_join a WHERE m.ROWID = a.message_id) as num_attachments
-            FROM message m
-            LEFT JOIN handle h ON m.handle_id = h.ROWID
-            LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
-            LEFT JOIN chat c ON cmj.chat_id = c.ROWID
-            WHERE (h.id IN ({placeholders}) OR m.is_from_me = 1)
-              AND (m.associated_message_type IS NULL
-                   OR m.associated_message_type NOT BETWEEN 2000 AND 3007)
-            ORDER BY m.date ASC
-            """
+            try:
+                cursor = conn.cursor()
 
-            # Execute query
-            cursor.execute(query, all_handles)
-            rows = cursor.fetchall()
+                # Get all participant handles from config
+                all_handles = []
+                for person_mappings in config.contact_mappings.values():
+                    all_handles.extend(person_mappings)
 
-            # Process messages and extract text
-            messages = []
-            for row in rows:
-                message_id, guid, text, attributed_body, is_from_me, handle, chat_id, timestamp, service, assoc_type, num_attachments = row
-                
-                # Extract text with fallback to attributedBody
-                content = self.extract_text_with_fallback(text, attributed_body)
-                
-                # Skip messages with no text content and no attachments
-                if not content and num_attachments == 0:
-                    continue
+                if not all_handles:
+                    logger.warning("No contact mappings configured — cannot filter iMessages")
+                    return []
 
-                # Determine sender and recipient
-                if is_from_me == 1:
-                    sender = 'Me'
-                    # Recipient is the handle or chat_identifier
-                    recipient_handle = handle or chat_id
-                    recipient = recipient_handle
-                    # Map to person name
-                    for person_name, person_handles in config.contact_mappings.items():
-                        if recipient_handle in person_handles:
-                            recipient = person_name
-                            break
-                else:
-                    # Message from someone else to me
-                    recipient = 'Me'
-                    # Map handle to person name
-                    sender = handle
-                    for person_name, person_handles in config.contact_mappings.items():
-                        if handle in person_handles:
-                            sender = person_name
-                            break
+                # Create placeholders for SQL IN clause
+                placeholders = ','.join('?' * len(all_handles))
 
-                # Convert timestamp string to datetime object
-                timestamp_dt = pd.to_datetime(timestamp, utc=True) if timestamp else None
+                # Query to extract messages with attributedBody and attachment count
+                # Exclude tapbacks/reactions (associated_message_type 2000-3007)
+                query = f"""
+                SELECT
+                    m.ROWID as message_id,
+                    m.guid,
+                    m.text,
+                    m.attributedBody,
+                    m.is_from_me,
+                    h.id as handle,
+                    c.chat_identifier,
+                    datetime(m.date/1000000000 + strftime('%s','2001-01-01'), 'unixepoch') as timestamp,
+                    m.service,
+                    m.associated_message_type,
+                    (SELECT COUNT(*) FROM message_attachment_join a WHERE m.ROWID = a.message_id) as num_attachments
+                FROM message m
+                LEFT JOIN handle h ON m.handle_id = h.ROWID
+                LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
+                LEFT JOIN chat c ON cmj.chat_id = c.ROWID
+                WHERE (h.id IN ({placeholders}) OR m.is_from_me = 1)
+                  AND (m.associated_message_type IS NULL
+                       OR m.associated_message_type NOT BETWEEN 2000 AND 3007)
+                ORDER BY m.date ASC
+                """
 
-                msg_dict = {
-                    'message_id': message_id,
-                    'guid': guid,
-                    'content': content or '',
-                    'sender': sender,
-                    'recipient': recipient,
-                    'timestamp': timestamp_dt,
-                    'service': service,
-                    'source': 'imessage',
-                }
+                # Execute query
+                cursor.execute(query, all_handles)
+                rows = cursor.fetchall()
 
-                # Query attachments for this message if any exist
-                if num_attachments > 0:
-                    attachments = self._get_attachments_for_message(cursor, message_id)
-                    # Find the first image attachment for inline display
-                    for att in attachments:
-                        ext = Path(att['path']).suffix.lower()
-                        if ext in self.IMAGE_EXTENSIONS and Path(att['path']).exists():
-                            msg_dict['attachment'] = att['path']
-                            msg_dict['attachment_name'] = att['name']
-                            break
-                    if attachments:
-                        msg_dict['attachments'] = attachments
+                # Process messages and extract text
+                messages = []
+                for row in rows:
+                    message_id, guid, text, attributed_body, is_from_me, handle, chat_id, timestamp, service, assoc_type, num_attachments = row
 
-                messages.append(msg_dict)
+                    # Extract text with fallback to attributedBody
+                    content = self.extract_text_with_fallback(text, attributed_body)
 
-            conn.close()
+                    # Skip messages with no text content and no attachments
+                    if not content and num_attachments == 0:
+                        continue
+
+                    # Determine sender and recipient
+                    if is_from_me == 1:
+                        sender = 'Me'
+                        # Recipient is the handle or chat_identifier
+                        recipient_handle = handle or chat_id
+                        recipient = recipient_handle
+                        # Map to person name
+                        for person_name, person_handles in config.contact_mappings.items():
+                            if recipient_handle in person_handles:
+                                recipient = person_name
+                                break
+                    else:
+                        # Message from someone else to me
+                        recipient = 'Me'
+                        # Map handle to person name
+                        sender = handle
+                        for person_name, person_handles in config.contact_mappings.items():
+                            if handle in person_handles:
+                                sender = person_name
+                                break
+
+                    # Convert timestamp string to datetime object
+                    timestamp_dt = pd.to_datetime(timestamp, utc=True) if timestamp else None
+
+                    msg_dict = {
+                        'message_id': message_id,
+                        'guid': guid,
+                        'content': content or '',
+                        'sender': sender,
+                        'recipient': recipient,
+                        'timestamp': timestamp_dt,
+                        'service': service,
+                        'source': 'imessage',
+                    }
+
+                    # Query attachments for this message if any exist
+                    if num_attachments > 0:
+                        attachments = self._get_attachments_for_message(cursor, message_id)
+                        # Find the first image attachment for inline display
+                        for att in attachments:
+                            ext = Path(att['path']).suffix.lower()
+                            if ext in self.IMAGE_EXTENSIONS and Path(att['path']).exists():
+                                msg_dict['attachment'] = att['path']
+                                msg_dict['attachment_name'] = att['name']
+                                break
+                        if attachments:
+                            msg_dict['attachments'] = attachments
+
+                    messages.append(msg_dict)
+
+            finally:
+                conn.close()
 
             # Record extraction
             self.forensic.record_action(
@@ -382,7 +388,7 @@ class IMessageExtractor:
                     "participants": list(config.contact_mappings.keys())
                 }
             )
-            
+
             logger.info(f"Extracted {len(messages)} iMessages from database")
             return messages
             
