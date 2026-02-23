@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Anthropic Claude AI Analysis**: Switched from Azure OpenAI to Anthropic Claude Opus 4.6 with Batch API (50% cost discount) and prompt caching
+- **Report Filtering by Review Decisions**: Analysis reports (Word, PDF, HTML, Excel, JSON) now only include threats and risk indicators that were explicitly approved during manual review. Unreviewed and rejected findings are cleared before reports are generated. Forensic all-messages export (CSV/Excel) remains unfiltered for chain of custody.
 - **HTML/PDF Report Generation**: New Jinja2-based HTML reporter with WeasyPrint PDF conversion, inline base64 images, overview cards, per-person message tables, conversation threads, and legal compliance footer
 - **iMessage Attachment Extraction**: Query message_attachment_join + attachment tables for image paths, resolve macOS ~ paths, attach first image per message for inline display
 - **WhatsApp Attachment Detection**: Detect `<attached: FILENAME>` pattern in messages, resolve file paths relative to chat export directory
@@ -32,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Batch Pricing**: Corrected from Opus 4.0 rates ($7.50/$37.50) to Opus 4.6 rates ($2.50/$12.50 per MTok)
 - **Rate Limit Configuration**: `MAX_REQUESTS_PER_MINUTE`, `TOKENS_PER_MINUTE`, `REQUEST_DELAY_MS` now configurable via .env (previously hardcoded); only apply to sync fallback mode
 - **Batch Size**: Default 50 messages per analysis request (batch API submits all in single HTTP call, no rate-limiting reason for smaller batches)
-- **MAX_TOKENS_PER_REQUEST**: Reduced from 4096 to 2048 to stay within 8K output TPM tier limit
+- **MAX_TOKENS_PER_REQUEST**: Increased from 2048 to 4096 — actual AI output averaged ~1,600 tokens/batch, 2048 caused truncation and JSON parse failures
 - **'Me' Normalization**: Extractors assign 'Me' for device owner; `data_extractor.py` normalizes to PERSON1_NAME in one place
 - **WhatsApp Recipient Detection**: Uses first-pass sender scan instead of filename parsing
 - **Excel Report Structure**: Individual tabs per configured person with integrated threat/sentiment columns
@@ -41,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **AI Analyzer Pricing**: Cost estimates were using Opus 4.0/4.1 batch rates (3x too high)
+- **AI Merge KeyError**: `_init_analysis_results` initialized `behavioral_patterns` and `threat_assessment` as empty dicts `{}` instead of having subkeys (`patterns`, `anomalies`, `details`). This caused `_merge_analysis` to crash with `KeyError: 'patterns'` on every batch result, wasting all API spend.
+- **AI Output Token Estimate**: Was 385 tokens/batch (4x too low); actual averaged ~1,600. Cost estimates showed $7.68 when actual was $20.81. Corrected in both ai_analyzer.py and validate_before_run.py.
+- **AI Error Swallowing**: `_analyze_batch` silently caught exceptions and returned `{}`, so the sync loop couldn't detect API failures. Now returns `{"_error": ...}` and errors appear in processing_stats and validation output.
+- **Review Phase Contact Filtering**: Threat review queue included messages from unmapped phone numbers. Added `_is_mapped()` filter matching the same contact logic as AI analysis.
+- **Reports Ignoring Review Decisions**: All four reporters (Excel, Word/PDF, HTML, JSON) included all analysis findings regardless of review decisions. Reports now only include human-verified findings.
 - **Cache Token Tracking**: `cache_creation_input_tokens` was incorrectly added to `cache_read_tokens` counter; now tracked separately with correct per-type pricing
 - **Threat Analyzer Performance**: Replaced `iterrows()` loop with vectorized `str.contains()` using pre-compiled regex per category
 - **Sentiment Analyzer**: Fixed `www.\S+` regex (missing backslash), added `dropna()` guard for `idxmax()`/`idxmin()` on empty series
