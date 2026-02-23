@@ -10,6 +10,7 @@ import logging
 from html import unescape
 from pathlib import Path
 from typing import List, Dict, Optional, Any
+import pandas as pd
 
 from ..config import Config
 from ..forensic_utils import ForensicRecorder, ForensicIntegrity
@@ -277,7 +278,8 @@ class TeamsExtractor:
                     recipient, source='teams', context=f"conversation:{conv_id}",
                 )
 
-        timestamp = msg.get('originalarrivaltime', '')
+        timestamp_raw = msg.get('originalarrivaltime', '')
+        timestamp = pd.to_datetime(timestamp_raw, utc=True, errors='coerce') if timestamp_raw else None
 
         return {
             'message_id': f"teams_{msg.get('id', '')}",
