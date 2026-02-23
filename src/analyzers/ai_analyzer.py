@@ -96,7 +96,7 @@ class AIAnalyzer:
         self.model = config.ai_model or 'claude-opus-4-6'
 
         # Token limits from config
-        self.max_tokens_per_request = getattr(config, 'max_tokens_per_request', 2048)
+        self.max_tokens_per_request = getattr(config, 'max_tokens_per_request', 4096)
         self.max_tokens_per_minute = getattr(config, 'tokens_per_minute', 25000)
         self.max_requests_per_minute = getattr(config, 'max_requests_per_minute', 40)
         self.use_batch_api = getattr(config, 'use_batch_api', True)
