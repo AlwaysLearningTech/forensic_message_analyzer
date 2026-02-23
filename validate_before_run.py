@@ -210,10 +210,9 @@ def main():
             batch_text = ai._prepare_batch(batch)
             message_tokens += ai._estimate_tokens(batch_text)
         est_input = system_tokens + message_tokens
-        # Based on actual billing data: avg ~385 output tokens per batch
-        # (Previous estimate of 1,800 was from JSONL token counts which
-        # don't match actual Anthropic billing)
-        est_output = num_batches * 385
+        # Based on actual run data: avg ~1,600 output tokens per batch
+        # (previous estimate of 385 was from billing aggregates that didn't match per-request data)
+        est_output = num_batches * 1600
 
         # Batch API rates for Opus 4.6: $2.50/MTok input, $12.50/MTok output
         est_cost = (est_input / 1_000_000) * 2.50 + (est_output / 1_000_000) * 12.50
