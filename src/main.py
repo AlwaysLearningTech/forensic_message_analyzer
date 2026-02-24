@@ -642,19 +642,25 @@ class ForensicAnalyzer:
             else:
                 df = combined_data
 
-            # Merge analysis columns if available
+            # Merge analysis columns if available (join on message_id for safety)
             if analysis_results:
-                # Threats have details as list of dicts with analysis columns
                 threat_details = analysis_results.get('threats', {}).get('details', [])
                 if threat_details and isinstance(threat_details, list):
                     analysis_df = pd.DataFrame(threat_details)
-                    # Only merge columns that aren't already in df
                     analysis_cols = ['threat_detected', 'threat_categories', 'threat_confidence',
                                    'harmful_content', 'sentiment_score', 'sentiment_polarity',
                                    'sentiment_subjectivity', 'patterns_detected', 'pattern_score']
-                    for col in analysis_cols:
-                        if col in analysis_df.columns and col not in df.columns:
-                            df[col] = analysis_df[col].values[:len(df)] if len(analysis_df) >= len(df) else None
+                    merge_cols = [c for c in analysis_cols if c in analysis_df.columns and c not in df.columns]
+                    if merge_cols and 'message_id' in df.columns and 'message_id' in analysis_df.columns:
+                        df = df.merge(
+                            analysis_df[['message_id'] + merge_cols],
+                            on='message_id', how='left',
+                        )
+                    elif merge_cols:
+                        # Fallback: positional only if lengths match exactly
+                        if len(analysis_df) == len(df):
+                            for col in merge_cols:
+                                df[col] = analysis_df[col].values
 
             timeline_gen.create_timeline(df, timeline_path)
             print(f"    Saved to {timeline_path}")
