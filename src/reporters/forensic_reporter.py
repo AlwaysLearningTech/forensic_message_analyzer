@@ -42,6 +42,35 @@ class ForensicReporter:
         self.output_dir = Path(config.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
+    # ------------------------------------------------------------------
+    # Shared helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _compute_date_range(messages) -> str:
+        """Return a 'YYYY-MM-DD to YYYY-MM-DD' string from a list of message dicts."""
+        if not messages:
+            return 'N/A'
+        timestamps = [msg.get('timestamp') for msg in messages if msg.get('timestamp') is not None]
+        if not timestamps:
+            return 'N/A'
+        dt_timestamps = []
+        for ts in timestamps:
+            try:
+                if isinstance(ts, str):
+                    parsed = pd.to_datetime(ts, utc=True)
+                    if not pd.isna(parsed):
+                        dt_timestamps.append(parsed)
+                elif hasattr(ts, 'year') and not pd.isna(ts):
+                    if hasattr(ts, 'tzinfo') and ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=pd.Timestamp.now(tz='UTC').tzinfo)
+                    dt_timestamps.append(ts)
+            except Exception:
+                pass
+        if not dt_timestamps:
+            return 'N/A'
+        return f"{min(dt_timestamps).strftime('%Y-%m-%d')} to {max(dt_timestamps).strftime('%Y-%m-%d')}"
+
     @staticmethod
     def _esc(text) -> str:
         """Escape text for safe use in ReportLab Paragraph (XML/HTML context)."""
@@ -287,43 +316,18 @@ class ForensicReporter:
         
         # Data Extraction Summary
         doc.add_heading('Data Extraction', 1)
-        
+
         # Calculate metadata from extracted_data structure
         messages = extracted_data.get('messages', extracted_data.get('combined', []))
         total_messages = len(messages) if isinstance(messages, list) else 0
-        
-        # Calculate date range if we have messages
-        date_range = 'N/A'
+
+        date_range = self._compute_date_range(messages)
         sources = set()
         if messages and total_messages > 0:
-            # Filter out None timestamps first
-            timestamps = [msg.get('timestamp') for msg in messages if msg.get('timestamp') is not None]
-            if timestamps:
-                # Convert string timestamps to datetime if needed
-                dt_timestamps = []
-                for ts in timestamps:
-                    try:
-                        if isinstance(ts, str):
-                            parsed = pd.to_datetime(ts, utc=True)
-                            if not pd.isna(parsed):
-                                dt_timestamps.append(parsed)
-                        elif hasattr(ts, 'year') and not pd.isna(ts):
-                            if hasattr(ts, 'tzinfo') and ts.tzinfo is None:
-                                ts = ts.replace(tzinfo=pd.Timestamp.now(tz='UTC').tzinfo)
-                            dt_timestamps.append(ts)
-                    except Exception:
-                        pass
-                
-                if dt_timestamps:
-                    min_date = min(dt_timestamps)
-                    max_date = max(dt_timestamps)
-                    date_range = f"{min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}"
-            
-            # Get unique sources
             for msg in messages:
                 if msg.get('source'):
                     sources.add(msg['source'])
-        
+
         doc.add_paragraph(f"Total messages extracted: {total_messages}")
         doc.add_paragraph(f"Date range: {date_range}")
         doc.add_paragraph(f"Sources: {', '.join(sources) if sources else 'N/A'}")
@@ -622,37 +626,14 @@ class ForensicReporter:
         # Calculate metadata from extracted_data structure
         messages = extracted_data.get('messages', extracted_data.get('combined', []))
         total_messages = len(messages) if isinstance(messages, list) else 0
-        
-        # Calculate date range
-        date_range = 'N/A'
+
+        date_range = self._compute_date_range(messages)
         sources = set()
         if messages and total_messages > 0:
-            # Filter out None timestamps first
-            timestamps = [msg.get('timestamp') for msg in messages if msg.get('timestamp') is not None]
-            if timestamps:
-                dt_timestamps = []
-                for ts in timestamps:
-                    try:
-                        if isinstance(ts, str):
-                            parsed = pd.to_datetime(ts, utc=True)
-                            if not pd.isna(parsed):
-                                dt_timestamps.append(parsed)
-                        elif hasattr(ts, 'year') and not pd.isna(ts):
-                            if hasattr(ts, 'tzinfo') and ts.tzinfo is None:
-                                ts = ts.replace(tzinfo=pd.Timestamp.now(tz='UTC').tzinfo)
-                            dt_timestamps.append(ts)
-                    except Exception:
-                        pass
-                
-                if dt_timestamps:
-                    min_date = min(dt_timestamps)
-                    max_date = max(dt_timestamps)
-                    date_range = f"{min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}"
-            
             for msg in messages:
                 if msg.get('source'):
                     sources.add(msg['source'])
-        
+
         overview_data = [
             ['Metric', 'Value'],
             ['Total Messages', str(total_messages)],
@@ -996,28 +977,7 @@ class ForensicReporter:
                 source_counts[src] = source_counts.get(src, 0) + 1
 
         # Date range
-        date_range = 'N/A'
-        if messages and total_messages > 0:
-            timestamps = [msg.get('timestamp') for msg in messages if msg.get('timestamp')]
-            if timestamps:
-                try:
-                    dt_timestamps = []
-                    for ts in timestamps:
-                        if isinstance(ts, str):
-                            parsed = pd.to_datetime(ts, utc=True)
-                            if not pd.isna(parsed):
-                                dt_timestamps.append(parsed)
-                        elif hasattr(ts, 'year') and not pd.isna(ts):
-                            if hasattr(ts, 'tzinfo') and ts.tzinfo is None:
-                                ts = ts.replace(tzinfo=pd.Timestamp.now(tz='UTC').tzinfo)
-                            dt_timestamps.append(ts)
-                    if dt_timestamps:
-                        date_range = (
-                            f"{min(dt_timestamps).strftime('%Y-%m-%d')} to "
-                            f"{max(dt_timestamps).strftime('%Y-%m-%d')}"
-                        )
-                except Exception:
-                    pass
+        date_range = self._compute_date_range(messages)
 
         # Threat stats
         threats = analysis_results.get('threats', {})
