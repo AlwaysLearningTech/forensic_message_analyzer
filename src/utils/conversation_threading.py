@@ -7,7 +7,7 @@ This addresses the core pain point of not being able to see message context.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -54,15 +54,17 @@ class ConversationThreader:
     def _parse_timestamp(ts) -> Optional[datetime]:
         """
         Flexibly parse a timestamp that may be a string, datetime, or None.
-        Returns a datetime object or None on failure.
+        Always returns a timezone-aware (UTC) datetime or None on failure.
         """
         if ts is None:
             return None
         if isinstance(ts, datetime):
+            if ts.tzinfo is None:
+                return ts.replace(tzinfo=timezone.utc)
             return ts
         if isinstance(ts, (int, float)):
             try:
-                return datetime.fromtimestamp(ts)
+                return datetime.fromtimestamp(ts, tz=timezone.utc)
             except (OSError, ValueError, OverflowError):
                 return None
         # String parsing -- try common ISO formats
@@ -76,7 +78,8 @@ class ConversationThreader:
             "%m/%d/%Y %I:%M:%S %p",
         ):
             try:
-                return datetime.strptime(str(ts), fmt)
+                dt = datetime.strptime(str(ts), fmt)
+                return dt.replace(tzinfo=timezone.utc)
             except (ValueError, TypeError):
                 continue
         logger.debug(f"Could not parse timestamp: {ts}")
@@ -87,7 +90,7 @@ class ConversationThreader:
         def _sort_key(msg):
             dt = self._parse_timestamp(msg.get("timestamp"))
             # Push unparseable timestamps to the end
-            return dt if dt is not None else datetime.max
+            return dt if dt is not None else datetime.max.replace(tzinfo=timezone.utc)
         return sorted(messages, key=_sort_key)
 
     # ------------------------------------------------------------------
@@ -279,7 +282,7 @@ class ConversationThreader:
 
         # Sort threads by start_time so the output is chronological
         threads.sort(
-            key=lambda t: self._parse_timestamp(t["start_time"]) or datetime.max
+            key=lambda t: self._parse_timestamp(t["start_time"]) or datetime.max.replace(tzinfo=timezone.utc)
         )
         return threads
 
