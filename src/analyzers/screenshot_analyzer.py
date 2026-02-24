@@ -31,16 +31,18 @@ _NAME_LINE_RE = re.compile(
 class ScreenshotAnalyzer:
     """Analyzes screenshots using OCR."""
 
-    def __init__(self, forensic, third_party_registry=None):
+    def __init__(self, forensic, third_party_registry=None, screenshots_dir=None):
         """Initialize screenshot analyzer.
 
         Args:
             forensic: ForensicRecorder instance.
             third_party_registry: Optional ThirdPartyRegistry for contact tracking.
+            screenshots_dir: Optional path to screenshots directory.
+                Falls back to ``source_files/screenshots`` when not provided.
         """
         self.forensic = forensic
         self.logger = logging.getLogger(__name__)
-        self.screenshots_dir = Path("source_files/screenshots")
+        self.screenshots_dir = Path(screenshots_dir) if screenshots_dir else Path("source_files/screenshots")
         self.third_party_registry = third_party_registry
 
         self.forensic.record_action(

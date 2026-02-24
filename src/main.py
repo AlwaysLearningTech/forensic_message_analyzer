@@ -194,7 +194,8 @@ class ForensicAnalyzer:
         if data.get('screenshots'):
             print("\n[*] Analyzing screenshots...")
             screenshot_analyzer = ScreenshotAnalyzer(
-                self.forensic, third_party_registry=self.third_party_registry
+                self.forensic, third_party_registry=self.third_party_registry,
+                screenshots_dir=self.config.screenshot_source_dir,
             )
             # Run contact extraction on already-extracted screenshots
             for screenshot in data['screenshots']:
