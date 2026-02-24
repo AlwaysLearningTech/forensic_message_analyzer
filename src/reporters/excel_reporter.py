@@ -32,8 +32,6 @@ class ExcelReporter:
         """Generate comprehensive Excel report organized by person."""
         try:
             # Get mapped persons from config
-            from ..config import Config
-            config = Config()
             mapped_persons = list(config.contact_mappings.keys())
             
             # Calculate filtered message count for overview
@@ -65,12 +63,7 @@ class ExcelReporter:
                 # Get messages DataFrame
                 if 'messages' in extracted_data:
                     df_messages = pd.DataFrame(extracted_data['messages'])
-                    
-                    # Get mapped persons from config
-                    from ..config import Config
-                    config = Config()
-                    mapped_persons = list(config.contact_mappings.keys())
-                    
+
                     # Get unique recipients and filter to only mapped persons
                     if 'recipient' in df_messages.columns:
                         recipients = df_messages['recipient'].unique()
