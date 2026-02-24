@@ -66,20 +66,22 @@ class InteractiveReview:
             print(f"Item {idx} of {len(flagged_items)}")
             print(f"{'='*80}")
 
-            # Find this message in context by matching content
+            # Find this message in context — try message_id index first
             item_content = item.get('content', '')
-            msg_position = None
+            item_msg_id = item.get('id') or item.get('message_id')
+            msg_position = msg_index.get(item_msg_id) if item_msg_id else None
 
-            # Try to find by content match
-            for i, msg in enumerate(messages):
-                if msg.get('content', '') == item_content:
-                    msg_position = i
-                    break
-
+            # Fallback: exact content match
             if msg_position is None:
-                # Try partial match
                 for i, msg in enumerate(messages):
-                    if item_content and item_content[:50] in msg.get('content', ''):
+                    if msg.get('content', '') == item_content:
+                        msg_position = i
+                        break
+
+            if msg_position is None and item_content:
+                # Fallback: partial match
+                for i, msg in enumerate(messages):
+                    if item_content[:50] in msg.get('content', ''):
                         msg_position = i
                         break
 
