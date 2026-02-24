@@ -59,8 +59,9 @@ class TimelineGenerator:
         events = []
 
         # Build filter for significant events
-        filter_mask = (df.get('threat_detected', pd.Series([False] * len(df))) == True) | \
-                      (df.get('patterns_detected', pd.Series([''] * len(df))) != '')
+        # Use index=df.index so the fallback Series aligns with a non-default index
+        filter_mask = (df.get('threat_detected', pd.Series(False, index=df.index)) == True) | \
+                      (df.get('patterns_detected', pd.Series('', index=df.index)) != '')
 
         # Add sentiment filter only if column exists
         if 'sentiment_score' in df.columns:
