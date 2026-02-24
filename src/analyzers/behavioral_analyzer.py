@@ -216,7 +216,8 @@ class BehavioralAnalyzer:
         """Analyze communication frequency and volume patterns."""
         if 'timestamp' not in df.columns:
             return {}
-        
+
+        df = df.copy()
         df['date'] = pd.to_datetime(df['timestamp'], utc=True).dt.date
         daily_counts = df.groupby('date').size()
         
@@ -238,9 +239,9 @@ class BehavioralAnalyzer:
         """Analyze escalation in tone or threats."""
         if 'sentiment_score' not in df.columns:
             return {}
-        
-        # Sort by timestamp
-        df_sorted = df.sort_values('timestamp')
+
+        # Sort by timestamp (copy to avoid mutating caller's DataFrame)
+        df_sorted = df.sort_values('timestamp').copy()
         
         # Calculate rolling average of sentiment
         window_size = min(50, len(df) // 10)  # Adaptive window
