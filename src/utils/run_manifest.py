@@ -263,15 +263,12 @@ class RunManifest:
         # Write manifest to file
         with open(output_path, 'w') as f:
             json.dump(self.manifest_data, f, indent=2, default=str)
-        
-        # Compute hash of the manifest itself
+
+        # Compute hash of the final manifest file for chain-of-custody logging.
+        # The hash is recorded in the forensic log only — NOT written back into
+        # the manifest file itself, which would invalidate the hash.
         manifest_hash = self.forensic.compute_hash(output_path)
-        
-        # Add self-hash to manifest and re-save
-        self.manifest_data["manifest_hash"] = manifest_hash
-        with open(output_path, 'w') as f:
-            json.dump(self.manifest_data, f, indent=2, default=str)
-        
+
         self.forensic.record_action(
             "manifest_generated",
             f"Generated run manifest with {len(self.manifest_data['operations'])} operations",
