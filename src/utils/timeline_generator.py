@@ -58,6 +58,9 @@ class TimelineGenerator:
 
         events = []
 
+        # Pre-compute conversations once for all context lookups
+        conversations = self.threader.group_into_conversations(raw_messages) if raw_messages else None
+
         # Build filter for significant events
         # Use index=df.index so the fallback Series aligns with a non-default index
         filter_mask = (df.get('threat_detected', pd.Series(False, index=df.index)) == True) | \
@@ -76,7 +79,8 @@ class TimelineGenerator:
             msg_id = row.get("message_id")
             if msg_id and raw_messages:
                 context = self.threader.get_message_context(
-                    raw_messages, str(msg_id), window=3
+                    raw_messages, str(msg_id), window=3,
+                    conversations=conversations,
                 )
                 context_html = self._render_context_html(context)
 

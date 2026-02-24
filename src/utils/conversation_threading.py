@@ -136,15 +136,20 @@ class ConversationThreader:
         messages: List[Dict],
         message_id: str,
         window: int = 5,
+        conversations: Dict[str, List[Dict]] = None,
     ) -> Dict:
         """
         Given a target message_id, return up to *window* messages before
         and after it **within the same conversation** (participant pair).
 
         Args:
-            messages:   Full flat list of messages.
-            message_id: The message_id of the target message.
-            window:     Number of surrounding messages on each side.
+            messages:       Full flat list of messages.
+            message_id:     The message_id of the target message.
+            window:         Number of surrounding messages on each side.
+            conversations:  Optional pre-computed result of
+                            group_into_conversations(). When provided the
+                            expensive grouping step is skipped, which is
+                            beneficial when calling this method in a loop.
 
         Returns:
             Dict with keys:
@@ -175,7 +180,8 @@ class ConversationThreader:
         recipient = target_msg.get("recipient", "Unknown")
         conv_key = self._participant_key(sender, recipient)
 
-        conversations = self.group_into_conversations(messages)
+        if conversations is None:
+            conversations = self.group_into_conversations(messages)
         conv_messages = conversations.get(conv_key, [])
 
         # Locate the index of the target inside the sorted conversation
