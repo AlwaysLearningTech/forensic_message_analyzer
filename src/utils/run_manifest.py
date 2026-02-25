@@ -6,7 +6,7 @@ Satisfies FRE 901 authentication and Daubert reliability standards.
 
 import json
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import platform
@@ -85,7 +85,7 @@ class RunManifest:
             "type": file_type,
             "hash": file_hash,
             "size_bytes": stats.st_size,
-            "modified": datetime.fromtimestamp(stats.st_mtime).isoformat(),
+            "modified": datetime.fromtimestamp(stats.st_mtime, tz=timezone.utc).isoformat(),
             "added_to_manifest": datetime.now().isoformat()
         }
         
@@ -123,7 +123,7 @@ class RunManifest:
             "description": description or f"Generated {file_type}",
             "hash": file_hash,
             "size_bytes": stats.st_size,
-            "created": datetime.fromtimestamp(stats.st_ctime).isoformat(),
+            "created": datetime.fromtimestamp(stats.st_ctime, tz=timezone.utc).isoformat(),
             "added_to_manifest": datetime.now().isoformat()
         }
         
