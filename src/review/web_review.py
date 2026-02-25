@@ -26,8 +26,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-config = Config()
-
 
 class WebReview:
     """
@@ -38,19 +36,21 @@ class WebReview:
     logged through ForensicRecorder for chain of custody.
     """
 
-    def __init__(self, review_manager: ManualReviewManager, forensic_recorder=None):
+    def __init__(self, review_manager: ManualReviewManager, forensic_recorder=None, config=None):
         """
         Initialize web review.
 
         Args:
             review_manager: ManualReviewManager instance for persisting decisions.
             forensic_recorder: Optional ForensicRecorder for chain of custody logging.
+            config: Config instance. If None, creates a new one.
         """
         if not FLASK_AVAILABLE:
             raise ImportError(
                 "Flask is required for web review. Install with: pip install Flask>=3.0.0"
             )
 
+        self.config = config if config is not None else Config()
         self.review_manager = review_manager
         self.forensic = forensic_recorder
         self.threader = ConversationThreader()
@@ -86,7 +86,7 @@ class WebReview:
 
         @self.app.route("/screenshots/<path:filename>")
         def serve_screenshot(filename):
-            screenshot_dir = config.screenshot_source_dir
+            screenshot_dir = self.config.screenshot_source_dir
             if screenshot_dir and Path(screenshot_dir).is_dir():
                 return send_from_directory(screenshot_dir, filename)
             return ("Screenshot not found", 404)
@@ -115,7 +115,7 @@ class WebReview:
                 return send_from_directory(str(abs_path.parent), abs_path.name)
 
             # Search WhatsApp source directories
-            wa_dir = config.whatsapp_source_dir
+            wa_dir = self.config.whatsapp_source_dir
             if wa_dir:
                 wa_path = Path(wa_dir)
                 for candidate in [wa_path / filename]:
@@ -217,13 +217,15 @@ class WebReview:
                 target_pos = i
                 break
 
-        # Fallback: partial match
+        # Fallback: partial match (guard against empty prefix matching everything)
         if target_msg is None and item_content:
-            for i, msg in enumerate(self.messages):
-                if item_content[:50] in msg.get("content", ""):
-                    target_msg = msg
-                    target_pos = i
-                    break
+            prefix = item_content[:50]
+            if prefix:
+                for i, msg in enumerate(self.messages):
+                    if prefix in msg.get("content", ""):
+                        target_msg = msg
+                        target_pos = i
+                        break
 
         # Build context window (3 before, flagged, 3 after)
         context_before = []
@@ -274,9 +276,9 @@ class WebReview:
             "screenshots": associated_screenshots,
             "existing_review": existing_review,
             "case_info": {
-                "case_number": config.case_number,
-                "case_name": config.case_name,
-                "examiner": config.examiner_name,
+                "case_number": self.config.case_number,
+                "case_name": self.config.case_name,
+                "examiner": self.config.examiner_name,
             },
         }
 
@@ -394,9 +396,10 @@ class WebReview:
 
     def _render_review_page(self) -> str:
         """Return the single-page review interface HTML."""
-        case_number = config.case_number or ""
-        case_name = config.case_name or ""
-        examiner = config.examiner_name or ""
+        import html as html_module
+        case_number = html_module.escape(self.config.case_number or "")
+        case_name = html_module.escape(self.config.case_name or "")
+        examiner = html_module.escape(self.config.examiner_name or "")
         total_items = len(self.flagged_items)
 
         return f"""<!DOCTYPE html>
@@ -621,7 +624,7 @@ function renderContext(data) {{
 }}
 
 function msgBubble(m, isFlagged) {{
-  const person1 = {json.dumps(config.person1_name if hasattr(config, 'person1_name') else 'Me')};
+  const person1 = {json.dumps(self.config.person1_name if hasattr(self.config, 'person1_name') else 'Me')};
   const cls = isFlagged ? 'msg flagged'
               : (m.sender === person1 ? 'msg sent' : 'msg received');
   let html = '<div class="' + cls + '">';

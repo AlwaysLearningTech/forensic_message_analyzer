@@ -3,15 +3,11 @@
 
 from pathlib import Path
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import re
 from PIL import Image
-from ..config import Config
 from ..forensic_utils import ForensicRecorder
-
-# Initialize config
-config = Config()
 
 class ScreenshotExtractor:
     """Extract and catalog screenshots for analysis."""
@@ -102,10 +98,10 @@ class ScreenshotExtractor:
                         'exif': {}
                     }
                     
-                    # Extract EXIF data if available
-                    if hasattr(img, '_getexif') and img._getexif():
+                    # Extract EXIF data if available (public API since Pillow 6.0)
+                    exif = img.getexif()
+                    if exif:
                         from PIL.ExifTags import TAGS
-                        exif = img._getexif()
                         for tag_id, value in exif.items():
                             tag = TAGS.get(tag_id, tag_id)
                             image_metadata['exif'][tag] = str(value)
@@ -120,8 +116,8 @@ class ScreenshotExtractor:
                 'path': str(file_path),
                 'hash': file_hash,
                 'size_bytes': stats.st_size,
-                'created_time': datetime.fromtimestamp(stats.st_ctime).isoformat(),
-                'modified_time': datetime.fromtimestamp(stats.st_mtime).isoformat(),
+                'created_time': datetime.fromtimestamp(stats.st_ctime, tz=timezone.utc).isoformat(),
+                'modified_time': datetime.fromtimestamp(stats.st_mtime, tz=timezone.utc).isoformat(),
                 'extracted_date': date_extracted,
                 'file_type': file_path.suffix.lower(),
                 'image_metadata': image_metadata,
@@ -141,39 +137,61 @@ class ScreenshotExtractor:
     def _extract_date_from_filename(self, filename: str) -> Optional[str]:
         """
         Try to extract a date from the filename.
-        
+
         Args:
             filename: Name of the file
-            
+
         Returns:
             ISO format date string if found, None otherwise
         """
         # Common screenshot filename patterns
         patterns = [
             r'(\d{4})-(\d{2})-(\d{2})',  # YYYY-MM-DD
-            r'(\d{4})(\d{2})(\d{2})',     # YYYYMMDD
             r'(\d{2})/(\d{2})/(\d{4})',   # MM/DD/YYYY
-            r'(\d{8})_(\d{6})',           # YYYYMMDD_HHMMSS
-            r'Screenshot[_\s]+(\d{8})',    # Screenshot_YYYYMMDD
         ]
-        
+
         for pattern in patterns:
             match = re.search(pattern, filename)
             if match:
                 try:
-                    # Try to parse the matched date
                     groups = match.groups()
-                    if len(groups) >= 3:
-                        if len(groups[0]) == 4:  # YYYY-MM-DD format
-                            year, month, day = int(groups[0]), int(groups[1]), int(groups[2])
-                        else:  # MM/DD/YYYY format
-                            month, day, year = int(groups[0]), int(groups[1]), int(groups[2])
-                        
-                        date = datetime(year, month, day)
-                        return date.isoformat()
+                    if len(groups[0]) == 4:  # YYYY-MM-DD format
+                        year, month, day = int(groups[0]), int(groups[1]), int(groups[2])
+                    else:  # MM/DD/YYYY format
+                        month, day, year = int(groups[0]), int(groups[1]), int(groups[2])
+                    date = datetime(year, month, day)
+                    return date.isoformat()
                 except (ValueError, IndexError):
                     continue
-        
+
+        # YYYYMMDD_HHMMSS format (2 groups)
+        match = re.search(r'(\d{4})(\d{2})(\d{2})_\d{6}', filename)
+        if match:
+            try:
+                year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
+                return datetime(year, month, day).isoformat()
+            except ValueError:
+                pass
+
+        # Screenshot_YYYYMMDD format (1 group)
+        match = re.search(r'Screenshot[_\s]+(\d{4})(\d{2})(\d{2})', filename)
+        if match:
+            try:
+                year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
+                return datetime(year, month, day).isoformat()
+            except ValueError:
+                pass
+
+        # Standalone YYYYMMDD (only if surrounded by non-digits to avoid phone numbers)
+        match = re.search(r'(?<!\d)(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)', filename)
+        if match:
+            try:
+                year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
+                if 1990 <= year <= 2099:
+                    return datetime(year, month, day).isoformat()
+            except ValueError:
+                pass
+
         return None
     
     def validate_screenshots(self, screenshots: List[Dict]) -> Dict:

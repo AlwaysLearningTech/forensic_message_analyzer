@@ -79,11 +79,13 @@ class InteractiveReview:
                         break
 
             if msg_position is None and item_content:
-                # Fallback: partial match
-                for i, msg in enumerate(messages):
-                    if item_content[:50] in msg.get('content', ''):
-                        msg_position = i
-                        break
+                # Fallback: partial match (guard against empty prefix)
+                prefix = item_content[:50]
+                if prefix:
+                    for i, msg in enumerate(messages):
+                        if prefix in msg.get('content', ''):
+                            msg_position = i
+                            break
 
             if msg_position is None:
                 logger.warning(f"Message not found for review item {item.get('id', idx)}")

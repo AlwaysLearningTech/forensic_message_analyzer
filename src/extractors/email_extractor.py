@@ -18,9 +18,6 @@ import pandas as pd
 from ..config import Config
 from ..forensic_utils import ForensicRecorder, ForensicIntegrity
 
-# Initialize config
-config = Config()
-
 logger = logging.getLogger(__name__)
 
 
@@ -31,7 +28,7 @@ class EmailExtractor:
     """
 
     def __init__(self, source_dir: str, forensic_recorder: ForensicRecorder, forensic_integrity: ForensicIntegrity,
-                 third_party_registry=None):
+                 third_party_registry=None, config: Config = None):
         """
         Initialize email extractor.
 
@@ -40,7 +37,9 @@ class EmailExtractor:
             forensic_recorder: ForensicRecorder instance
             forensic_integrity: ForensicIntegrity instance
             third_party_registry: Optional ThirdPartyRegistry for tracking unmapped contacts
+            config: Config instance. If None, creates a new one.
         """
+        self.config = config if config is not None else Config()
         self.source_dir = Path(source_dir) if source_dir else None
         self.forensic = forensic_recorder
         self.integrity = forensic_integrity
@@ -330,7 +329,7 @@ class EmailExtractor:
         email_addr = email_addr.strip().lower()
 
         # Check against contact mappings
-        for person_name, identifiers in config.contact_mappings.items():
+        for person_name, identifiers in self.config.contact_mappings.items():
             for identifier in identifiers:
                 identifier_lower = identifier.strip().lower()
                 # Match against email address

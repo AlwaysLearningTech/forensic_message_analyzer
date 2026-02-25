@@ -89,9 +89,7 @@ def main():
     from src.extractors.data_extractor import DataExtractor
     extractor = DataExtractor(forensic, third_party_registry=third_party)
     # extract_all() returns a list of message dicts directly
-    messages = extractor.extract_all(
-        start_date=config.start_date, end_date=config.end_date
-    )
+    messages = extractor.extract_all()
     print(f"  Total messages extracted: {len(messages):,}")
 
     # Show source breakdown

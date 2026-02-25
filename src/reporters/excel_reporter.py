@@ -13,26 +13,24 @@ from ..forensic_utils import ForensicRecorder
 from ..utils.conversation_threading import ConversationThreader
 from ..utils.legal_compliance import LegalComplianceManager
 
-# Initialize config
-config = Config()
-
 logger = logging.getLogger(__name__)
 
 
 class ExcelReporter:
     """Generate Excel reports with multiple sheets for different analysis aspects."""
     
-    def __init__(self, forensic_recorder: ForensicRecorder):
+    def __init__(self, forensic_recorder: ForensicRecorder, config: Config = None):
         """Initialize Excel reporter."""
+        self.config = config if config is not None else Config()
         self.forensic = forensic_recorder
-        self.output_dir = Path(config.output_dir)
+        self.output_dir = Path(self.config.output_dir)
     
     def generate_report(self, extracted_data: Dict, analysis_results: Dict,
                        review_decisions: Dict, output_path: Path) -> Path:
         """Generate comprehensive Excel report organized by person."""
         try:
             # Get mapped persons from config
-            mapped_persons = list(config.contact_mappings.keys())
+            mapped_persons = list(self.config.contact_mappings.keys())
             
             # Calculate filtered message count for overview
             filtered_message_count = 0
@@ -64,19 +62,19 @@ class ExcelReporter:
                 if 'messages' in extracted_data:
                     df_messages = pd.DataFrame(extracted_data['messages'])
 
-                    # Get unique recipients and filter to only mapped persons
-                    if 'recipient' in df_messages.columns:
-                        recipients = df_messages['recipient'].unique()
-                        # Only include recipients that are in the contact mappings
-                        recipients = [r for r in recipients if r in mapped_persons]
-                        
+                    # Get unique participants and filter to only mapped persons
+                    if 'recipient' in df_messages.columns and 'sender' in df_messages.columns:
+                        participants = set(df_messages['recipient'].unique()) | set(df_messages['sender'].unique())
+                        # Only include participants that are in the contact mappings
+                        participants = sorted(p for p in participants if p in mapped_persons)
+
                         # Create a tab for each mapped person
-                        for recipient in recipients:
+                        for person in participants:
                             self._write_person_sheet(
-                                writer, 
-                                df_messages, 
-                                analysis_results, 
-                                recipient
+                                writer,
+                                df_messages,
+                                analysis_results,
+                                person
                             )
                     
                     # NOTE: We decided NOT to publish all messages
@@ -149,7 +147,7 @@ class ExcelReporter:
         # Reorder columns for better readability
         # Convert timestamps to local timezone for display
         import pytz
-        tz = pytz.timezone(config.timezone)
+        tz = pytz.timezone(self.config.timezone)
         tz_abbr = datetime.now(tz).strftime('%Z')
         if 'timestamp' in person_messages.columns:
             person_messages['timestamp'] = pd.to_datetime(
@@ -199,7 +197,7 @@ class ExcelReporter:
     def _write_overview_sheet(self, writer, extracted_data: Dict,
                             analysis_results: Dict, review_decisions: Dict):
         """Write overview sheet with summary statistics."""
-        compliance = LegalComplianceManager(config=config, forensic_recorder=self.forensic)
+        compliance = LegalComplianceManager(config=self.config, forensic_recorder=self.forensic)
         overview = {
             'Metric': [
                 'Total Messages',

@@ -24,74 +24,87 @@ class TestSystemIntegration:
     def test_extraction_to_analysis_pipeline(self):
         """Test data flow from extraction to analysis."""
         recorder = ForensicRecorder()
-        
-        # Create test message data
+
+        # Create test message data with clear threat and non-threat content
         test_messages = pd.DataFrame({
             'content': [
                 'Hello, how are you?',
-                'I will find you',
-                'This is harassment',
-                'Normal conversation'
+                'I will hurt you',
+                'Normal conversation',
+                'I am going to kill you'
             ],
-            'sender': ['user1', 'user2', 'user2', 'user1'],
+            'sender': ['user1', 'user2', 'user1', 'user2'],
             'timestamp': pd.date_range(start='2024-01-01', periods=4, freq='h'),
             'source': ['iMessage'] * 4
         })
-        
+
         # Run threat analysis
         threat_analyzer = ThreatAnalyzer(recorder)
         threat_results = threat_analyzer.detect_threats(test_messages)
-        
+
         assert isinstance(threat_results, pd.DataFrame)
         assert len(threat_results) == len(test_messages)
-        # Check if any threats detected (column exists)
         assert 'threat_detected' in threat_results.columns
-        
+
+        # Verify specific threat detection
+        assert threat_results.loc[1, 'threat_detected'] == True, \
+            "'I will hurt you' should be detected as a threat"
+        assert threat_results.loc[3, 'threat_detected'] == True, \
+            "'I am going to kill you' should be detected as a threat"
+        assert threat_results.loc[0, 'threat_detected'] == False, \
+            "'Hello, how are you?' should not be a threat"
+
         # Run sentiment analysis
         sentiment_analyzer = SentimentAnalyzer(recorder)
         sentiment_results = sentiment_analyzer.analyze_sentiment(test_messages)
-        
+
         assert isinstance(sentiment_results, pd.DataFrame)
         assert 'sentiment_polarity' in sentiment_results.columns
     
     def test_analysis_to_review_pipeline(self):
         """Test data flow from analysis to manual review."""
         recorder = ForensicRecorder()
-        
-        # Create test data with threats
+
+        # Create test data with clear threats
         test_messages = pd.DataFrame({
             'message_id': ['msg_001', 'msg_002', 'msg_003'],
             'content': [
                 'I will hurt you',
                 'Normal message',
-                'This is threatening'
+                'I am going to kill you'
             ],
             'sender': ['user1', 'user2', 'user1'],
             'timestamp': pd.date_range(start='2024-01-01', periods=3, freq='h')
         })
-        
+
         # Analyze threats
         threat_analyzer = ThreatAnalyzer(recorder)
         threat_results = threat_analyzer.detect_threats(test_messages)
-        
+
+        # Verify threats are detected before testing review pipeline
+        assert threat_results['threat_detected'].any(), \
+            "At least one threat should be detected for this test to be meaningful"
+
         # Create review manager
         review_manager = ManualReviewManager()
-        
+
         # Add reviews for threats
         for idx, row in threat_results.iterrows():
             if row.get('threat_detected', False):
-                # add_review doesn't return anything
                 review_manager.add_review(
                     test_messages.loc[idx, 'message_id'],
                     'threat',
                     'relevant',
                     f"Threat detected in message"
                 )
-        
-        # Verify at least some reviews were added if threats detected
-        if threat_results['threat_detected'].any():
-            reviews = review_manager.get_reviews_by_decision('relevant')
-            assert len(reviews) > 0
+
+        # Verify reviews were created for threat messages
+        reviews = review_manager.get_reviews_by_decision('relevant')
+        assert len(reviews) >= 2, \
+            "Both 'I will hurt you' and 'I am going to kill you' should produce reviews"
+        reviewed_ids = {r['item_id'] for r in reviews}
+        assert 'msg_001' in reviewed_ids, "'I will hurt you' (msg_001) should be reviewed"
+        assert 'msg_003' in reviewed_ids, "'I am going to kill you' (msg_003) should be reviewed"
         
     def test_review_manager(self):
         """Test manual review manager functionality."""

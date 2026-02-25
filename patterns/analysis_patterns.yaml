@@ -3,69 +3,69 @@
 
 threat_patterns:
   - name: "Physical Threat"
-    pattern: "(kill|hurt|harm|attack|assault|hit|punch|slap)"
+    pattern: "\\b(kill you|hurt you|harm you|attack you|assault you|hit you|punch you|slap you|going to kill|going to hurt)\\b"
     severity: "high"
     confidence_boost: 0.3
-    
+
   - name: "Stalking Behavior"
-    pattern: "(follow|watch|tracking|know where|find you|watching you)"
+    pattern: "\\b(following you|watching you|tracking you|know where you (live|are|work)|find you|i('m| am) watching)\\b"
     severity: "high"
     confidence_boost: 0.25
-    
+
   - name: "Harassment"
-    pattern: "(harass|bother|annoy|won't stop|leave.*alone)"
+    pattern: "\\b(harassing|won't stop (calling|texting|messaging)|leave me alone|stop contacting)\\b"
     severity: "medium"
     confidence_boost: 0.2
-    
+
   - name: "Intimidation"
-    pattern: "(threat|intimidate|scare|afraid|fear|consequence)"
+    pattern: "\\b(threatening|intimidate|scare you|you should be (afraid|scared)|there will be consequences|you'll regret)\\b"
     severity: "high"
     confidence_boost: 0.25
-    
+
   - name: "Property Damage"
-    pattern: "(destroy|damage|break|vandal|ruin|trash)"
+    pattern: "\\b(destroy your|damage your|break your|vandalize|ruin your|trash your)\\b"
     severity: "medium"
     confidence_boost: 0.2
-    
+
   - name: "Extortion"
-    pattern: "(blackmail|extort|pay.*or|expose|reveal.*unless)"
+    pattern: "\\b(blackmail|extort|pay me or|expose you|reveal .+ unless)\\b"
     severity: "high"
     confidence_boost: 0.3
 
 behavioral_patterns:
   emotional_manipulation:
     patterns:
-      - "(guilt|blame|fault|deserve|made me|force me to)"
+      - "\\b(your fault|you made me|you forced me to|you deserve this|guilt trip)\\b"
     weight: 0.7
     description: "Emotional manipulation tactics"
-    
+
   gaslighting:
     patterns:
-      - "(never said|didn't happen|imagining)"
-      - "(crazy|paranoid|overreacting)"
-      - "(remember it wrong|confused)"
+      - "\\b(i never said that|that didn't happen|you're imagining)\\b"
+      - "\\b(you're crazy|you're paranoid|you're overreacting)\\b"
+      - "\\b(you remember it wrong|you're confused|that's not what happened)\\b"
     weight: 0.9
     description: "Psychological manipulation"
-    
+
   control:
     patterns:
-      - "(can't|won't let|forbid|not allowed|permission|must)"
+      - "\\b(you can't|i won't let you|i forbid|you're not allowed|you need my permission|you must)\\b"
     weight: 0.8
     description: "Controlling behavior"
-    
+
   isolation:
     patterns:
-      - "(don't talk|stay away from)"
-      - "(no friends|only me)"
-      - "(don't need.*friends|shouldn't see)"
+      - "\\b(don't talk to (them|him|her)|stay away from)\\b"
+      - "\\b(no friends|you only need me)\\b"
+      - "\\b(you don't need .+ friends|you shouldn't see (them|him|her))\\b"
     weight: 0.8
     description: "Attempts to isolate from support network"
-    
+
   love_bombing:
     patterns:
-      - "(love|adore|worship|obsessed).*you"
-      - "(perfect|amazing|incredible|best thing)"
-      - "(can't live without|need you|only one|soulmate)"
+      - "\\b(i (love|adore|worship) you so much|obsessed with you)\\b"
+      - "\\b(you're (perfect|the best thing|my everything|my world))\\b"
+      - "\\b(can't live without you|need you|you're the only one|my soulmate)\\b"
     weight: 0.7
     description: "Excessive affection or attention"
 
@@ -78,7 +78,7 @@ sentiment_keywords:
     - "wonderful"
     - "great"
     - "thank"
-    
+
   negative:
     - "hate"
     - "angry"
@@ -87,7 +87,7 @@ sentiment_keywords:
     - "terrible"
     - "awful"
     - "disgusting"
-    
+
   neutral:
     - "okay"
     - "fine"
@@ -99,18 +99,18 @@ escalation_indicators:
   - name: "Frequency Increase"
     type: "temporal"
     threshold: 2.0  # 2x normal frequency
-    
+
   - name: "Emotional Intensity"
     type: "sentiment"
     threshold: -0.7  # Very negative sentiment
-    
+
   - name: "Threat Escalation"
     type: "content"
-    pattern: "(will|going to|promise|swear)"
-    
+    pattern: "\\b(i will|i'm going to|i promise|i swear) .+ (hurt|kill|destroy|ruin)\\b"
+
   - name: "Urgency Markers"
     type: "content"
-    pattern: "(now|immediately|today|tonight|right away)"
+    pattern: "\\b(do it now|right now|immediately|tonight or else|right away or)\\b"
 
 context_flags:
   legal:
@@ -121,7 +121,7 @@ context_flags:
     - "divorce"
     - "restraining order"
     - "police"
-    
+
   family:
     - "children"
     - "kids"
@@ -130,7 +130,7 @@ context_flags:
     - "parent"
     - "mother"
     - "father"
-    
+
   financial:
     - "money"
     - "pay"

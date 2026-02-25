@@ -15,8 +15,6 @@ import pandas as pd
 from ..config import Config
 from ..forensic_utils import ForensicRecorder, ForensicIntegrity
 
-config = Config()
-
 logger = logging.getLogger(__name__)
 
 # Message types that contain actual user content
@@ -53,7 +51,9 @@ class TeamsExtractor:
         forensic_recorder: ForensicRecorder,
         forensic_integrity: ForensicIntegrity,
         third_party_registry=None,
+        config: Config = None,
     ):
+        self.config = config if config is not None else Config()
         self.source_dir = Path(source_dir) if source_dir else None
         self.forensic = forensic_recorder
         self.integrity = forensic_integrity
@@ -61,13 +61,13 @@ class TeamsExtractor:
 
         # Build a lower-cased lookup for mapped identifiers → person name
         self._id_to_person: Dict[str, str] = {}
-        for person_name, identifiers in config.contact_mappings.items():
+        for person_name, identifiers in self.config.contact_mappings.items():
             for ident in identifiers:
                 self._id_to_person[ident.strip().lower()] = person_name
 
         # Also build a set of all mapped person names (lowered) for display-name matching
         self._person_names_lower: Dict[str, str] = {}
-        for person_name in config.contact_mappings:
+        for person_name in self.config.contact_mappings:
             self._person_names_lower[person_name.strip().lower()] = person_name
 
     # ------------------------------------------------------------------
@@ -175,7 +175,7 @@ class TeamsExtractor:
 
         # Check if any mapped person is in this conversation
         mapped_in_conv = {m for m in mapped_members
-                         if m in config.contact_mappings or m == 'Me'}
+                         if m in self.config.contact_mappings or m == 'Me'}
         if not mapped_in_conv:
             return []
 
@@ -262,8 +262,8 @@ class TeamsExtractor:
             recipient = other_person or 'Unknown'
 
         # Skip if neither sender nor recipient is a mapped person
-        sender_mapped = sender in config.contact_mappings or sender == 'Me'
-        recipient_mapped = recipient in config.contact_mappings or recipient == 'Me'
+        sender_mapped = sender in self.config.contact_mappings or sender == 'Me'
+        recipient_mapped = recipient in self.config.contact_mappings or recipient == 'Me'
         if not sender_mapped and not recipient_mapped:
             return None
 
@@ -319,7 +319,7 @@ class TeamsExtractor:
             return 'Me'
 
         # Check against email local parts in mappings
-        for person_name, identifiers in config.contact_mappings.items():
+        for person_name, identifiers in self.config.contact_mappings.items():
             for ident in identifiers:
                 ident_low = ident.strip().lower()
                 if '@' in ident_low:

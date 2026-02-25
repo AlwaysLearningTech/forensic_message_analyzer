@@ -218,20 +218,14 @@ class ForensicRecorder:
                 )
             }
 
-            # Write initial document
+            # Write the final document
             with open(output_file, 'w') as f:
                 json.dump(custody_doc, f, indent=2)
 
-            # Hash the chain of custody document itself
+            # Compute hash of the final file for forensic logging.
+            # The hash is recorded in the forensic log only — NOT written back
+            # into the document itself, which would invalidate the hash.
             doc_hash = self.compute_hash(Path(output_file))
-
-            # Append self-hash to the document
-            custody_doc["document_hash"] = doc_hash
-            custody_doc["hash_algorithm"] = "SHA-256"
-
-            # Re-save with hash
-            with open(output_file, 'w') as f:
-                json.dump(custody_doc, f, indent=2)
 
             self.record_action(
                 "chain_of_custody_generated",
@@ -422,15 +416,11 @@ class EvidenceValidator:
         manifest_path = self.forensic.output_dir / f"evidence_package_{package_id}.json"
         with open(manifest_path, 'w') as f:
             json.dump(package_manifest, f, indent=2)
-        
-        # Hash the manifest itself for integrity
+
+        # Hash the final manifest for forensic logging only — NOT written
+        # back into the file, which would invalidate the hash.
         manifest_hash = self.forensic.compute_hash(manifest_path)
-        package_manifest["manifest_hash"] = manifest_hash
-        
-        # Re-save with self-hash
-        with open(manifest_path, 'w') as f:
-            json.dump(package_manifest, f, indent=2)
-        
+
         self.forensic.record_action(
             "evidence_package_created",
             f"Created evidence package with {package_manifest['total_files']} files",

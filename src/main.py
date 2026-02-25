@@ -55,6 +55,84 @@ class ForensicAnalyzer:
         self._analysis_results_path = None
 
     # ------------------------------------------------------------------
+    # Source file integrity
+    # ------------------------------------------------------------------
+
+    def _hash_source_files(self):
+        """Hash all source files before extraction to establish chain of custody."""
+        print("\n[*] Hashing source files for chain of custody...")
+        hashed = 0
+
+        # iMessage database
+        db_path = Path(self.config.messages_db_path).expanduser()
+        if db_path.exists():
+            h = self.forensic.compute_hash(db_path)
+            self.forensic.record_action(
+                "source_file_hashed", f"Pre-extraction hash of iMessage database",
+                {"file": str(db_path), "hash": h}
+            )
+            hashed += 1
+
+        # WhatsApp source files
+        wa_dir = self.config.whatsapp_source_dir
+        if wa_dir:
+            wa_path = Path(wa_dir).expanduser()
+            if wa_path.is_dir():
+                for f in sorted(wa_path.rglob("*")):
+                    if f.is_file():
+                        h = self.forensic.compute_hash(f)
+                        self.forensic.record_action(
+                            "source_file_hashed", f"Pre-extraction hash of WhatsApp file",
+                            {"file": str(f), "hash": h}
+                        )
+                        hashed += 1
+
+        # Email source files
+        email_dir = self.config.email_source_dir
+        if email_dir:
+            email_path = Path(email_dir).expanduser()
+            if email_path.is_dir():
+                for f in sorted(email_path.rglob("*")):
+                    if f.is_file():
+                        h = self.forensic.compute_hash(f)
+                        self.forensic.record_action(
+                            "source_file_hashed", f"Pre-extraction hash of email file",
+                            {"file": str(f), "hash": h}
+                        )
+                        hashed += 1
+
+        # Teams source files
+        teams_dir = self.config.teams_source_dir
+        if teams_dir:
+            teams_path = Path(teams_dir).expanduser()
+            if teams_path.is_dir():
+                for f in sorted(teams_path.rglob("*")):
+                    if f.is_file():
+                        h = self.forensic.compute_hash(f)
+                        self.forensic.record_action(
+                            "source_file_hashed", f"Pre-extraction hash of Teams file",
+                            {"file": str(f), "hash": h}
+                        )
+                        hashed += 1
+
+        # Screenshot source files (hashed individually during extraction,
+        # but record them here too for completeness)
+        ss_dir = self.config.screenshot_source_dir
+        if ss_dir:
+            ss_path = Path(ss_dir).expanduser()
+            if ss_path.is_dir():
+                for f in sorted(ss_path.iterdir()):
+                    if f.is_file():
+                        h = self.forensic.compute_hash(f)
+                        self.forensic.record_action(
+                            "source_file_hashed", f"Pre-extraction hash of screenshot",
+                            {"file": str(f), "hash": h}
+                        )
+                        hashed += 1
+
+        print(f"    Hashed {hashed} source files")
+
+    # ------------------------------------------------------------------
     # Pipeline state (for resume after crash)
     # ------------------------------------------------------------------
 
@@ -91,7 +169,10 @@ class ForensicAnalyzer:
         print("\n" + "="*60)
         print("PHASE 1: DATA EXTRACTION")
         print("="*60)
-        
+
+        # Hash all source files BEFORE reading them (chain of custody)
+        self._hash_source_files()
+
         extractor = DataExtractor(self.forensic, third_party_registry=self.third_party_registry)
         
         # Extract all message data
@@ -351,7 +432,7 @@ class ForensicAnalyzer:
         if review_mode == 'web' and items_for_review:
             try:
                 from src.review.web_review import WebReview
-                web = WebReview(manager, forensic_recorder=self.forensic)
+                web = WebReview(manager, forensic_recorder=self.forensic, config=self.config)
                 web.start_review(messages, items_for_review, screenshots=screenshots)
             except ImportError:
                 print("    Flask not installed. Falling back to terminal review.")
@@ -573,7 +654,7 @@ class ForensicAnalyzer:
             try:
                 enriched_data = data.copy()
 
-                excel_reporter = ExcelReporter(self.forensic)
+                excel_reporter = ExcelReporter(self.forensic, config=self.config)
                 excel_path = Path(self.config.output_dir) / f"report_{timestamp}.xlsx"
                 excel_reporter.generate_report(enriched_data, filtered_analysis, review, excel_path)
                 reports['excel'] = str(excel_path)

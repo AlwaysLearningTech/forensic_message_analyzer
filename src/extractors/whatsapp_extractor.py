@@ -9,14 +9,12 @@ import logging
 import zipfile
 from pathlib import Path
 from datetime import datetime
+import pytz
 import pandas as pd
 from typing import List, Dict, Optional
 
 from ..config import Config
 from ..forensic_utils import ForensicRecorder, ForensicIntegrity
-
-# Initialize config
-config = Config()
 
 logger = logging.getLogger(__name__)
 
@@ -27,15 +25,17 @@ class WhatsAppExtractor:
     Handles various export formats and attachments.
     """
     
-    def __init__(self, export_dir: str, forensic_recorder: ForensicRecorder, forensic_integrity: ForensicIntegrity):
+    def __init__(self, export_dir: str, forensic_recorder: ForensicRecorder, forensic_integrity: ForensicIntegrity, config: Config = None):
         """
         Initialize WhatsApp extractor.
-        
+
         Args:
             export_dir: Directory containing WhatsApp exports
             forensic_recorder: ForensicRecorder instance
             forensic_integrity: ForensicIntegrity instance
+            config: Config instance. If None, creates a new one.
         """
+        self.config = config if config is not None else Config()
         self.export_dir = Path(export_dir) if export_dir else None
         self.forensic = forensic_recorder
         self.integrity = forensic_integrity
@@ -144,7 +144,7 @@ class WhatsAppExtractor:
             # First pass: identify unique senders to determine chat participants
             # This lets us correctly assign recipients in 1:1 chats even when
             # the filename doesn't contain the contact name.
-            person1 = getattr(config, 'person1_name', None)
+            person1 = getattr(self.config, 'person1_name', None)
             raw_senders = set()
             for match in boundaries:
                 raw_senders.add(match.group(2).strip())
@@ -152,7 +152,7 @@ class WhatsAppExtractor:
             # Map raw senders to person names
             mapped_senders = set()
             for raw in raw_senders:
-                for person_name, person_handles in config.contact_mappings.items():
+                for person_name, person_handles in self.config.contact_mappings.items():
                     if raw in person_handles:
                         mapped_senders.add(person_name)
                         break
@@ -197,7 +197,7 @@ class WhatsAppExtractor:
                 # Map sender to person name using contact mappings
                 sender_name = sender.strip()
                 is_from_me = False
-                for person_name, person_handles in config.contact_mappings.items():
+                for person_name, person_handles in self.config.contact_mappings.items():
                     if sender_name in person_handles:
                         sender_name = person_name
                         break
@@ -221,7 +221,7 @@ class WhatsAppExtractor:
                     else:
                         # Fallback: try filename-based matching
                         recipient = 'Unknown'
-                        for person_name, identifiers in config.contact_mappings.items():
+                        for person_name, identifiers in self.config.contact_mappings.items():
                             if person1 and person_name == person1:
                                 continue
                             if any(identifier.lower() in file_path.name.lower() for identifier in identifiers):
@@ -274,14 +274,20 @@ class WhatsAppExtractor:
     
     def _parse_timestamp(self, timestamp_str: str) -> datetime:
         """
-        Parse WhatsApp timestamp into datetime object.
-        
+        Parse WhatsApp timestamp into a timezone-aware (UTC) datetime.
+
+        WhatsApp export timestamps are in the device's local timezone.
+        We localize to the configured ANALYSIS_TIMEZONE and convert to UTC
+        so they are consistent with iMessage, email, and Teams timestamps.
+
         Args:
             timestamp_str: Timestamp string from WhatsApp
-            
+
         Returns:
-            Parsed datetime object
+            Timezone-aware datetime in UTC, or None if unparseable
         """
+        local_tz = pytz.timezone(self.config.timezone)
+
         # Try different date formats
         formats = [
             "%m/%d/%y, %I:%M:%S %p",  # 3/8/22, 4:12:34 PM
@@ -297,13 +303,14 @@ class WhatsAppExtractor:
             "%m/%d/%Y, %H:%M:%S",     # 12/25/2023, 15:30:00
             "%m/%d/%Y, %H:%M",     # 12/25/2023, 15:30
         ]
-        
+
         for fmt in formats:
             try:
-                return datetime.strptime(timestamp_str.strip(), fmt)
+                naive_dt = datetime.strptime(timestamp_str.strip(), fmt)
+                return local_tz.localize(naive_dt).astimezone(pytz.utc)
             except ValueError:
                 continue
-        
+
         # If no format matches, log warning and return None to flag the issue
         logger.warning(f"Could not parse timestamp: {timestamp_str}")
         return None

@@ -237,7 +237,7 @@ class BehavioralAnalyzer:
     
     def _identify_escalation_patterns(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Analyze escalation in tone or threats."""
-        if 'sentiment_score' not in df.columns:
+        if 'sentiment_score' not in df.columns or 'timestamp' not in df.columns:
             return {}
 
         # Sort by timestamp (copy to avoid mutating caller's DataFrame)

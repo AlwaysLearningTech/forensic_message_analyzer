@@ -6,7 +6,6 @@ Coordinates extraction from multiple sources.
 import logging
 from typing import List, Dict, Any
 from datetime import datetime
-from pathlib import Path
 
 from .imessage_extractor import iMessageExtractor
 from .whatsapp_extractor import WhatsAppExtractor
@@ -37,14 +36,16 @@ class DataExtractor:
         self.imessage = iMessageExtractor(
             self.config.messages_db_path,
             forensic,
-            self.integrity
+            self.integrity,
+            config=self.config,
         ) if self.config.messages_db_path else None
 
         # WhatsApp extractor needs: export_dir, forensic_recorder, forensic_integrity
         self.whatsapp = WhatsAppExtractor(
             self.config.whatsapp_source_dir,
             forensic,
-            self.integrity
+            self.integrity,
+            config=self.config,
         ) if self.config.whatsapp_source_dir else None
 
         # Email extractor needs: source_dir, forensic_recorder, forensic_integrity
@@ -54,6 +55,7 @@ class DataExtractor:
             forensic,
             self.integrity,
             third_party_registry=third_party_registry,
+            config=self.config,
         ) if self.config.email_source_dir else None
 
         # Teams extractor needs: source_dir, forensic_recorder, forensic_integrity
@@ -62,6 +64,7 @@ class DataExtractor:
             forensic,
             self.integrity,
             third_party_registry=third_party_registry,
+            config=self.config,
         ) if self.config.teams_source_dir else None
 
         self.forensic.record_action(
@@ -69,14 +72,10 @@ class DataExtractor:
             "Initialized unified data extractor"
         )
     
-    def extract_all(self, start_date: datetime = None, end_date: datetime = None) -> List[Dict[str, Any]]:
+    def extract_all(self) -> List[Dict[str, Any]]:
         """
         Extract data from all available sources.
-        
-        Args:
-            start_date: Optional start date filter
-            end_date: Optional end date filter
-            
+
         Returns:
             List of extracted messages from all sources
         """

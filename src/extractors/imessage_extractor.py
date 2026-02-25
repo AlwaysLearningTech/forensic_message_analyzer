@@ -13,9 +13,6 @@ import pandas as pd
 from ..config import Config
 from ..forensic_utils import ForensicRecorder, ForensicIntegrity
 
-# Initialize config
-config = Config()
-
 logger = logging.getLogger(__name__)
 
 # Tapback type code -> emoji mapping
@@ -61,7 +58,8 @@ class IMessageExtractor:
 
     IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.heic', '.heif', '.webp', '.tiff', '.bmp'}
 
-    def __init__(self, db_path: str, forensic_recorder: ForensicRecorder, forensic_integrity: ForensicIntegrity):
+    def __init__(self, db_path: str, forensic_recorder: ForensicRecorder, forensic_integrity: ForensicIntegrity, config: Config = None):
+        self.config = config if config is not None else Config()
         self.db_path = Path(db_path) if db_path else None
         self.forensic = forensic_recorder
         self.integrity = forensic_integrity
@@ -327,7 +325,7 @@ class IMessageExtractor:
 
                 # Get all participant handles from config
                 all_handles = []
-                for person_mappings in config.contact_mappings.values():
+                for person_mappings in self.config.contact_mappings.values():
                     all_handles.extend(person_mappings)
 
                 if not all_handles:
@@ -420,14 +418,14 @@ class IMessageExtractor:
                         sender = 'Me'
                         recipient_handle = handle or chat_id
                         recipient = recipient_handle
-                        for person_name, person_handles in config.contact_mappings.items():
+                        for person_name, person_handles in self.config.contact_mappings.items():
                             if recipient_handle in person_handles:
                                 recipient = person_name
                                 break
                     else:
                         recipient = 'Me'
                         sender = handle
-                        for person_name, person_handles in config.contact_mappings.items():
+                        for person_name, person_handles in self.config.contact_mappings.items():
                             if handle in person_handles:
                                 sender = person_name
                                 break
@@ -523,7 +521,7 @@ class IMessageExtractor:
                     "edited_count": edited_count,
                     "retracted_count": retracted_count,
                     "sos_count": sos_count,
-                    "participants": list(config.contact_mappings.keys()),
+                    "participants": list(self.config.contact_mappings.keys()),
                 }
             )
 

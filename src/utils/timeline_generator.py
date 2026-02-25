@@ -196,7 +196,7 @@ class TimelineGenerator:
 
         lines: list = []
         lines.append('<div class="context-block">')
-        conv_key = context.get("conversation_key", "")
+        conv_key = html_module.escape(context.get("conversation_key", ""))
         total = context.get("total_in_conversation", 0)
         lines.append(
             f'<div class="ctx-header">Conversation context '

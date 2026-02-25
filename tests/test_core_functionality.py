@@ -89,51 +89,75 @@ class TestCoreComponents:
         """Test threat analysis."""
         recorder = ForensicRecorder()
         analyzer = ThreatAnalyzer(recorder)
-        
+
         # Create test data
         test_data = pd.DataFrame({
             'content': [
                 'Hello there',
                 'I will hurt you',
-                'This is harassment',
-                'Normal message'
+                'Normal message',
+                'I am going to kill you'
             ],
-            'sender': ['user1', 'user2', 'user2', 'user1'],
+            'sender': ['user1', 'user2', 'user1', 'user2'],
             'timestamp': pd.date_range(start='2024-01-01', periods=4, freq='h')
         })
-        
+
         # Analyze threats - returns DataFrame with threat_detected column
         results = analyzer.detect_threats(test_data)
         assert isinstance(results, pd.DataFrame)
         assert 'threat_detected' in results.columns
-        # Note: may not have threat_score if no threats detected
-        
+
+        # "I will hurt you" must be flagged as a threat (physical_threat: \bhurt\b)
+        assert results.loc[1, 'threat_detected'] == True, \
+            "'I will hurt you' should be detected as a threat"
+
+        # "I am going to kill you" must be flagged (physical_threat: \bkill\b)
+        assert results.loc[3, 'threat_detected'] == True, \
+            "'I am going to kill you' should be detected as a threat"
+
+        # "Hello there" should NOT be flagged
+        assert results.loc[0, 'threat_detected'] == False, \
+            "'Hello there' should not be flagged as a threat"
+
+        # "Normal message" should NOT be flagged
+        assert results.loc[2, 'threat_detected'] == False, \
+            "'Normal message' should not be flagged as a threat"
+
         # Generate summary
         summary = analyzer.generate_threat_summary(results)
         assert isinstance(summary, dict)
+        assert summary.get('messages_with_threats', 0) >= 2
     
     def test_sentiment_analyzer(self):
         """Test sentiment analysis."""
         recorder = ForensicRecorder()
         analyzer = SentimentAnalyzer(recorder)
-        
-        # Create test data
+
+        # Create test data with clear positive/negative messages
         test_data = pd.DataFrame({
             'content': [
-                'I love this!',
-                'This is terrible',
+                'I love this, it is wonderful!',
+                'This is terrible and awful',
                 'It is okay',
-                'Amazing work!'
+                'Amazing and fantastic work!'
             ],
             'sender': ['user1', 'user2', 'user1', 'user2'],
             'timestamp': pd.date_range(start='2024-01-01', periods=4, freq='h')
         })
-        
+
         # Analyze sentiment - returns DataFrame with sentiment columns
         results = analyzer.analyze_sentiment(test_data)
         assert isinstance(results, pd.DataFrame)
         assert 'sentiment_polarity' in results.columns
         assert 'sentiment_subjectivity' in results.columns
+
+        # "I love this, it is wonderful!" should have positive polarity
+        assert results.loc[0, 'sentiment_polarity'] == 'positive', \
+            "Positive message should have positive polarity"
+
+        # "This is terrible and awful" should have negative polarity
+        assert results.loc[1, 'sentiment_polarity'] == 'negative', \
+            "Negative message should have negative polarity"
     
     def test_behavioral_analyzer(self):
         """Test behavioral analysis."""

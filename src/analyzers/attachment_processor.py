@@ -7,8 +7,7 @@ import logging
 import hashlib
 from pathlib import Path
 from typing import List, Dict, Any
-from datetime import datetime
-import mimetypes
+from datetime import datetime, timezone
 from PIL import Image
 import magic  # python-magic library
 
@@ -72,9 +71,12 @@ class AttachmentProcessor:
         Returns:
             Dictionary of attachment metadata
         """
-        # Calculate file hash
+        # Calculate file hash (chunked to handle large files)
+        sha256 = hashlib.sha256()
         with open(file_path, 'rb') as f:
-            file_hash = hashlib.sha256(f.read()).hexdigest()
+            for chunk in iter(lambda: f.read(4096), b''):
+                sha256.update(chunk)
+        file_hash = sha256.hexdigest()
         
         # Get file metadata
         stat = file_path.stat()
@@ -89,8 +91,8 @@ class AttachmentProcessor:
             'file_hash': file_hash,
             'size_bytes': stat.st_size,
             'mime_type': mime_type,
-            'created': datetime.fromtimestamp(stat.st_ctime).isoformat(),
-            'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            'created': datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
+            'modified': datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
             'type': self.categorize_file_type(mime_type),
             'metadata': {}
         }
@@ -136,12 +138,11 @@ class AttachmentProcessor:
                     'mode': img.mode
                 }
                 
-                # Extract EXIF data if available
-                if hasattr(img, '_getexif'):
-                    exif = img._getexif()
-                    if exif:
-                        metadata['exif'] = {k: v for k, v in exif.items() 
-                                           if isinstance(v, (str, int, float))}
+                # Extract EXIF data if available (public API since Pillow 6.0)
+                exif = img.getexif()
+                if exif:
+                    metadata['exif'] = {k: v for k, v in exif.items()
+                                       if isinstance(v, (str, int, float))}
                 
                 return metadata
         except Exception as e:
