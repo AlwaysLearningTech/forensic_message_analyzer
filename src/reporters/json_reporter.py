@@ -11,19 +11,17 @@ import logging
 from ..config import Config
 from ..forensic_utils import ForensicRecorder
 
-# Initialize config
-config = Config()
-
 logger = logging.getLogger(__name__)
 
 
 class JSONReporter:
     """Generate JSON reports for forensic analysis results."""
-    
-    def __init__(self, forensic_recorder: ForensicRecorder):
+
+    def __init__(self, forensic_recorder: ForensicRecorder, config: Config = None):
         """Initialize JSON reporter."""
+        self.config = config if config is not None else Config()
         self.forensic = forensic_recorder
-        self.output_dir = Path(config.output_dir)
+        self.output_dir = Path(self.config.output_dir)
     
     def generate_report(self, extracted_data: Dict, analysis_results: Dict,
                        review_decisions: Dict, output_path: Path,

@@ -17,7 +17,6 @@ from ..forensic_utils import ForensicRecorder
 from ..utils.conversation_threading import ConversationThreader
 from ..utils.legal_compliance import LegalComplianceManager
 
-config = Config()
 logger = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.heic', '.webp', '.tiff', '.bmp'}
@@ -247,9 +246,10 @@ REPORT_TEMPLATE = """\
 class HtmlReporter:
     """Generate HTML reports with inline images, optionally converted to PDF."""
 
-    def __init__(self, forensic_recorder: ForensicRecorder):
+    def __init__(self, forensic_recorder: ForensicRecorder, config: Config = None):
+        self.config = config if config is not None else Config()
         self.forensic = forensic_recorder
-        self.output_dir = Path(config.output_dir)
+        self.output_dir = Path(self.config.output_dir)
         self.env = Environment(loader=BaseLoader(), autoescape=True)
         self.template = self.env.from_string(REPORT_TEMPLATE)
 
@@ -318,7 +318,7 @@ class HtmlReporter:
         review_decisions: Dict,
     ) -> Dict[str, Any]:
         messages = extracted_data.get('messages', extracted_data.get('combined', []))
-        mapped_persons = list(config.contact_mappings.keys())
+        mapped_persons = list(self.config.contact_mappings.keys())
 
         # --- overview stats ---
         sources = set()
@@ -350,7 +350,7 @@ class HtmlReporter:
         recommendations = ai.get('recommendations', [])
 
         # --- per-person messages with inline images ---
-        compliance = LegalComplianceManager(config=config, forensic_recorder=self.forensic)
+        compliance = LegalComplianceManager(config=self.config, forensic_recorder=self.forensic)
         persons = self._build_person_data(messages, mapped_persons, analysis_results, compliance)
 
         # --- conversation threads ---
@@ -377,9 +377,9 @@ class HtmlReporter:
             })
 
         return {
-            'case_name': config.case_name or 'Forensic Analysis',
-            'case_number': config.case_number,
-            'examiner': config.examiner_name,
+            'case_name': self.config.case_name or 'Forensic Analysis',
+            'case_number': self.config.case_number,
+            'examiner': self.config.examiner_name,
             'total_messages': len(messages),
             'threat_count': threat_count,
             'sources': ', '.join(sorted(sources)),
