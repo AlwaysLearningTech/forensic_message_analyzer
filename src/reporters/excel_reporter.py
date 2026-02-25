@@ -66,7 +66,14 @@ class ExcelReporter:
                     if 'recipient' in df_messages.columns and 'sender' in df_messages.columns:
                         participants = set(df_messages['recipient'].unique()) | set(df_messages['sender'].unique())
                         # Only include participants that are in the contact mappings
-                        participants = sorted(p for p in participants if p in mapped_persons)
+                        # Exclude person1 (device owner) — their tab would just be all
+                        # messages combined.  Each other person's tab already shows the
+                        # full conversation between person1 and that contact.
+                        person1 = getattr(self.config, 'person1_name', None)
+                        participants = sorted(
+                            p for p in participants
+                            if p in mapped_persons and p != person1
+                        )
 
                         # Create a tab for each mapped person
                         for person in participants:
