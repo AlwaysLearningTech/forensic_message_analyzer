@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Pre-run validation script — verifies fixes without spending $35.
+Pre-run validation script — verifies everything works before the full $20+ run.
 
-Runs the FULL pipeline except AI analysis, then sends only 5 messages
-to Claude to verify token counting works. Estimated cost: ~$0.01.
+Runs the FULL pipeline including a 5-message AI test (~$0.29) to verify
+token counting and API connectivity. Never skip this — it catches bugs
+that would otherwise waste real money on the full run.
 
 Usage:
-    python3 validate_before_run.py              # Full validation with 5-message AI test
-    python3 validate_before_run.py --no-ai      # Skip AI test entirely ($0 cost)
+    python3 validate_before_run.py              # Full validation with 5-message AI test (~$0.29)
     python3 validate_before_run.py --estimate    # Just show extraction stats + cost estimate
+    python3 validate_before_run.py --ai-sample 10  # Custom AI sample size
 """
 
 import sys
@@ -29,7 +30,6 @@ from src.third_party_registry import ThirdPartyRegistry
 
 def main():
     parser = argparse.ArgumentParser(description="Validate forensic analyzer before expensive AI run")
-    parser.add_argument("--no-ai", action="store_true", help="Skip AI test entirely ($0 cost)")
     parser.add_argument("--estimate", action="store_true", help="Just show extraction stats + cost estimate")
     parser.add_argument("--ai-sample", type=int, default=5, help="Number of messages to send to AI (default: 5)")
     args = parser.parse_args()
@@ -260,17 +260,17 @@ def main():
         failed += 1
 
     # ---------------------------------------------------------------
-    # Test 7: Tiny AI test (5 messages — ~$0.01)
+    # Test 7: AI test (5 messages — ~$0.29)
     # ---------------------------------------------------------------
     # Prepare sample for Test 7 (AI) and Test 8 (end-to-end)
     sample_size = args.ai_sample
     sample = mapped_messages[:sample_size]
     ai_test_results = None  # Populated by Test 7 if AI runs
 
-    if args.no_ai or args.estimate:
-        print(f"\n[7/8] AI test: SKIPPED (--no-ai or --estimate flag)")
+    if args.estimate:
+        print(f"\n[7/8] AI test: SKIPPED (--estimate flag)")
     else:
-        print(f"\n[7/8] AI test ({sample_size} messages — ~$0.01)...")
+        print(f"\n[7/8] AI test ({sample_size} messages — ~$0.29)...")
         try:
             from src.analyzers.ai_analyzer import AIAnalyzer
             ai_test = AIAnalyzer(forensic_recorder=forensic)
