@@ -9,18 +9,22 @@ import html as html_module
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
+import pytz
 
+from ..config import Config
 from .conversation_threading import ConversationThreader
 
 
 class TimelineGenerator:
     """Generate visual timelines from message data."""
 
-    def __init__(self, forensic):
+    def __init__(self, forensic, config: Config = None):
         """Initialize timeline generator."""
+        self.config = config if config is not None else Config()
         self.forensic = forensic
         self.logger = logging.getLogger(__name__)
         self.threader = ConversationThreader()
+        self._tz = pytz.timezone(self.config.timezone)
 
     def create_timeline(self, df: pd.DataFrame, output_path: Path,
                         raw_messages: list = None):
@@ -85,7 +89,7 @@ class TimelineGenerator:
                 context_html = self._render_context_html(context)
 
             event = {
-                'date': row['timestamp'],
+                'date': self._format_local_ts(row['timestamp']),
                 'content': row.get('content', '')[:100],
                 'type': self.determine_event_type(row),
                 'sender': row.get('sender', 'Unknown'),
@@ -206,7 +210,7 @@ class TimelineGenerator:
         def _msg_line(msg, is_target=False):
             sender = html_module.escape(str(msg.get("sender", "?")))
             content = html_module.escape(str(msg.get("content", ""))[:120])
-            ts = html_module.escape(str(msg.get("timestamp", "")))
+            ts = html_module.escape(self._format_local_ts(msg.get("timestamp", "")))
             cls = ' target' if is_target else ''
             return (
                 f'<div class="ctx-msg{cls}">'
@@ -224,6 +228,19 @@ class TimelineGenerator:
 
         lines.append('</div>')
         return "\n".join(lines)
+
+    def _format_local_ts(self, ts) -> str:
+        """Convert a UTC timestamp to local timezone string for display."""
+        if ts is None or (isinstance(ts, str) and not ts.strip()):
+            return ''
+        try:
+            parsed = pd.to_datetime(ts, utc=True)
+            if pd.isna(parsed):
+                return str(ts)
+            local_dt = parsed.to_pydatetime().astimezone(self._tz)
+            return local_dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+        except Exception:
+            return str(ts)
 
     def determine_event_type(self, row) -> str:
         """Determine CSS class for event type."""

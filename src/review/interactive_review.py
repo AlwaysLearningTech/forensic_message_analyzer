@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional
 import pandas as pd
+import pytz
 
 from ..config import Config
 from .manual_review_manager import ManualReviewManager
@@ -19,11 +20,27 @@ logger = logging.getLogger(__name__)
 
 class InteractiveReview:
     """Interactive review process for flagged items."""
-    
-    def __init__(self, review_manager: ManualReviewManager):
+
+    def __init__(self, review_manager: ManualReviewManager, config: Config = None):
         """Initialize interactive review."""
         self.review_manager = review_manager
-        self.config = Config()
+        self.config = config if config is not None else Config()
+        self._tz = pytz.timezone(self.config.timezone)
+
+    def _format_local_ts(self, ts) -> str:
+        """Convert a UTC timestamp to local timezone string for display."""
+        if ts is None or ts == 'N/A':
+            return 'N/A'
+        if isinstance(ts, str) and not ts.strip():
+            return 'N/A'
+        try:
+            parsed = pd.to_datetime(ts, utc=True)
+            if pd.isna(parsed):
+                return str(ts)
+            local_dt = parsed.to_pydatetime().astimezone(self._tz)
+            return local_dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+        except Exception:
+            return str(ts)
     
     def review_flagged_items(self, messages: List[Dict], flagged_items: List[Dict]) -> Dict:
         """
@@ -107,7 +124,7 @@ class InteractiveReview:
                     is_flagged = (i == msg_position)
 
                     # Format message
-                    timestamp = msg.get('timestamp', 'N/A')
+                    timestamp = self._format_local_ts(msg.get('timestamp'))
                     sender = msg.get('sender', 'Unknown')
                     content = msg.get('content', '')[:100]  # Truncate long messages
 
@@ -202,7 +219,7 @@ class InteractiveReview:
             msg = messages[i]
             is_flagged = (i == msg_position)
             
-            timestamp = msg.get('timestamp', 'N/A')
+            timestamp = self._format_local_ts(msg.get('timestamp'))
             sender = msg.get('sender', 'Unknown')
             content = msg.get('content', '')[:100]
             

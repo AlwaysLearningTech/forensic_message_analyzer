@@ -13,6 +13,8 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
+import pandas as pd
+import pytz
 
 from ..config import Config
 from .manual_review_manager import ManualReviewManager
@@ -54,6 +56,7 @@ class WebReview:
         self.review_manager = review_manager
         self.forensic = forensic_recorder
         self.threader = ConversationThreader()
+        self._tz = pytz.timezone(self.config.timezone)
         self.messages: List[Dict] = []
         self.flagged_items: List[Dict] = []
         self.screenshots: List[Dict] = []
@@ -361,13 +364,25 @@ class WebReview:
                 associated.append({
                     "filename": filename,
                     "url": f"/screenshots/{filename}",
-                    "timestamp": str(ss_ts),
+                    "timestamp": self._format_local_ts(ss_ts),
                 })
 
         return associated
 
-    @staticmethod
-    def _serialise_msg(msg: Optional[Dict]) -> Optional[Dict]:
+    def _format_local_ts(self, ts) -> str:
+        """Convert a UTC timestamp to local timezone string for display."""
+        if ts is None or (isinstance(ts, str) and not ts.strip()):
+            return ''
+        try:
+            parsed = pd.to_datetime(ts, utc=True)
+            if pd.isna(parsed):
+                return str(ts)
+            local_dt = parsed.to_pydatetime().astimezone(self._tz)
+            return local_dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+        except Exception:
+            return str(ts)
+
+    def _serialise_msg(self, msg: Optional[Dict]) -> Optional[Dict]:
         """Return a JSON-safe subset of a message dict."""
         if msg is None:
             return None
@@ -376,7 +391,7 @@ class WebReview:
             "sender": msg.get("sender", "Unknown"),
             "recipient": msg.get("recipient", "Unknown"),
             "content": msg.get("content", ""),
-            "timestamp": str(msg.get("timestamp", "")),
+            "timestamp": self._format_local_ts(msg.get("timestamp", "")),
             "source": msg.get("source", ""),
         }
         if msg.get("attachment_name"):
