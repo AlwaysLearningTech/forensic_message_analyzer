@@ -3,7 +3,7 @@
 
 from pathlib import Path
 from typing import List, Dict, Optional
-from datetime import datetime, timezone
+from datetime import datetime
 import hashlib
 import re
 from PIL import Image
@@ -116,8 +116,8 @@ class ScreenshotExtractor:
                 'path': str(file_path),
                 'hash': file_hash,
                 'size_bytes': stats.st_size,
-                'created_time': datetime.fromtimestamp(stats.st_ctime, tz=timezone.utc).isoformat(),
-                'modified_time': datetime.fromtimestamp(stats.st_mtime, tz=timezone.utc).isoformat(),
+                'created_time': datetime.fromtimestamp(stats.st_ctime).isoformat(),
+                'modified_time': datetime.fromtimestamp(stats.st_mtime).isoformat(),
                 'extracted_date': date_extracted,
                 'file_type': file_path.suffix.lower(),
                 'image_metadata': image_metadata,
