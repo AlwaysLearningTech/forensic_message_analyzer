@@ -20,29 +20,29 @@ class ThreatAnalyzer:
         # Define threat patterns
         self.threat_patterns = {
             'physical_threat': [
-                r'\b(kill|hurt|harm|attack|assault|hit|punch|slap)\b',
-                r'\b(destroy|damage|break|smash)\b.*\b(property|house|car|belongings)\b',
-                r'\b(threat|threaten|warning|consequences)\b'
+                r'\b(?:kill|hurt|harm|attack|assault|hit|punch|slap)\b',
+                r'\b(?:destroy|damage|break|smash)\b.*\b(?:property|house|car|belongings)\b',
+                r'\b(?:threat|threaten|warning|consequences)\b'
             ],
             'harassment': [
-                r'\b(stalk|follow|watch|monitor|track)\b',
-                r'\b(harass|bother|annoy|torment)\b',
-                r'(call|text|message|contact).*\b(repeatedly|constantly|non-stop)\b'
+                r'\b(?:stalk|follow|watch|monitor|track)\b',
+                r'\b(?:harass|bother|annoy|torment)\b',
+                r'(?:call|text|message|contact).*\b(?:repeatedly|constantly|non-stop)\b'
             ],
             'coercion': [
-                r'\b(force|make|coerce|pressure)\b.*\b(you|to)\b',
-                r'\bif you (don\'t|do not|won\'t)\b.*\b(will|going to)\b',
-                r'\b(blackmail|extort|ransom)\b'
+                r'\b(?:force|make|coerce|pressure)\b.*\b(?:you|to)\b',
+                r'\bif you (?:don\'t|do not|won\'t)\b.*\b(?:will|going to)\b',
+                r'\b(?:blackmail|extort|ransom)\b'
             ],
             'emotional_abuse': [
-                r'\b(worthless|useless|stupid|idiot|pathetic)\b',
-                r'\b(crazy|insane|mental|psycho)\b',
-                r'\b(nobody|no one).*\b(believe|help|care)\b'
+                r'\b(?:worthless|useless|stupid|idiot|pathetic)\b',
+                r'\b(?:crazy|insane|mental|psycho)\b',
+                r'\b(?:nobody|no one).*\b(?:believe|help|care)\b'
             ],
             'custody_interference': [
-                r'\b(take|keep|hide).*\b(kids?|children?|custody)\b',
-                r'\b(won\'t|will not|never).*\b(see|visit).*\b(kids?|children?)\b',
-                r'\b(court|judge|custody).*\b(violat|ignor|defy)\b'
+                r'\b(?:take|keep|hide).*\b(?:kids?|children?|custody)\b',
+                r'\b(?:won\'t|will not|never).*\b(?:see|visit).*\b(?:kids?|children?)\b',
+                r'\b(?:court|judge|custody).*\b(?:violat|ignor|defy)\b'
             ]
         }
 
