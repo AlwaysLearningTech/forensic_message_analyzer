@@ -177,7 +177,14 @@ class TestSystemIntegration:
         report contents correctly reflect special message types.
         """
         # ---------------------------------------------------------------
-        # 0. Create test image fixtures for attachment testing
+        # 0. Load production config — use the same env vars as a real run
+        # ---------------------------------------------------------------
+        config = Config()
+        p1 = config.person1_name  # e.g. "David Snyder"
+        p2 = config.person2_name  # e.g. "Marcia Snyder"
+
+        # ---------------------------------------------------------------
+        # 0b. Create test image fixtures for attachment testing
         # ---------------------------------------------------------------
         attachments_dir = tmp_path / "attachments"
         attachments_dir.mkdir()
@@ -187,8 +194,9 @@ class TestSystemIntegration:
         _create_test_image(test_jpeg_path, width=30, height=20, color=(0, 0, 255))
 
         # ---------------------------------------------------------------
-        # 1. Build synthetic iMessage-style messages with a mix of
-        #    threats, normal conversation, emotional content, images,
+        # 1. Build synthetic iMessage-style messages using the production
+        #    person names so reports render exactly as they will in the
+        #    real run. Covers: threats, normal conversation, images,
         #    tapbacks, emojis, and special message types.
         # ---------------------------------------------------------------
         messages = [
@@ -197,8 +205,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_001',
                 'guid': 'guid_001',
                 'content': 'Hey, can you pick up the kids from school today?',
-                'sender': 'Person A',
-                'recipient': 'Person B',
+                'sender': p1,
+                'recipient': p2,
                 'timestamp': '2024-06-15T08:30:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -207,8 +215,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_002',
                 'guid': 'guid_002',
                 'content': 'I told you I will hurt you if you keep ignoring my calls',
-                'sender': 'Person B',
-                'recipient': 'Person A',
+                'sender': p2,
+                'recipient': p1,
                 'timestamp': '2024-06-15T09:15:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -217,8 +225,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_003',
                 'guid': 'guid_003',
                 'content': 'Please stop threatening me. I am documenting everything.',
-                'sender': 'Person A',
-                'recipient': 'Person B',
+                'sender': p1,
+                'recipient': p2,
                 'timestamp': '2024-06-15T09:20:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -227,8 +235,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_004',
                 'guid': 'guid_004',
                 'content': 'You are worthless and nobody will believe you',
-                'sender': 'Person B',
-                'recipient': 'Person A',
+                'sender': p2,
+                'recipient': p1,
                 'timestamp': '2024-06-15T09:45:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -237,8 +245,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_005',
                 'guid': 'guid_005',
                 'content': 'I will take the kids and you will never see them again',
-                'sender': 'Person B',
-                'recipient': 'Person A',
+                'sender': p2,
+                'recipient': p1,
                 'timestamp': '2024-06-15T10:00:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -247,8 +255,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_006',
                 'guid': 'guid_006',
                 'content': 'Can we please talk about this calmly?',
-                'sender': 'Person A',
-                'recipient': 'Person B',
+                'sender': p1,
+                'recipient': p2,
                 'timestamp': '2024-06-15T10:30:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -257,8 +265,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_007',
                 'guid': 'guid_007',
                 'content': 'I am going to destroy your car if you leave',
-                'sender': 'Person B',
-                'recipient': 'Person A',
+                'sender': p2,
+                'recipient': p1,
                 'timestamp': '2024-06-15T11:00:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -267,8 +275,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_008',
                 'guid': 'guid_008',
                 'content': 'Sure, I will pick them up at 3pm',
-                'sender': 'Person A',
-                'recipient': 'Person B',
+                'sender': p1,
+                'recipient': p2,
                 'timestamp': '2024-06-15T14:00:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -277,8 +285,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_009',
                 'guid': 'guid_009',
                 'content': 'You are crazy and insane for thinking that',
-                'sender': 'Person B',
-                'recipient': 'Person A',
+                'sender': p2,
+                'recipient': p1,
                 'timestamp': '2024-06-15T15:30:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -287,8 +295,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_010',
                 'guid': 'guid_010',
                 'content': 'I hope we can work something out for the kids sake',
-                'sender': 'Person A',
-                'recipient': 'Person B',
+                'sender': p1,
+                'recipient': p2,
                 'timestamp': '2024-06-15T16:00:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -298,8 +306,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_011',
                 'guid': 'guid_011',
                 'content': 'Look at what he did to my car',
-                'sender': 'Person A',
-                'recipient': 'Person B',
+                'sender': p1,
+                'recipient': p2,
                 'timestamp': '2024-06-15T16:30:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -317,8 +325,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_012',
                 'guid': 'guid_012',
                 'content': 'Loved "I told you I will hurt you if you keep ignoring my calls"',
-                'sender': 'Person B',
-                'recipient': 'Person A',
+                'sender': p2,
+                'recipient': p1,
                 'timestamp': '2024-06-15T09:16:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -332,8 +340,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_013',
                 'guid': 'guid_013',
                 'content': 'Questioned "I will take the kids and you will never see them again"',
-                'sender': 'Person A',
-                'recipient': 'Person B',
+                'sender': p1,
+                'recipient': p2,
                 'timestamp': '2024-06-15T10:01:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -347,8 +355,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_014',
                 'guid': 'guid_014',
                 'content': '\U0001f621\U0001f92c\U0001f480',
-                'sender': 'Person B',
-                'recipient': 'Person A',
+                'sender': p2,
+                'recipient': p1,
                 'timestamp': '2024-06-15T11:30:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -358,8 +366,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_015',
                 'guid': 'guid_015',
                 'content': 'I will kill you \U0001f608\U0001f52a',
-                'sender': 'Person B',
-                'recipient': 'Person A',
+                'sender': p2,
+                'recipient': p1,
                 'timestamp': '2024-06-15T12:00:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -369,8 +377,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_016',
                 'guid': 'guid_016',
                 'content': 'Emergency SOS activated',
-                'sender': 'Person A',
-                'recipient': 'Person B',
+                'sender': p1,
+                'recipient': p2,
                 'timestamp': '2024-06-15T12:30:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -381,8 +389,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_017',
                 'guid': 'guid_017',
                 'content': 'I meant to say I am sorry',
-                'sender': 'Person B',
-                'recipient': 'Person A',
+                'sender': p2,
+                'recipient': p1,
                 'timestamp': '2024-06-15T13:00:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -393,8 +401,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_018',
                 'guid': 'guid_018',
                 'content': 'This message was unsent',
-                'sender': 'Person B',
-                'recipient': 'Person A',
+                'sender': p2,
+                'recipient': p1,
                 'timestamp': '2024-06-15T13:30:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -405,8 +413,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_019',
                 'guid': 'guid_019',
                 'content': 'Text fell back to SMS',
-                'sender': 'Person A',
-                'recipient': 'Person B',
+                'sender': p1,
+                'recipient': p2,
                 'timestamp': '2024-06-15T13:45:00+00:00',
                 'source': 'iMessage',
                 'service': 'SMS',
@@ -417,15 +425,15 @@ class TestSystemIntegration:
                 'message_id': 'imsg_020',
                 'guid': 'guid_020',
                 'content': 'I called the police',
-                'sender': 'Person A',
-                'recipient': 'Person B',
+                'sender': p1,
+                'recipient': p2,
                 'timestamp': '2024-06-15T14:30:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
                 'reactions': [
-                    {'type': '\U0001f44d', 'sender': 'Person B',
+                    {'type': '\U0001f44d', 'sender': p2,
                      'timestamp': '2024-06-15T14:31:00+00:00'},
-                    {'type': '\u2764\ufe0f', 'sender': 'Person B',
+                    {'type': '\u2764\ufe0f', 'sender': p2,
                      'timestamp': '2024-06-15T14:32:00+00:00'},
                 ],
             },
@@ -434,8 +442,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_021',
                 'guid': 'guid_021',
                 'content': '<script>alert("xss")</script> I will stalk you',
-                'sender': 'Person B',
-                'recipient': 'Person A',
+                'sender': p2,
+                'recipient': p1,
                 'timestamp': '2024-06-15T15:00:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -445,8 +453,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_022',
                 'guid': 'guid_022',
                 'content': 'Replying to your earlier message about the kids',
-                'sender': 'Person A',
-                'recipient': 'Person B',
+                'sender': p1,
+                'recipient': p2,
                 'timestamp': '2024-06-15T15:15:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -458,8 +466,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_023',
                 'guid': 'guid_023',
                 'content': 'Here is a photo',
-                'sender': 'Person B',
-                'recipient': 'Person A',
+                'sender': p2,
+                'recipient': p1,
                 'timestamp': '2024-06-15T15:45:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -470,8 +478,8 @@ class TestSystemIntegration:
                 'message_id': 'imsg_024',
                 'guid': 'guid_024',
                 'content': 'Screenshot of his texts to my sister',
-                'sender': 'Person A',
-                'recipient': 'Person B',
+                'sender': p1,
+                'recipient': p2,
                 'timestamp': '2024-06-15T16:45:00+00:00',
                 'source': 'iMessage',
                 'service': 'iMessage',
@@ -549,10 +557,10 @@ class TestSystemIntegration:
             'total_messages': len(messages),
             'ai_model': 'test-stub',
             'conversation_summary': (
-                'Conversation between Person A and Person B shows escalating '
-                'conflict with multiple threats of physical harm and custody '
-                'interference by Person B. Person A documents evidence including '
-                'photos of property damage. An emergency SOS was activated.'
+                f'Conversation between {p1} and {p2} shows escalating '
+                f'conflict with multiple threats of physical harm and custody '
+                f'interference by {p2}. {p1} documents evidence including '
+                f'photos of property damage. An emergency SOS was activated.'
             ),
             'sentiment_analysis': {
                 'scores': [{'batch': 1, 'avg_polarity': -0.35}],
@@ -707,15 +715,7 @@ class TestSystemIntegration:
         # ---------------------------------------------------------------
         # 4. Filter analysis by review decisions
         # ---------------------------------------------------------------
-        config = Config()
         config.output_dir = str(temp_dir)
-        # Override contact mappings so reporters can find our synthetic persons
-        config.contact_mappings = {
-            'Person A': ['Person A'],
-            'Person B': ['Person B'],
-        }
-        config.person1_name = 'Person A'
-        config.person2_name = 'Person B'
         analyzer = ForensicAnalyzer(config)
         filtered_analysis = analyzer._filter_analysis_by_review(
             analysis_results, review_results
@@ -834,8 +834,8 @@ class TestSystemIntegration:
         )
 
         # Reactions display
-        assert 'Person B' in html_content, (
-            "HTML report should show reaction sender"
+        assert p2 in html_content, (
+            f"HTML report should show reaction sender ({p2})"
         )
 
         # HTML escaping: raw <script> tag must NOT appear
