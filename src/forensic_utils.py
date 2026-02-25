@@ -8,7 +8,7 @@ import json
 import os
 import platform
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
@@ -77,7 +77,7 @@ class ForensicRecorder:
         log_file = self.output_dir / f"forensic_log_{self.session_id}.jsonl"
         try:
             with open(log_file, 'a') as f:
-                f.write(json.dumps(action_record) + '\n')
+                f.write(json.dumps(action_record, default=str) + '\n')
         except Exception as e:
             print(f"Warning: Could not write to forensic log: {e}")
     
@@ -220,7 +220,7 @@ class ForensicRecorder:
 
             # Write the final document
             with open(output_file, 'w') as f:
-                json.dump(custody_doc, f, indent=2)
+                json.dump(custody_doc, f, indent=2, default=str)
 
             # Compute hash of the final file for forensic logging.
             # The hash is recorded in the forensic log only — NOT written back
@@ -270,8 +270,8 @@ class ForensicRecorder:
                 "file": str(file_path),
                 "operation": operation,
                 "size_bytes": stats.st_size,
-                "created_time": datetime.fromtimestamp(stats.st_ctime).isoformat(),
-                "modified_time": datetime.fromtimestamp(stats.st_mtime).isoformat(),
+                "created_time": datetime.fromtimestamp(stats.st_ctime, tz=timezone.utc).isoformat(),
+                "modified_time": datetime.fromtimestamp(stats.st_mtime, tz=timezone.utc).isoformat(),
                 "hash": file_hash,
                 "read_only": not os.access(file_path, os.W_OK)
             }
@@ -415,7 +415,7 @@ class EvidenceValidator:
         # Save manifest
         manifest_path = self.forensic.output_dir / f"evidence_package_{package_id}.json"
         with open(manifest_path, 'w') as f:
-            json.dump(package_manifest, f, indent=2)
+            json.dump(package_manifest, f, indent=2, default=str)
 
         # Hash the final manifest for forensic logging only — NOT written
         # back into the file, which would invalidate the hash.
