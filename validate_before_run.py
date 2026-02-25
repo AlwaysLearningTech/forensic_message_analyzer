@@ -419,7 +419,7 @@ def main():
 
             # Auto-review with mixed decisions
             review_dir = Path(temp_dir) / "reviews"
-            manager = ManualReviewManager(review_dir=review_dir)
+            manager = ManualReviewManager(review_dir=review_dir, forensic_recorder=temp_forensic)
             decision_cycle = ['relevant', 'not_relevant', 'uncertain']
             for i, item in enumerate(items_for_review):
                 decision = decision_cycle[i % 3]
