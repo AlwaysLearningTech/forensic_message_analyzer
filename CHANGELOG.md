@@ -5,6 +5,33 @@ All notable changes to the Forensic Message Analyzer will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.1] - 2026-02-24
+
+### Added
+- **RunManifest pipeline integration**: `main.py` now calls `add_operation()` and `add_output_file()` for extraction, analysis, review, and reporting phases so the run manifest captures actual pipeline data
+- **AI notable_quotes deduplication**: Deduplicates notable quotes across batch boundaries in `ai_analyzer.py`, and merges them properly in `_merge_batch_results`
+- **Missing dependencies**: Added `jinja2` and `weasyprint` to `requirements.txt` (imported by `html_reporter.py` but previously unlisted)
+
+### Changed
+- **Config propagation**: All reporter, timeline, and review constructors now receive the pipeline's `Config` instance instead of creating their own via module-level singletons
+- **Shared forensic recorder**: `ManualReviewManager` accepts an optional `forensic_recorder` parameter so review actions appear in the same chain-of-custody log as the rest of the pipeline
+- **Timezone-aware timestamps**: All `datetime.fromtimestamp()` calls across `forensic_utils.py`, `run_manifest.py`, and `legal_compliance.py` now pass `tz=timezone.utc` to produce timezone-aware ISO strings
+- **Local timezone display**: All UTC timestamps in reports, Excel sheets, and HTML output are converted to the configured local timezone for human-readable display
+- **Excel report tabs**: Person 1 no longer gets a redundant tab since every other tab already shows their conversations with each mapped contact
+- **Conversation threading performance**: `get_threaded_export()` computes conversations once and passes precomputed data to `detect_threads()` and `generate_conversation_summaries()`, eliminating 3x redundant grouping and 2x redundant thread detection
+- **Legal compliance hashing**: `legal_compliance.py` now uses `self.forensic.compute_hash()` instead of a private `_compute_sha256()` method, so all hashes are logged in the chain of custody
+
+### Fixed
+- **JSON serialization failures**: Added `default=str` to `json.dumps()` in `ForensicRecorder.record_action()` and `json.dump()` in `generate_chain_of_custody()` and `create_evidence_package()` to handle non-serializable types (datetime, Path, etc.)
+- **Relative imports in manual_review_manager**: Changed `from src.forensic_utils` to `from ..forensic_utils` (and same for config) for proper package resolution
+- **Web review None serialization**: Moved `serialized.append(s)` inside the `if s:` block in both `_api_browse_page` and `_api_search_page` to prevent `None` entries in JSON responses
+- **message_id type mismatch**: Normalized `message_id` comparisons in `conversation_threading.py` to `str()` on both sides, fixing int (iMessage) vs str (timeline_generator) mismatch that caused context lookups to always fail
+- **Variable shadowing in forensic_reporter**: Renamed loop variable `sources` to `entry_sources` in both Word and PDF generation methods to avoid shadowing the outer `sources` set tracking message data sources
+- **Validation log contamination**: `validate_before_run.py` now uses a temp directory for its `ForensicRecorder` instead of the production output directory
+- **Module-level Config singletons**: Removed `Config()` instantiation at import time in `json_reporter.py` and `html_reporter.py` which caused crashes when `.env` was absent
+- **UTC timestamp display**: Fixed attachment_processor and forensic_reporter showing raw UTC timestamps instead of local timezone
+- **Screenshot timestamps**: Reverted screenshot timestamps to display in local time rather than UTC
+
 ## [4.1.0] - 2026-02-23
 
 ### Added
