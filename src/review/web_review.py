@@ -62,6 +62,7 @@ class WebReview:
         self.screenshots: List[Dict] = []
         self.reviewed_indices: set = set()
         self._shutdown_event = threading.Event()
+        self._conversation_cache = None
 
         # Build Flask app
         self.app = Flask(__name__)
@@ -129,6 +130,32 @@ class WebReview:
                     if candidate_resolved in allowed_paths and candidate.is_file():
                         return send_from_directory(str(candidate.parent), candidate.name)
             return ("Attachment not found", 404)
+
+        @self.app.route("/api/conversations")
+        def get_conversations():
+            return jsonify(self._get_conversations())
+
+        @self.app.route("/api/browse")
+        def browse_messages():
+            page = request.args.get('page', 0, type=int)
+            page_size = request.args.get('page_size', 50, type=int)
+            conversation = request.args.get('conversation', '')
+            return jsonify(self._get_browse_page(page, page_size, conversation))
+
+        @self.app.route("/api/browse/flag", methods=["POST"])
+        def flag_from_browse():
+            data = request.get_json(force=True)
+            return jsonify(self._submit_browse_flag(data))
+
+        @self.app.route("/api/search")
+        def search_messages():
+            q = request.args.get('q', '').strip()
+            sender = request.args.get('sender', '').strip()
+            date_from = request.args.get('date_from', '').strip()
+            date_to = request.args.get('date_to', '').strip()
+            page = request.args.get('page', 0, type=int)
+            page_size = request.args.get('page_size', 50, type=int)
+            return jsonify(self._search_messages(q, sender, date_from, date_to, page, page_size))
 
         @self.app.route("/api/complete", methods=["POST"])
         def complete_review():
@@ -342,6 +369,152 @@ class WebReview:
             "decisions": summary.get("decisions", {}),
         }
 
+    def _get_conversations(self) -> List[Dict]:
+        """Return conversation groups for browse mode."""
+        if self._conversation_cache is None:
+            self._conversation_cache = self.threader.group_into_conversations(self.messages)
+
+        result = []
+        for key, msgs in self._conversation_cache.items():
+            first_ts = msgs[0].get('timestamp', '') if msgs else ''
+            last_ts = msgs[-1].get('timestamp', '') if msgs else ''
+            result.append({
+                'key': key,
+                'message_count': len(msgs),
+                'first_timestamp': self._format_local_ts(first_ts),
+                'last_timestamp': self._format_local_ts(last_ts),
+                'participants': key,
+            })
+        result.sort(key=lambda c: c['message_count'], reverse=True)
+        return result
+
+    def _get_browse_page(self, page: int, page_size: int, conversation: str) -> Dict:
+        """Return a page of messages for browse mode."""
+        page_size = min(max(page_size, 1), 200)
+
+        if conversation:
+            if self._conversation_cache is None:
+                self._conversation_cache = self.threader.group_into_conversations(self.messages)
+            source_msgs = self._conversation_cache.get(conversation, [])
+        else:
+            source_msgs = self.messages
+
+        total = len(source_msgs)
+        start = page * page_size
+        end = min(start + page_size, total)
+        page_msgs = source_msgs[start:end]
+
+        serialized = []
+        for msg in page_msgs:
+            s = self._serialise_msg(msg)
+            if s:
+                s['message_id'] = msg.get('message_id', '')
+                serialized.append(s)
+
+        return {
+            'messages': serialized,
+            'page': page,
+            'page_size': page_size,
+            'total': total,
+            'total_pages': (total + page_size - 1) // page_size if total else 0,
+            'conversation': conversation,
+        }
+
+    def _submit_browse_flag(self, data: Dict) -> Dict:
+        """Flag a message found during browse mode."""
+        message_id = data.get('message_id', '')
+        decision = data.get('decision', 'relevant')
+        notes = data.get('notes', '')
+
+        if decision not in ('relevant', 'not_relevant', 'uncertain'):
+            return {"error": "Invalid decision value"}
+
+        target_msg = None
+        for msg in self.messages:
+            if msg.get('message_id') == message_id:
+                target_msg = msg
+                break
+
+        if target_msg is None:
+            return {"error": "Message not found"}
+
+        item_id = f"browse_{message_id}"
+
+        self.review_manager.add_review(
+            item_id=item_id,
+            item_type='user_flagged',
+            decision=decision,
+            notes=notes,
+        )
+
+        if self.forensic:
+            self.forensic.record_action(
+                "browse_flag_decision",
+                f"User flagged message {message_id} as '{decision}' from browse mode",
+                {
+                    "item_id": item_id,
+                    "message_id": message_id,
+                    "decision": decision,
+                    "has_notes": bool(notes),
+                    "reviewed_via": "web_browse",
+                }
+            )
+
+        return {"status": "saved", "item_id": item_id, "decision": decision}
+
+    def _search_messages(self, q: str, sender: str,
+                         date_from: str, date_to: str,
+                         page: int, page_size: int) -> Dict:
+        """Search messages by content, sender, and date range."""
+        page_size = min(max(page_size, 1), 200)
+
+        from_dt = self.threader._parse_timestamp(date_from) if date_from else None
+        to_dt = self.threader._parse_timestamp(date_to) if date_to else None
+
+        q_lower = q.lower() if q else ''
+        sender_lower = sender.lower() if sender else ''
+
+        matching = []
+        for msg in self.messages:
+            if q_lower and q_lower not in msg.get('content', '').lower():
+                continue
+            if sender_lower:
+                msg_sender = msg.get('sender', '').lower()
+                msg_recipient = msg.get('recipient', '').lower()
+                if sender_lower not in msg_sender and sender_lower not in msg_recipient:
+                    continue
+            if from_dt or to_dt:
+                msg_ts = self.threader._parse_timestamp(msg.get('timestamp'))
+                if msg_ts is None:
+                    continue
+                if from_dt and msg_ts < from_dt:
+                    continue
+                if to_dt and msg_ts > to_dt:
+                    continue
+            matching.append(msg)
+
+        total = len(matching)
+        start = page * page_size
+        end = min(start + page_size, total)
+        page_msgs = matching[start:end]
+
+        serialized = []
+        for msg in page_msgs:
+            s = self._serialise_msg(msg)
+            if s:
+                s['message_id'] = msg.get('message_id', '')
+            serialized.append(s)
+
+        return {
+            'messages': serialized,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': (total + page_size - 1) // page_size if total else 0,
+            'query': {'q': q, 'sender': sender,
+                      'date_from': date_from, 'date_to': date_to},
+        }
+
     def _find_associated_screenshots(
         self, item: Dict, target_msg: Optional[Dict]
     ) -> List[Dict]:
@@ -439,7 +612,7 @@ class WebReview:
   .progress-bar .fill {{ background: #43a047; height: 100%; transition: width 0.3s; }}
 
   /* Layout */
-  .container {{ display: flex; height: calc(100vh - 68px); }}
+  .container {{ display: flex; height: calc(100vh - 108px); }}
   .context-panel {{ flex: 0 0 65%; overflow-y: auto; padding: 20px 24px; }}
   .decision-panel {{ flex: 0 0 35%; background: #fff; border-left: 1px solid #ddd;
                      padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }}
@@ -508,6 +681,59 @@ class WebReview:
   /* Existing review badge */
   .existing-badge {{ background: #e8f5e9; border: 1px solid #a5d6a7; padding: 8px 12px;
                      border-radius: 6px; margin-bottom: 12px; font-size: 13px; }}
+
+  /* Tabs */
+  .tabs {{ display: flex; background: #263238; }}
+  .tab {{ padding: 10px 24px; border: none; background: transparent; color: #ccc;
+          font-size: 14px; cursor: pointer; border-bottom: 3px solid transparent; }}
+  .tab:hover {{ color: #fff; }}
+  .tab.active {{ color: #fff; border-bottom-color: #43a047; }}
+
+  /* Browse mode */
+  .browse-container {{ display: flex; height: calc(100vh - 108px); }}
+  .browse-sidebar {{ flex: 0 0 250px; overflow-y: auto; background: #fff;
+                     border-right: 1px solid #ddd; padding: 8px; }}
+  .conv-item {{ padding: 8px 12px; border-radius: 6px; cursor: pointer;
+                font-size: 13px; margin-bottom: 4px; }}
+  .conv-item:hover {{ background: #e3f2fd; }}
+  .conv-item.active {{ background: #1a237e; color: #fff; }}
+  .conv-item small {{ opacity: 0.7; }}
+  .browse-main {{ flex: 1; display: flex; flex-direction: column; overflow: hidden; }}
+
+  /* Search bar */
+  .search-bar {{ display: flex; gap: 8px; padding: 10px 16px; background: #fafafa;
+                 border-bottom: 1px solid #e0e0e0; align-items: center; flex-wrap: wrap; }}
+  .search-bar input {{ padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px;
+                       font-size: 13px; }}
+  .search-bar input[type="text"] {{ flex: 1; min-width: 120px; }}
+  .search-bar input[type="date"] {{ width: 140px; }}
+  .search-bar button {{ padding: 7px 14px; border: none; border-radius: 4px;
+                        font-size: 13px; cursor: pointer; font-weight: 600; }}
+  .search-bar .search-btn {{ background: #1a237e; color: #fff; }}
+  .search-bar .clear-btn {{ background: #9e9e9e; color: #fff; }}
+
+  /* Browse messages */
+  .browse-messages {{ flex: 1; overflow-y: auto; padding: 16px 24px; }}
+  .browse-msg {{ margin-bottom: 8px; padding: 10px 14px; border-radius: 6px;
+                 font-size: 14px; line-height: 1.5; background: #fff; border: 1px solid #eee;
+                 position: relative; }}
+  .browse-msg.sent {{ background: #d1e7dd; }}
+  .browse-msg .meta {{ font-size: 11px; color: #757575; margin-bottom: 4px; }}
+  .browse-msg .content {{ word-wrap: break-word; }}
+  .browse-msg .flag-btn {{ position: absolute; top: 8px; right: 8px; padding: 4px 10px;
+                           border: 1px solid #43a047; border-radius: 4px; background: #fff;
+                           color: #43a047; cursor: pointer; font-size: 12px; }}
+  .browse-msg .flag-btn:hover {{ background: #43a047; color: #fff; }}
+  .browse-msg .flag-btn.flagged {{ background: #43a047; color: #fff; border-color: #43a047; }}
+  .browse-msg .attachment img {{ max-width: 100%; max-height: 300px; border-radius: 4px;
+                                 border: 1px solid #ccc; margin-top: 6px; }}
+  .browse-pagination {{ display: flex; justify-content: center; align-items: center; gap: 12px;
+                        padding: 12px; border-top: 1px solid #eee; background: #fafafa; }}
+  .browse-pagination button {{ padding: 6px 14px; border: 1px solid #ccc; border-radius: 4px;
+                               background: #fff; cursor: pointer; font-size: 13px; }}
+  .browse-pagination button:disabled {{ opacity: 0.4; cursor: not-allowed; }}
+  .browse-pagination .page-info {{ font-size: 13px; font-weight: 600; }}
+  .browse-total {{ padding: 8px 16px; font-size: 13px; color: #666; border-bottom: 1px solid #eee; }}
 </style>
 </head>
 <body>
@@ -525,7 +751,16 @@ class WebReview:
 </div>
 <div class="progress-bar"><div class="fill" id="progressFill" style="width:0%"></div></div>
 
-<div class="container">
+<div class="tabs">
+  <button class="tab active" id="tabFlagged" onclick="switchTab('flagged')">
+    Flagged Items ({total_items})
+  </button>
+  <button class="tab" id="tabBrowse" onclick="switchTab('browse')">
+    Browse All Messages
+  </button>
+</div>
+
+<div class="container" id="flaggedContainer">
   <!-- Left: Message context -->
   <div class="context-panel" id="contextPanel">
     <p style="color:#999; padding-top:40px; text-align:center;">Loading...</p>
@@ -566,6 +801,28 @@ class WebReview:
     </div>
 
     <button class="complete-btn" onclick="completeReview()">Complete Review</button>
+  </div>
+</div>
+
+<!-- Browse mode container (hidden by default) -->
+<div class="browse-container" id="browseContainer" style="display:none;">
+  <div class="browse-sidebar" id="conversationList">
+    <p style="color:#999; padding:16px; text-align:center;">Loading conversations...</p>
+  </div>
+  <div class="browse-main">
+    <div class="search-bar">
+      <input type="text" id="searchQ" placeholder="Search message content...">
+      <input type="text" id="searchSender" placeholder="Person..." style="flex:0 0 120px;">
+      <input type="date" id="searchFrom" title="From date">
+      <input type="date" id="searchTo" title="To date">
+      <button class="search-btn" onclick="executeSearch()">Search</button>
+      <button class="clear-btn" onclick="clearSearch()">Clear</button>
+    </div>
+    <div class="browse-total" id="browseTotal"></div>
+    <div class="browse-messages" id="browseMessages">
+      <p style="color:#999; padding:40px; text-align:center;">Select a conversation or search</p>
+    </div>
+    <div class="browse-pagination" id="browsePagination"></div>
   </div>
 </div>
 
@@ -757,6 +1014,177 @@ document.addEventListener('keydown', e => {{
 // Initial load
 fetch('/api/progress').then(r => r.json()).then(updateProgress);
 loadItem(0);
+
+// =====================================================================
+// Browse mode + Search
+// =====================================================================
+let browseConversation = '';
+let browsePage = 0;
+let isSearchActive = false;
+let lastSearchParams = {{}};
+const BROWSE_PAGE_SIZE = 50;
+
+function switchTab(tab) {{
+  const isBrowse = (tab === 'browse');
+  document.getElementById('tabFlagged').classList.toggle('active', !isBrowse);
+  document.getElementById('tabBrowse').classList.toggle('active', isBrowse);
+  document.getElementById('flaggedContainer').style.display = isBrowse ? 'none' : 'flex';
+  document.getElementById('browseContainer').style.display = isBrowse ? 'flex' : 'none';
+  if (isBrowse) loadConversations();
+}}
+
+function loadConversations() {{
+  fetch('/api/conversations')
+    .then(r => r.json())
+    .then(convos => {{
+      const sidebar = document.getElementById('conversationList');
+      let html = '<div class="conv-item' + (!browseConversation ? ' active' : '')
+                + '" onclick="selectConversation(\\'\\')">All Messages</div>';
+      convos.forEach(c => {{
+        const active = (c.key === browseConversation) ? ' active' : '';
+        html += '<div class="conv-item' + active + '" onclick="selectConversation(\\''
+              + c.key.replace(/'/g, "\\\\'") + '\\')">'
+              + escapeHtml(c.participants)
+              + '<br><small>' + c.message_count + ' msgs</small></div>';
+      }});
+      sidebar.innerHTML = html;
+      if (!isSearchActive) loadBrowsePage(0);
+    }});
+}}
+
+function selectConversation(key) {{
+  browseConversation = key;
+  browsePage = 0;
+  isSearchActive = false;
+  // Re-render sidebar active state
+  document.querySelectorAll('.conv-item').forEach(el => {{
+    el.classList.toggle('active', el.textContent.includes(key) || (!key && el.textContent === 'All Messages'));
+  }});
+  loadConversations();
+}}
+
+function loadBrowsePage(page) {{
+  if (isSearchActive) {{
+    searchPage(page);
+    return;
+  }}
+  browsePage = page;
+  const params = new URLSearchParams({{
+    page: page, page_size: BROWSE_PAGE_SIZE, conversation: browseConversation
+  }});
+  fetch('/api/browse?' + params)
+    .then(r => r.json())
+    .then(data => renderBrowseResults(data));
+}}
+
+function renderBrowseResults(data) {{
+  const panel = document.getElementById('browseMessages');
+  const person1 = {json.dumps(self.config.person1_name if hasattr(self.config, 'person1_name') else 'Me')};
+  let html = '';
+
+  if (!data.messages || data.messages.length === 0) {{
+    html = '<p style="color:#999; padding:40px; text-align:center;">No messages found</p>';
+  }} else {{
+    data.messages.forEach(m => {{
+      if (!m) return;
+      const sentClass = (m.sender === person1) ? ' sent' : '';
+      html += '<div class="browse-msg' + sentClass + '">'
+            + '<button class="flag-btn" onclick="flagFromBrowse(this, \\'' + escapeHtml(m.message_id || '')
+            + '\\')">Flag</button>'
+            + '<div class="meta">' + escapeHtml(m.timestamp || '')
+            + ' &mdash; ' + escapeHtml(m.sender || '')
+            + ' &rarr; ' + escapeHtml(m.recipient || '')
+            + ' <em style="color:#aaa;">(' + escapeHtml(m.source || '') + ')</em></div>'
+            + '<div class="content">' + escapeHtml(m.content || '') + '</div>';
+      if (m.attachment_url) {{
+        html += '<div class="attachment"><img src="' + escapeHtml(m.attachment_url)
+              + '" alt="' + escapeHtml(m.attachment_name || 'photo') + '"></div>';
+      }}
+      html += '</div>';
+    }});
+  }}
+
+  panel.innerHTML = html;
+  panel.scrollTop = 0;
+
+  // Total
+  const totalEl = document.getElementById('browseTotal');
+  totalEl.textContent = data.total + ' messages' + (data.conversation ? ' in ' + data.conversation : '')
+                       + (data.query ? ' matching search' : '');
+
+  // Pagination
+  renderBrowsePagination(data);
+}}
+
+function renderBrowsePagination(data) {{
+  const pag = document.getElementById('browsePagination');
+  if (!data.total_pages || data.total_pages <= 1) {{
+    pag.innerHTML = '';
+    return;
+  }}
+  let html = '<button onclick="loadBrowsePage(' + (data.page - 1) + ')"'
+           + (data.page <= 0 ? ' disabled' : '') + '>&larr; Prev</button>';
+  html += '<span class="page-info">Page ' + (data.page + 1) + ' of ' + data.total_pages + '</span>';
+  html += '<button onclick="loadBrowsePage(' + (data.page + 1) + ')"'
+        + (data.page >= data.total_pages - 1 ? ' disabled' : '') + '>Next &rarr;</button>';
+  pag.innerHTML = html;
+}}
+
+function flagFromBrowse(btn, messageId) {{
+  if (!messageId) {{ showToast('No message ID'); return; }}
+  const notes = prompt('Notes (optional):') || '';
+  fetch('/api/browse/flag', {{
+    method: 'POST',
+    headers: {{ 'Content-Type': 'application/json' }},
+    body: JSON.stringify({{ message_id: messageId, decision: 'relevant', notes: notes }})
+  }})
+  .then(r => r.json())
+  .then(data => {{
+    if (data.error) {{ showToast('Error: ' + data.error); return; }}
+    showToast('Message flagged as relevant');
+    btn.textContent = 'Flagged';
+    btn.classList.add('flagged');
+    btn.disabled = true;
+  }});
+}}
+
+// --- Search ---
+function executeSearch() {{
+  const q = document.getElementById('searchQ').value.trim();
+  const sender = document.getElementById('searchSender').value.trim();
+  const dateFrom = document.getElementById('searchFrom').value;
+  const dateTo = document.getElementById('searchTo').value;
+
+  if (!q && !sender && !dateFrom && !dateTo) {{
+    showToast('Enter at least one search criterion');
+    return;
+  }}
+
+  isSearchActive = true;
+  lastSearchParams = {{ q: q, sender: sender, date_from: dateFrom, date_to: dateTo }};
+  searchPage(0);
+}}
+
+function searchPage(page) {{
+  const params = new URLSearchParams({{
+    ...lastSearchParams, page: page, page_size: BROWSE_PAGE_SIZE
+  }});
+  fetch('/api/search?' + params)
+    .then(r => r.json())
+    .then(data => {{
+      renderBrowseResults(data);
+    }});
+}}
+
+function clearSearch() {{
+  isSearchActive = false;
+  lastSearchParams = {{}};
+  document.getElementById('searchQ').value = '';
+  document.getElementById('searchSender').value = '';
+  document.getElementById('searchFrom').value = '';
+  document.getElementById('searchTo').value = '';
+  loadBrowsePage(0);
+}}
 </script>
 </body>
 </html>"""
