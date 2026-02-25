@@ -29,9 +29,9 @@ from src.main import ForensicAnalyzer
 class TestSystemIntegration:
     """Test system integration and workflow."""
     
-    def test_extraction_to_analysis_pipeline(self):
+    def test_extraction_to_analysis_pipeline(self, tmp_path):
         """Test data flow from extraction to analysis."""
-        recorder = ForensicRecorder()
+        recorder = ForensicRecorder(tmp_path)
 
         # Create test message data with clear threat and non-threat content
         test_messages = pd.DataFrame({
@@ -69,9 +69,9 @@ class TestSystemIntegration:
         assert isinstance(sentiment_results, pd.DataFrame)
         assert 'sentiment_polarity' in sentiment_results.columns
     
-    def test_analysis_to_review_pipeline(self):
+    def test_analysis_to_review_pipeline(self, tmp_path):
         """Test data flow from analysis to manual review."""
-        recorder = ForensicRecorder()
+        recorder = ForensicRecorder(tmp_path)
 
         # Create test data with clear threats
         test_messages = pd.DataFrame({
@@ -94,7 +94,8 @@ class TestSystemIntegration:
             "At least one threat should be detected for this test to be meaningful"
 
         # Create review manager
-        review_manager = ManualReviewManager()
+        review_dir = tmp_path / "reviews"
+        review_manager = ManualReviewManager(review_dir=review_dir, forensic_recorder=recorder)
 
         # Add reviews for threats
         for idx, row in threat_results.iterrows():
@@ -114,9 +115,11 @@ class TestSystemIntegration:
         assert 'msg_001' in reviewed_ids, "'I will hurt you' (msg_001) should be reviewed"
         assert 'msg_003' in reviewed_ids, "'I am going to kill you' (msg_003) should be reviewed"
         
-    def test_review_manager(self):
+    def test_review_manager(self, tmp_path):
         """Test manual review manager functionality."""
-        manager = ManualReviewManager()
+        recorder = ForensicRecorder(tmp_path)
+        review_dir = tmp_path / "reviews"
+        manager = ManualReviewManager(review_dir=review_dir, forensic_recorder=recorder)
         
         # Add multiple reviews
         manager.add_review('item1', 'threat', 'relevant', 'Contains threat')
@@ -274,7 +277,7 @@ class TestSystemIntegration:
         ba = BehavioralAnalyzer(forensic)
         behavioral = ba.analyze_patterns(df)
 
-        cm = CommunicationMetricsAnalyzer()
+        cm = CommunicationMetricsAnalyzer(forensic_recorder=forensic)
         metrics = cm.analyze_messages(messages)
 
         # Verify threat detection found the right messages
@@ -406,7 +409,7 @@ class TestSystemIntegration:
         # Cycle through relevant / not_relevant / uncertain to simulate
         # a realistic human review with mixed decisions
         review_dir = tmp_path / "reviews"
-        manager = ManualReviewManager(review_dir=review_dir)
+        manager = ManualReviewManager(review_dir=review_dir, forensic_recorder=forensic)
         decision_cycle = ['relevant', 'not_relevant', 'uncertain']
         for i, item in enumerate(items_for_review):
             decision = decision_cycle[i % 3]

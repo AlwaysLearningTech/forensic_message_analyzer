@@ -74,9 +74,9 @@ def test_config_loads():
     assert hasattr(config, 'output_dir')
 
 
-def test_forensic_utils_available():
+def test_forensic_utils_available(tmp_path):
     """Test forensic utilities are available."""
     from src.forensic_utils import ForensicRecorder, ForensicIntegrity
-    
-    recorder = ForensicRecorder()
+
+    recorder = ForensicRecorder(tmp_path)
     assert recorder is not None
