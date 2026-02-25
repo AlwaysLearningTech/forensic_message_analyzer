@@ -473,6 +473,16 @@ class AIAnalyzer:
                 unique_topics.append(topic)
         analysis_results["key_topics"] = unique_topics
 
+        # Deduplicate notable_quotes
+        seen_quotes = set()
+        unique_quotes = []
+        for nq in analysis_results.get("notable_quotes", []):
+            q = nq.get("quote", "").strip().lower() if isinstance(nq, dict) else str(nq).lower()
+            if q and q not in seen_quotes:
+                seen_quotes.add(q)
+                unique_quotes.append(nq)
+        analysis_results["notable_quotes"] = unique_quotes
+
         self.forensic.record_action(
             "batch_analysis_complete",
             f"Completed batch analysis of {len(messages)} messages",
@@ -569,6 +579,16 @@ class AIAnalyzer:
                     unique_topics.append(topic)
             analysis_results["key_topics"] = unique_topics
 
+            # Deduplicate notable_quotes
+            seen_quotes = set()
+            unique_quotes = []
+            for nq in analysis_results.get("notable_quotes", []):
+                q = nq.get("quote", "").strip().lower() if isinstance(nq, dict) else str(nq).lower()
+                if q and q not in seen_quotes:
+                    seen_quotes.add(q)
+                    unique_quotes.append(nq)
+            analysis_results["notable_quotes"] = unique_quotes
+
             self.forensic.record_action(
                 "ai_analysis_complete",
                 f"Completed AI analysis of {len(messages)} messages",
@@ -606,6 +626,7 @@ class AIAnalyzer:
             "conversation_summary": "",
             "key_topics": [],
             "risk_indicators": [],
+            "notable_quotes": [],
             "recommendations": [],
             "processing_stats": {
                 "batches_processed": 0,
@@ -738,6 +759,12 @@ class AIAnalyzer:
         # Merge risk indicators
         if "risk_indicators" in batch_analysis:
             results["risk_indicators"].extend(batch_analysis["risk_indicators"])
+
+        # Merge notable quotes
+        if "notable_quotes" in batch_analysis:
+            results.setdefault("notable_quotes", []).extend(
+                batch_analysis["notable_quotes"]
+            )
 
     def _generate_summary(self, analysis: Dict) -> str:
         """
@@ -939,6 +966,7 @@ class AIAnalyzer:
             "conversation_summary": "AI analysis not available - Anthropic Claude not configured.",
             "key_topics": [],
             "risk_indicators": [],
+            "notable_quotes": [],
             "recommendations": ["Configure Anthropic Claude for advanced AI-powered analysis."],
             "processing_stats": {
                 "batches_processed": 0,
