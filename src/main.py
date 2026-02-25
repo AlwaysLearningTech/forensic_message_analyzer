@@ -220,6 +220,9 @@ class ForensicAnalyzer:
             json.dump(extraction_results, f, indent=2, default=str)
 
         self._extracted_data_path = output_file
+        self.manifest.add_operation("extraction", "success",
+                                    {"message_count": len(all_messages),
+                                     "screenshot_count": len(screenshots)})
         print(f"\n[✓] Extraction complete. Data saved to {output_file}")
 
         return extraction_results
@@ -339,6 +342,9 @@ class ForensicAnalyzer:
             json.dump(results, f, indent=2, default=str)
 
         self._analysis_results_path = output_file
+        self.manifest.add_operation("analysis", "success",
+                                    {"message_count": len(messages),
+                                     "analyzers_run": list(results.keys())})
         print(f"\n[✓] Analysis complete. Results saved to {output_file}")
 
         return results
@@ -349,7 +355,8 @@ class ForensicAnalyzer:
         print("PHASE 3: INTERACTIVE MANUAL REVIEW")
         print("="*60)
 
-        manager = ManualReviewManager(session_id=resume_session_id)
+        manager = ManualReviewManager(session_id=resume_session_id, config=self.config,
+                                       forensic_recorder=self.forensic)
         already_reviewed = manager.reviewed_item_ids
 
         # Present items for review — only from mapped contacts
@@ -400,6 +407,35 @@ class ForensicAnalyzer:
                         'severity': detail.get('severity', ''),
                         'threat_type': detail.get('type', ''),
                     })
+
+        # Add AI-notable quotes to the review queue
+        notable_quotes = ai_analysis.get('notable_quotes', [])
+        if notable_quotes:
+            all_msgs = extracted_data.get('messages', [])
+            existing_contents = {item.get('content', '') for item in items_for_review}
+            for qi, nq in enumerate(notable_quotes):
+                if not isinstance(nq, dict):
+                    continue
+                quote_text = nq.get('quote', '')
+                if not quote_text or len(quote_text) < 10:
+                    continue
+                # Find matching message by substring match on content
+                for msg in all_msgs:
+                    content = msg.get('content', '')
+                    if quote_text.lower() in content.lower() and _is_mapped(msg):
+                        if content not in existing_contents:
+                            items_for_review.append({
+                                'id': f"ai_notable_{qi}",
+                                'type': 'ai_notable',
+                                'content': content,
+                                'categories': f"AI Notable: {nq.get('significance', '')}",
+                                'confidence': 0.0,
+                                'severity': 'medium',
+                                'threat_type': 'ai_notable_quote',
+                                'message_id': msg.get('message_id', ''),
+                            })
+                            existing_contents.add(content)
+                        break
 
         print(f"\n[*] {len(items_for_review)} items flagged for review (mapped contacts only)")
 
@@ -462,6 +498,12 @@ class ForensicAnalyzer:
         print(f"    Uncertain: {review_summary['uncertain']}")
 
         print("\n[✓] Review phase complete")
+
+        self.manifest.add_operation("manual_review", "success",
+                                    {"total_reviewed": review_summary['total_reviewed'],
+                                     "relevant": review_summary['relevant'],
+                                     "not_relevant": review_summary['not_relevant'],
+                                     "uncertain": review_summary['uncertain']})
 
         return review_summary
     
@@ -608,6 +650,18 @@ class ForensicAnalyzer:
                     if r.get('type') != 'threat'
                 ]
 
+            # Filter notable quotes: only keep those approved during review
+            if ai.get('notable_quotes'):
+                original_nq = ai['notable_quotes']
+                approved_nq = []
+                for i, nq in enumerate(original_nq):
+                    if f"ai_notable_{i}" in approved_ids:
+                        approved_nq.append(nq)
+                nq_cleared = len(original_nq) - len(approved_nq)
+                ai['notable_quotes'] = approved_nq
+                if nq_cleared:
+                    print(f"    Filtered {nq_cleared} unverified AI notable quotes from reports")
+
         self.forensic.record_action(
             "analysis_filtered_by_review",
             f"Filtered analysis for reports: {approved_count} approved of {reviewed_count} reviewed",
@@ -691,6 +745,11 @@ class ForensicAnalyzer:
                 print(f"    Error generating JSON report: {e}")
 
         print("\n[✓] Report generation complete")
+
+        self.manifest.add_operation("reporting", "success",
+                                    {"report_formats": list(reports.keys())})
+        for fmt, path in reports.items():
+            self.manifest.add_output_file(Path(path), f"{fmt}_report")
 
         return reports
     
