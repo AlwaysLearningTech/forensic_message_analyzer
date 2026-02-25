@@ -437,11 +437,11 @@ class ForensicAnalyzer:
             except ImportError:
                 print("    Flask not installed. Falling back to terminal review.")
                 from src.review.interactive_review import InteractiveReview
-                interactive = InteractiveReview(manager)
+                interactive = InteractiveReview(manager, config=self.config)
                 interactive.review_flagged_items(messages, items_for_review)
         else:
             from src.review.interactive_review import InteractiveReview
-            interactive = InteractiveReview(manager)
+            interactive = InteractiveReview(manager, config=self.config)
             interactive.review_flagged_items(messages, items_for_review)
 
         # Get review summary
@@ -636,7 +636,7 @@ class ForensicAnalyzer:
         filtered_analysis = self._filter_analysis_by_review(analysis, review)
 
         # Use ForensicReporter for comprehensive reports
-        forensic_reporter = ForensicReporter(self.forensic)
+        forensic_reporter = ForensicReporter(self.forensic, config=self.config)
 
         # Generate all report formats (with filtered analysis)
         print("\n[*] Generating comprehensive reports...")
@@ -667,7 +667,7 @@ class ForensicAnalyzer:
         # Generate HTML/PDF report with inline images
         print("\n[*] Generating HTML/PDF report (with inline images)...")
         try:
-            html_reporter = HtmlReporter(self.forensic)
+            html_reporter = HtmlReporter(self.forensic, config=self.config)
             html_base = Path(self.config.output_dir) / f"report_{timestamp}"
             html_paths = html_reporter.generate_report(data, filtered_analysis, review, html_base)
             for fmt, path in html_paths.items():
@@ -682,7 +682,7 @@ class ForensicAnalyzer:
         if 'json' not in reports:
             print("\n[*] Generating JSON report...")
             try:
-                json_reporter = JSONReporter(self.forensic)
+                json_reporter = JSONReporter(self.forensic, config=self.config)
                 json_path = Path(self.config.output_dir) / f"report_{timestamp}.json"
                 json_reporter.generate_report(data, filtered_analysis, review, json_path)
                 reports['json'] = str(json_path)
@@ -713,7 +713,7 @@ class ForensicAnalyzer:
         combined_data = data.get('messages', data.get('combined', []))
         if combined_data:
             print("\n[*] Generating timeline...")
-            timeline_gen = TimelineGenerator(self.forensic)
+            timeline_gen = TimelineGenerator(self.forensic, config=self.config)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             timeline_path = Path(self.config.output_dir) / f"timeline_{timestamp}.html"
 
