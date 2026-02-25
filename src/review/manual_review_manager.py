@@ -12,22 +12,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import hashlib
-from src.forensic_utils import ForensicRecorder
-from src.config import Config
-
-# Initialize config
-config = Config()
+from ..forensic_utils import ForensicRecorder
+from ..config import Config
 
 
 class ManualReviewManager:
     """
     Manages manual review decisions for flagged messages.
-    
+
     This class handles the persistence and retrieval of manual review decisions
     made by analysts on messages flagged by the automated analysis system.
     """
-    
-    def __init__(self, review_dir: Optional[Path] = None, session_id: Optional[str] = None):
+
+    def __init__(self, review_dir: Optional[Path] = None, session_id: Optional[str] = None,
+                 config: Config = None, forensic_recorder: ForensicRecorder = None):
         """
         Initialize the ManualReviewManager.
 
@@ -36,10 +34,14 @@ class ManualReviewManager:
                        Defaults to config.review_dir if not provided.
             session_id: Optional session ID to resume a previous session.
                        If provided, loads existing reviews from that session.
+            config: Configuration instance. If None, creates a new one.
+            forensic_recorder: Optional ForensicRecorder to share with the pipeline.
+                              If None, creates a new one.
         """
-        self.review_dir = review_dir or Path(config.review_dir)
+        self._config = config if config is not None else Config()
+        self.review_dir = review_dir or Path(self._config.review_dir)
         self.review_dir.mkdir(parents=True, exist_ok=True)
-        self.forensic = ForensicRecorder()
+        self.forensic = forensic_recorder if forensic_recorder is not None else ForensicRecorder()
 
         if session_id:
             self.session_id = session_id
