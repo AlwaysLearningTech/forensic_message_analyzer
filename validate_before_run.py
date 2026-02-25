@@ -329,7 +329,11 @@ def main():
             from src.reporters.html_reporter import HtmlReporter
             from src.reporters.json_reporter import JSONReporter
             from src.reporters.forensic_reporter import ForensicReporter
-            import src.reporters.forensic_reporter as fr_mod
+
+            # Create a config with output_dir pointing to temp dir for validation
+            val_config = Config()
+            original_output_dir = val_config.output_dir
+            val_config.output_dir = temp_dir
 
             # Build extracted_data from sample
             # JSON round-trip to match real pipeline (strips tz-aware datetimes to strings)
@@ -442,14 +446,14 @@ def main():
             report_files = []
 
             # Excel report
-            excel_reporter = ExcelReporter(analyzer.forensic)
+            excel_reporter = ExcelReporter(analyzer.forensic, config=val_config)
             excel_path = Path(temp_dir) / f"report_{timestamp}.xlsx"
             excel_reporter.generate_report(extracted_data, filtered_analysis, review_results, excel_path)
             report_files.append(('Excel', excel_path))
             print(f"  Excel report: PASS ({excel_path.name})")
 
             # HTML report (skip PDF to avoid WeasyPrint issues)
-            html_reporter = HtmlReporter(analyzer.forensic)
+            html_reporter = HtmlReporter(analyzer.forensic, config=val_config)
             html_base = Path(temp_dir) / f"report_{timestamp}"
             html_paths = html_reporter.generate_report(
                 extracted_data, filtered_analysis, review_results, html_base, pdf=False
@@ -459,17 +463,15 @@ def main():
             print(f"  HTML report: PASS")
 
             # JSON report
-            json_reporter = JSONReporter(analyzer.forensic)
+            json_reporter = JSONReporter(analyzer.forensic, config=val_config)
             json_path = Path(temp_dir) / f"report_{timestamp}.json"
             json_reporter.generate_report(extracted_data, filtered_analysis, review_results, json_path)
             report_files.append(('JSON', json_path))
             print(f"  JSON report: PASS")
 
-            # ForensicReporter (Word/PDF) — patch config to use temp dir
-            original_output_dir = fr_mod.config.output_dir
-            fr_mod.config.output_dir = temp_dir
+            # ForensicReporter (Word/PDF) — use val_config with temp output dir
             try:
-                forensic_reporter = ForensicReporter(analyzer.forensic)
+                forensic_reporter = ForensicReporter(analyzer.forensic, config=val_config)
                 fr_reports = forensic_reporter.generate_comprehensive_report(
                     extracted_data, filtered_analysis, review_results
                 )
@@ -479,8 +481,6 @@ def main():
             except Exception as e:
                 print(f"  Forensic reports (Word/PDF): WARN ({e})")
                 warnings += 1
-            finally:
-                fr_mod.config.output_dir = original_output_dir
 
             # Chain of custody
             chain_path = analyzer.forensic.generate_chain_of_custody()
