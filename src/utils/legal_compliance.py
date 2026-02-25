@@ -17,7 +17,7 @@ import json
 import logging
 import platform
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -356,13 +356,13 @@ class LegalComplianceManager:
 
         for fpath in files_to_hash:
             if fpath.exists():
-                file_hash = self._compute_sha256(fpath)
+                file_hash = self.forensic.compute_hash(fpath)
                 entry = {
                     "file": str(fpath),
                     "sha256": file_hash,
                     "size_bytes": fpath.stat().st_size,
                     "modified": datetime.fromtimestamp(
-                        fpath.stat().st_mtime
+                        fpath.stat().st_mtime, tz=timezone.utc
                     ).isoformat(),
                     "authenticated_at": timestamp,
                 }
@@ -381,7 +381,7 @@ class LegalComplianceManager:
         if db_path and db_path.exists():
             db_record = {
                 "database_path": str(db_path),
-                "sha256": self._compute_sha256(db_path),
+                "sha256": self.forensic.compute_hash(db_path),
                 "size_bytes": db_path.stat().st_size,
                 "verified_at": timestamp,
                 "verification_method": "SHA-256 hash of database file",
@@ -394,7 +394,7 @@ class LegalComplianceManager:
                     if companion_path.exists():
                         db_record[f"companion{suffix}"] = {
                             "path": str(companion_path),
-                            "sha256": self._compute_sha256(companion_path),
+                            "sha256": self.forensic.compute_hash(companion_path),
                         }
             records["database_verification"] = db_record
             self.forensic.record_action(
@@ -411,10 +411,10 @@ class LegalComplianceManager:
                 if img_path.suffix.lower() in image_extensions:
                     prov = {
                         "file": str(img_path),
-                        "sha256": self._compute_sha256(img_path),
+                        "sha256": self.forensic.compute_hash(img_path),
                         "size_bytes": img_path.stat().st_size,
                         "modified": datetime.fromtimestamp(
-                            img_path.stat().st_mtime
+                            img_path.stat().st_mtime, tz=timezone.utc
                         ).isoformat(),
                         "documented_at": timestamp,
                     }
