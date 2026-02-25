@@ -201,11 +201,11 @@ class WhatsAppExtractor:
                     if sender_name in person_handles:
                         sender_name = person_name
                         break
-                    # Check if sender is 'Me' or similar
+                else:
+                    # No contact mapping matched; check if sender is 'Me' or similar
                     if sender_name.lower() in ['you', 'me']:
                         sender_name = 'Me'
                         is_from_me = True
-                        break
 
                 # If sender resolved to PERSON1 (device owner), treat as "from me"
                 if person1 and sender_name == person1:

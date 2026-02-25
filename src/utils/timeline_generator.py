@@ -248,6 +248,7 @@ class TimelineGenerator:
             return 'threat'
         elif row.get('patterns_detected'):
             return 'pattern'
-        elif abs(row.get('sentiment_score', 0)) > 0.7:
+        score = row.get('sentiment_score')
+        if score is not None and abs(score) > 0.7:
             return 'sentiment'
         return ''

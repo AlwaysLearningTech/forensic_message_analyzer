@@ -503,7 +503,7 @@ class WebReview:
             s = self._serialise_msg(msg)
             if s:
                 s['message_id'] = msg.get('message_id', '')
-            serialized.append(s)
+                serialized.append(s)
 
         return {
             'messages': serialized,

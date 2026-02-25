@@ -274,13 +274,23 @@ class BehavioralAnalyzer:
         }
     
     def _analyze_response_patterns(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Analyze response times and patterns."""
+        """Analyze response times and patterns.
+
+        Response time = gap between a message and the previous message
+        from a *different* sender (i.e., actual conversational response).
+        """
         if 'sender' not in df.columns or 'timestamp' not in df.columns:
             return {}
-        
-        df_sorted = df.sort_values('timestamp')
-        df_sorted['time_diff'] = df_sorted['timestamp'].diff()
-        
+
+        df_sorted = df.sort_values('timestamp').copy()
+
+        # Compute per-message response time: time since the last message
+        # from a different sender (actual conversational turn response).
+        prev_sender = df_sorted['sender'].shift(1)
+        raw_diff = df_sorted['timestamp'].diff()
+        # Only count as a response when the sender changed
+        df_sorted['time_diff'] = raw_diff.where(df_sorted['sender'] != prev_sender)
+
         # Calculate average response times by sender
         response_times = {}
         for sender in df_sorted['sender'].unique():
@@ -290,11 +300,13 @@ class BehavioralAnalyzer:
             avg_response = sender_messages['time_diff'].mean()
             if pd.notna(avg_response):
                 response_times[str(sender)] = str(avg_response)
-        
+
+        # For immediate/delayed counts, use only actual responses (non-NaN time_diff)
+        valid_responses = df_sorted.dropna(subset=['time_diff'])
         return {
             'average_response_times': response_times,
-            'immediate_responses': len(df_sorted[df_sorted['time_diff'] < pd.Timedelta(minutes=1)]),
-            'delayed_responses': len(df_sorted[df_sorted['time_diff'] > pd.Timedelta(hours=24)])
+            'immediate_responses': len(valid_responses[valid_responses['time_diff'] < pd.Timedelta(minutes=1)]),
+            'delayed_responses': len(valid_responses[valid_responses['time_diff'] > pd.Timedelta(hours=24)])
         }
     
     def _analyze_time_patterns(self, df: pd.DataFrame) -> Dict[str, Any]:

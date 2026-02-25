@@ -92,7 +92,8 @@ class TeamsExtractor:
             all_messages.extend(messages)
 
         if all_messages:
-            all_messages.sort(key=lambda m: m['timestamp'])
+            _ts_min = pd.Timestamp.min.tz_localize('UTC')
+            all_messages.sort(key=lambda m: m['timestamp'] if pd.notna(m.get('timestamp')) else _ts_min)
             self.forensic.record_action(
                 "teams_extraction",
                 f"Extracted {len(all_messages)} Teams messages from {len(tar_files)} archive(s)",

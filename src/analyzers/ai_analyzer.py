@@ -59,7 +59,7 @@ class RateLimiter:
 
         # Check token limit
         current_tokens = sum(c for _, c in self.token_counts)
-        if current_tokens + estimated_tokens > self.max_tokens_per_minute:
+        if current_tokens + estimated_tokens > self.max_tokens_per_minute and self.token_counts:
             sleep_time = 60 - (current_time - self.token_counts[0][0]) + 0.1
             if sleep_time > 0:
                 time.sleep(sleep_time)
@@ -412,6 +412,11 @@ class AIAnalyzer:
                 analysis_results["processing_stats"]["errors"].append(
                     f"API error for {result.custom_id}: {error_msg}"
                 )
+            else:
+                # Handle expired, canceled, or other non-success results
+                analysis_results["processing_stats"]["errors"].append(
+                    f"Request {result.custom_id} {result.result.type} (not processed)"
+                )
 
         analysis_results["processing_stats"]["api_calls"] = total_requests
         analysis_results["processing_stats"]["tokens_used"] = total_input_tokens + total_output_tokens
@@ -427,7 +432,9 @@ class AIAnalyzer:
         # Batch API: $2.50/MTok input, $12.50/MTok output
         # Cache reads: 10% of base batch input = $0.25/MTok
         # Cache writes: 125% of base batch input = $3.125/MTok
-        uncached_input = total_input_tokens - cache_read_tokens
+        # Note: cache_creation_tokens are a subset of input_tokens,
+        # so subtract them from uncached to avoid double-counting.
+        uncached_input = total_input_tokens - cache_read_tokens - cache_creation_tokens
         estimated_cost = (
             (uncached_input / 1_000_000) * 2.50
             + (cache_read_tokens / 1_000_000) * 0.25
@@ -452,13 +459,15 @@ class AIAnalyzer:
         analysis_results["risk_indicators"] = self._identify_risks(analysis_results)
         analysis_results["recommendations"] = self._generate_recommendations(analysis_results)
 
-        # Compute overall sentiment from accumulated scores
+        # Compute overall sentiment from accumulated per-batch directions
         scores = analysis_results.get("sentiment_analysis", {}).get("scores", [])
         if scores:
-            avg = sum(scores) / len(scores)
-            if avg >= 6:
+            # scores contains direction strings: "positive", "neutral", "negative"
+            neg = sum(1 for s in scores if s == "negative")
+            pos = sum(1 for s in scores if s == "positive")
+            if neg > pos:
                 analysis_results["sentiment_analysis"]["overall"] = "negative"
-            elif avg <= 4:
+            elif pos > neg:
                 analysis_results["sentiment_analysis"]["overall"] = "positive"
             else:
                 analysis_results["sentiment_analysis"]["overall"] = "neutral"
@@ -558,13 +567,15 @@ class AIAnalyzer:
             analysis_results["risk_indicators"] = self._identify_risks(analysis_results)
             analysis_results["recommendations"] = self._generate_recommendations(analysis_results)
 
-            # Compute overall sentiment from accumulated scores
+            # Compute overall sentiment from accumulated per-batch directions
             scores = analysis_results.get("sentiment_analysis", {}).get("scores", [])
             if scores:
-                avg = sum(scores) / len(scores)
-                if avg >= 6:
+                # scores contains direction strings: "positive", "neutral", "negative"
+                neg = sum(1 for s in scores if s == "negative")
+                pos = sum(1 for s in scores if s == "positive")
+                if neg > pos:
                     analysis_results["sentiment_analysis"]["overall"] = "negative"
-                elif avg <= 4:
+                elif pos > neg:
                     analysis_results["sentiment_analysis"]["overall"] = "positive"
                 else:
                     analysis_results["sentiment_analysis"]["overall"] = "neutral"
@@ -721,7 +732,10 @@ class AIAnalyzer:
                 results["sentiment_analysis"] = {"scores": [], "overall": "neutral", "shifts": []}
 
             sentiment = batch_analysis["sentiment"]
-            results["sentiment_analysis"]["scores"].append(sentiment.get("intensity", 5))
+            # Store the AI's overall direction (positive/neutral/negative) per batch,
+            # not just the intensity scale. Intensity (0-10) measures strength, not direction.
+            batch_overall = sentiment.get("overall", "neutral")
+            results["sentiment_analysis"]["scores"].append(batch_overall)
 
             # Track sentiment shifts
             if "shifts" in sentiment and sentiment["shifts"]:
