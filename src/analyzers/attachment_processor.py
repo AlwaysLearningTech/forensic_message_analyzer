@@ -7,7 +7,7 @@ import logging
 import hashlib
 from pathlib import Path
 from typing import List, Dict, Any
-from datetime import datetime, timezone
+from datetime import datetime
 from PIL import Image
 import magic  # python-magic library
 
@@ -91,8 +91,8 @@ class AttachmentProcessor:
             'file_hash': file_hash,
             'size_bytes': stat.st_size,
             'mime_type': mime_type,
-            'created': datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
-            'modified': datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            'created': datetime.fromtimestamp(stat.st_ctime).isoformat(),
+            'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
             'type': self.categorize_file_type(mime_type),
             'metadata': {}
         }

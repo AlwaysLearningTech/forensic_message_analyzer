@@ -18,9 +18,6 @@ from ..config import Config
 from ..forensic_utils import ForensicRecorder
 from ..utils.legal_compliance import LegalComplianceManager
 
-# Initialize config
-config = Config()
-
 logger = logging.getLogger(__name__)
 
 
@@ -29,17 +26,19 @@ class ForensicReporter:
     Generate forensic reports in multiple formats.
     Ensures legal defensibility and chain of custody documentation.
     """
-    
-    def __init__(self, forensic_recorder: ForensicRecorder):
+
+    def __init__(self, forensic_recorder: ForensicRecorder, config: Config = None):
         """
         Initialize the forensic reporter.
 
         Args:
             forensic_recorder: ForensicRecorder instance for chain of custody
+            config: Config instance. If None, creates a new one.
         """
+        self.config = config if config is not None else Config()
         self.forensic = forensic_recorder
-        self.compliance = LegalComplianceManager(config=config, forensic_recorder=forensic_recorder)
-        self.output_dir = Path(config.output_dir)
+        self.compliance = LegalComplianceManager(config=self.config, forensic_recorder=forensic_recorder)
+        self.output_dir = Path(self.config.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
@@ -889,14 +888,17 @@ class ForensicReporter:
         available_columns = [col for col in export_columns if col in df.columns]
         df = df[available_columns]
 
-        # Sort chronologically
+        # Sort chronologically and convert to local timezone for display
         if 'timestamp' in df.columns:
+            import pytz
+            tz = pytz.timezone(self.config.timezone)
+            tz_abbr = datetime.now(tz).strftime('%Z')
             df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
             df = df.sort_values('timestamp', na_position='last')
-            # Strip timezone for Excel compatibility (values are already UTC)
-            df['timestamp'] = df['timestamp'].dt.tz_convert(None)
-            # Label column explicitly as UTC for forensic clarity
-            df = df.rename(columns={'timestamp': 'timestamp (UTC)'})
+            # Convert to local timezone for display
+            df['timestamp'] = df['timestamp'].dt.tz_convert(tz).dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+            # Label column with timezone abbreviation
+            df = df.rename(columns={'timestamp': f'Timestamp ({tz_abbr})'})
 
         paths = {}
 
@@ -958,7 +960,7 @@ class ForensicReporter:
             logger.info("Anthropic not available, skipping legal team summary")
             return None
 
-        if not config.ai_api_key:
+        if not self.config.ai_api_key:
             logger.info("AI API key not configured, skipping legal team summary")
             return None
 
@@ -1077,11 +1079,11 @@ class ForensicReporter:
 
         try:
             client = Anthropic(
-                api_key=config.ai_api_key,
+                api_key=self.config.ai_api_key,
                 base_url="https://api.anthropic.com",
             )
             response = client.messages.create(
-                model=config.ai_model or 'claude-opus-4-6',
+                model=self.config.ai_model or 'claude-opus-4-6',
                 system=[{
                     "type": "text",
                     "text": system_prompt,
@@ -1115,7 +1117,7 @@ class ForensicReporter:
             self.forensic.record_action(
                 "legal_team_summary_generated",
                 "Generated AI-powered legal team summary",
-                {"model": config.ai_model, "length": len(result),
+                {"model": self.config.ai_model, "length": len(result),
                  "input_tokens": legal_input, "output_tokens": legal_output,
                  "estimated_cost_usd": round(sync_cost, 4)}
             )
