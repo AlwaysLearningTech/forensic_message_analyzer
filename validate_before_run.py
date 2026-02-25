@@ -82,7 +82,9 @@ def main():
     # Test 3: Data extraction
     # ---------------------------------------------------------------
     print("\n[3/8] Data extraction (reads local files — free)...")
-    forensic = ForensicRecorder(Path(config.output_dir))
+    import tempfile as _tf
+    _validation_log_dir = _tf.mkdtemp(prefix="fma_validation_log_")
+    forensic = ForensicRecorder(Path(_validation_log_dir))
     integrity = ForensicIntegrity(forensic)
     third_party = ThirdPartyRegistry(forensic, config)
 
