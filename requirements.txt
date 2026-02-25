@@ -42,3 +42,7 @@ pytypedstream>=0.1.0
 
 # Additional forensic utilities
 python-dateutil>=2.8.2  # Date parsing
+
+# HTML report templating and PDF generation
+jinja2>=3.1.0  # HTML template rendering
+weasyprint>=60.0  # HTML-to-PDF conversion
