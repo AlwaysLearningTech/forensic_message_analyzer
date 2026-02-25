@@ -162,7 +162,7 @@ class ConversationThreader:
         # Find the target message
         target_msg = None
         for msg in messages:
-            if msg.get("message_id") == message_id:
+            if str(msg.get("message_id")) == str(message_id):
                 target_msg = msg
                 break
 
@@ -187,7 +187,7 @@ class ConversationThreader:
         # Locate the index of the target inside the sorted conversation
         target_index = None
         for idx, msg in enumerate(conv_messages):
-            if msg.get("message_id") == message_id:
+            if str(msg.get("message_id")) == str(message_id):
                 target_index = idx
                 break
 
@@ -220,6 +220,7 @@ class ConversationThreader:
         self,
         messages: List[Dict],
         gap_hours: Optional[float] = None,
+        _precomputed_conversations: Optional[Dict[str, List[Dict]]] = None,
     ) -> List[Dict]:
         """
         Split conversations into discrete *threads* based on a time-gap
@@ -232,6 +233,8 @@ class ConversationThreader:
             gap_hours:  Maximum gap (hours) between consecutive messages
                         before a new thread is started.  Falls back to
                         self.default_gap_hours when None.
+            _precomputed_conversations: Optional pre-grouped conversations
+                        to avoid redundant computation.
 
         Returns:
             List of thread dicts, each containing:
@@ -247,7 +250,7 @@ class ConversationThreader:
             gap_hours = self.default_gap_hours
 
         gap_delta = timedelta(hours=gap_hours)
-        conversations = self.group_into_conversations(messages)
+        conversations = _precomputed_conversations or self.group_into_conversations(messages)
         threads: List[Dict] = []
         thread_counter = 0
 
@@ -323,7 +326,8 @@ class ConversationThreader:
     # ------------------------------------------------------------------
 
     def generate_conversation_summaries(
-        self, messages: List[Dict]
+        self, messages: List[Dict],
+        _precomputed_threads: Optional[List[Dict]] = None,
     ) -> List[Dict]:
         """
         Generate a summary for every detected thread.
@@ -335,11 +339,13 @@ class ConversationThreader:
 
         Args:
             messages: Flat list of message dicts.
+            _precomputed_threads: Optional pre-detected threads to avoid
+                        redundant computation.
 
         Returns:
             List of summary dicts, one per thread.
         """
-        threads = self.detect_threads(messages)
+        threads = _precomputed_threads or self.detect_threads(messages)
         summaries: List[Dict] = []
 
         for thread in threads:
@@ -396,9 +402,9 @@ class ConversationThreader:
                 threads             -- list of thread dicts (with messages)
                 summaries           -- list of summary dicts
         """
-        threads = self.detect_threads(messages)
-        summaries = self.generate_conversation_summaries(messages)
         conversations = self.group_into_conversations(messages)
+        threads = self.detect_threads(messages, _precomputed_conversations=conversations)
+        summaries = self.generate_conversation_summaries(messages, _precomputed_threads=threads)
 
         return {
             "total_messages": len(messages),
