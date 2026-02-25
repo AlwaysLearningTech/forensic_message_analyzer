@@ -409,9 +409,9 @@ class ForensicReporter:
             for entry in third_party:
                 ident = entry.get('identifier', '')
                 name = entry.get('display_name', '')
-                sources = ', '.join(entry.get('sources', []))
+                entry_sources = ', '.join(entry.get('sources', []))
                 label = f'{name} ({ident})' if name else ident
-                doc.add_paragraph(f'  {label}  [source: {sources}]')
+                doc.add_paragraph(f'  {label}  [source: {entry_sources}]')
 
         # Chain of Custody
         doc.add_heading('Chain of Custody', 1)
@@ -750,8 +750,8 @@ class ForensicReporter:
             for entry in third_party:
                 ident = entry.get('identifier', '')
                 name = entry.get('display_name', '')
-                sources = ', '.join(entry.get('sources', []))
-                tp_rows.append([ident, name, sources])
+                entry_sources = ', '.join(entry.get('sources', []))
+                tp_rows.append([ident, name, entry_sources])
             tp_table = Table(tp_rows, colWidths=[2.5 * inch, 2 * inch, 1.5 * inch])
             tp_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
