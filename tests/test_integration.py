@@ -192,6 +192,12 @@ class TestSystemIntegration:
         _create_test_image(test_image_path, width=20, height=15, color=(255, 0, 0))
         test_jpeg_path = attachments_dir / "photo_evidence.jpg"
         _create_test_image(test_jpeg_path, width=30, height=20, color=(0, 0, 255))
+        bruise_photo_path = attachments_dir / "bruise_photo.png"
+        _create_test_image(bruise_photo_path, width=40, height=30, color=(128, 0, 128))
+        screenshot_path = attachments_dir / "text_screenshot.png"
+        _create_test_image(screenshot_path, width=60, height=100, color=(200, 200, 200))
+        door_damage_path = attachments_dir / "door_damage.jpg"
+        _create_test_image(door_damage_path, width=50, height=40, color=(139, 69, 19))
 
         # ---------------------------------------------------------------
         # 1. Build synthetic iMessage-style messages using the production
@@ -492,6 +498,289 @@ class TestSystemIntegration:
                     'size_bytes': test_jpeg_path.stat().st_size,
                 }],
             },
+
+            # ============================================================
+            # Day 2 — June 16 — escalation continues with more images
+            # ============================================================
+            {
+                'message_id': 'imsg_025',
+                'guid': 'guid_025',
+                'content': 'I barely slept last night. Are you going to apologize?',
+                'sender': p1,
+                'recipient': p2,
+                'timestamp': '2024-06-16T07:00:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            {
+                'message_id': 'imsg_026',
+                'guid': 'guid_026',
+                'content': 'You deserve everything that is coming to you',
+                'sender': p2,
+                'recipient': p1,
+                'timestamp': '2024-06-16T07:15:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            # --- Bruise photo with image attachment ---
+            {
+                'message_id': 'imsg_027',
+                'guid': 'guid_027',
+                'content': 'Look at this bruise from yesterday',
+                'sender': p1,
+                'recipient': p2,
+                'timestamp': '2024-06-16T07:30:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+                'attachment': str(bruise_photo_path),
+                'attachment_name': 'bruise_photo.png',
+                'attachments': [{
+                    'path': str(bruise_photo_path),
+                    'name': 'bruise_photo.png',
+                    'mime_type': 'image/png',
+                    'size_bytes': bruise_photo_path.stat().st_size,
+                }],
+            },
+            {
+                'message_id': 'imsg_028',
+                'guid': 'guid_028',
+                'content': 'That was your own fault and you know it',
+                'sender': p2,
+                'recipient': p1,
+                'timestamp': '2024-06-16T07:45:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            {
+                'message_id': 'imsg_029',
+                'guid': 'guid_029',
+                'content': 'I am taking the kids to my mothers house today',
+                'sender': p1,
+                'recipient': p2,
+                'timestamp': '2024-06-16T08:00:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            {
+                'message_id': 'imsg_030',
+                'guid': 'guid_030',
+                'content': 'If you take those kids I will burn the house down',
+                'sender': p2,
+                'recipient': p1,
+                'timestamp': '2024-06-16T08:05:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            # --- Tapback: Dislike on the arson threat (imsg_030) ---
+            {
+                'message_id': 'imsg_031',
+                'guid': 'guid_031',
+                'content': 'Disliked "If you take those kids I will burn the house down"',
+                'sender': p1,
+                'recipient': p2,
+                'timestamp': '2024-06-16T08:06:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+                'is_tapback': True,
+                'associated_message_guid': 'p:0/guid_030',
+                'associated_message_type': 3001,
+                'associated_message_emoji': '\U0001f44e',
+            },
+            {
+                'message_id': 'imsg_032',
+                'guid': 'guid_032',
+                'content': 'My attorney said you need to stop contacting me directly',
+                'sender': p1,
+                'recipient': p2,
+                'timestamp': '2024-06-16T09:00:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            {
+                'message_id': 'imsg_033',
+                'guid': 'guid_033',
+                'content': 'Your attorney can go to hell',
+                'sender': p2,
+                'recipient': p1,
+                'timestamp': '2024-06-16T09:10:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            # --- Screenshot of prior text conversation, with image ---
+            {
+                'message_id': 'imsg_034',
+                'guid': 'guid_034',
+                'content': 'Here is the screenshot of what you sent my mom',
+                'sender': p1,
+                'recipient': p2,
+                'timestamp': '2024-06-16T09:30:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+                'attachment': str(screenshot_path),
+                'attachment_name': 'text_screenshot.png',
+                'attachments': [{
+                    'path': str(screenshot_path),
+                    'name': 'text_screenshot.png',
+                    'mime_type': 'image/png',
+                    'size_bytes': screenshot_path.stat().st_size,
+                }],
+            },
+            {
+                'message_id': 'imsg_035',
+                'guid': 'guid_035',
+                'content': 'I never sent that, you are making things up again',
+                'sender': p2,
+                'recipient': p1,
+                'timestamp': '2024-06-16T09:45:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            {
+                'message_id': 'imsg_036',
+                'guid': 'guid_036',
+                'content': 'I have the receipts. Stop gaslighting me.',
+                'sender': p1,
+                'recipient': p2,
+                'timestamp': '2024-06-16T10:00:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            {
+                'message_id': 'imsg_037',
+                'guid': 'guid_037',
+                'content': 'I will make sure you regret this',
+                'sender': p2,
+                'recipient': p1,
+                'timestamp': '2024-06-16T10:30:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            # --- Door damage photo ---
+            {
+                'message_id': 'imsg_038',
+                'guid': 'guid_038',
+                'content': 'He kicked in the bedroom door this morning',
+                'sender': p1,
+                'recipient': p2,
+                'timestamp': '2024-06-16T11:00:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+                'attachment': str(door_damage_path),
+                'attachment_name': 'door_damage.jpg',
+                'attachments': [{
+                    'path': str(door_damage_path),
+                    'name': 'door_damage.jpg',
+                    'mime_type': 'image/jpeg',
+                    'size_bytes': door_damage_path.stat().st_size,
+                }],
+            },
+            {
+                'message_id': 'imsg_039',
+                'guid': 'guid_039',
+                'content': 'That door was already broken',
+                'sender': p2,
+                'recipient': p1,
+                'timestamp': '2024-06-16T11:15:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            {
+                'message_id': 'imsg_040',
+                'guid': 'guid_040',
+                'content': 'The kids are scared and asking why daddy is so angry',
+                'sender': p1,
+                'recipient': p2,
+                'timestamp': '2024-06-16T12:00:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            {
+                'message_id': 'imsg_041',
+                'guid': 'guid_041',
+                'content': 'Tell them to mind their own business',
+                'sender': p2,
+                'recipient': p1,
+                'timestamp': '2024-06-16T12:15:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            {
+                'message_id': 'imsg_042',
+                'guid': 'guid_042',
+                'content': 'They are children! They should not have to live like this',
+                'sender': p1,
+                'recipient': p2,
+                'timestamp': '2024-06-16T12:30:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            {
+                'message_id': 'imsg_043',
+                'guid': 'guid_043',
+                'content': 'I am going to find you wherever you go \U0001f440',
+                'sender': p2,
+                'recipient': p1,
+                'timestamp': '2024-06-16T13:00:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            # --- Another edited message (day 2) ---
+            {
+                'message_id': 'imsg_044',
+                'guid': 'guid_044',
+                'content': 'I did not mean that last message',
+                'sender': p2,
+                'recipient': p1,
+                'timestamp': '2024-06-16T13:05:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+                'date_edited': '2024-06-16T13:06:00+00:00',
+            },
+            {
+                'message_id': 'imsg_045',
+                'guid': 'guid_045',
+                'content': 'I filed the protective order today',
+                'sender': p1,
+                'recipient': p2,
+                'timestamp': '2024-06-16T15:00:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            {
+                'message_id': 'imsg_046',
+                'guid': 'guid_046',
+                'content': 'A piece of paper wont protect you',
+                'sender': p2,
+                'recipient': p1,
+                'timestamp': '2024-06-16T15:30:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
+            # --- Tapback: Emphasis on protective order message ---
+            {
+                'message_id': 'imsg_047',
+                'guid': 'guid_047',
+                'content': 'Emphasized "I filed the protective order today"',
+                'sender': p1,
+                'recipient': p2,
+                'timestamp': '2024-06-16T15:01:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+                'is_tapback': True,
+                'associated_message_guid': 'p:0/guid_045',
+                'associated_message_type': 2004,
+                'associated_message_emoji': '!!',
+            },
+            {
+                'message_id': 'imsg_048',
+                'guid': 'guid_048',
+                'content': 'Please just leave us alone. The kids need peace.',
+                'sender': p1,
+                'recipient': p2,
+                'timestamp': '2024-06-16T16:00:00+00:00',
+                'source': 'iMessage',
+                'service': 'iMessage',
+            },
         ]
 
         # JSON round-trip to match real pipeline behaviour
@@ -529,9 +818,9 @@ class TestSystemIntegration:
 
         # Verify threat detection found the right messages
         threat_count = int(threat_df['threat_detected'].sum())
-        assert threat_count >= 5, (
-            f"Expected at least 5 threats from synthetic data (including "
-            f"emoji-adjacent threat), got {threat_count}"
+        assert threat_count >= 8, (
+            f"Expected at least 8 threats from 48 synthetic messages, "
+            f"got {threat_count}"
         )
 
         # Verify emoji-adjacent threat is detected
@@ -594,6 +883,24 @@ class TestSystemIntegration:
                         'severity': 'high',
                         'quote': 'I will stalk you',
                         'context': 'Stalking threat embedded in hostile message',
+                    },
+                    {
+                        'type': 'arson_threat',
+                        'severity': 'critical',
+                        'quote': 'I will burn the house down',
+                        'context': 'Threat to commit arson if children are removed',
+                    },
+                    {
+                        'type': 'stalking',
+                        'severity': 'high',
+                        'quote': 'I am going to find you wherever you go',
+                        'context': 'Continued stalking threat on day 2',
+                    },
+                    {
+                        'type': 'intimidation',
+                        'severity': 'high',
+                        'quote': 'A piece of paper wont protect you',
+                        'context': 'Dismissing protective order as ineffective',
                     },
                 ],
             },
@@ -681,8 +988,8 @@ class TestSystemIntegration:
                 'content': nq.get('quote', ''),
             })
 
-        assert len(items_for_review) >= 6, (
-            f"Expected at least 6 review items, got {len(items_for_review)}"
+        assert len(items_for_review) >= 10, (
+            f"Expected at least 10 review items, got {len(items_for_review)}"
         )
 
         # Cycle through relevant / not_relevant / uncertain to simulate
@@ -889,7 +1196,7 @@ class TestSystemIntegration:
         )
 
         # ---------------------------------------------------------------
-        # 9. Verify Excel report has content
+        # 9. Verify Excel report has content and date fields
         # ---------------------------------------------------------------
         wb = openpyxl.load_workbook(excel_path, read_only=True)
         sheet_names = wb.sheetnames
@@ -898,7 +1205,56 @@ class TestSystemIntegration:
         assert 'Overview' in sheet_names, (
             f"Excel report missing 'Overview' sheet, has: {sheet_names}"
         )
+
+        # Read the Overview sheet and verify date fields are populated
+        overview_ws = wb['Overview']
+        overview_rows = list(overview_ws.iter_rows(min_row=2, values_only=True))
+        overview_dict = {row[0]: row[1] for row in overview_rows if row[0]}
+
+        # Date Range must show the actual message span, not "N/A"
+        date_range_val = str(overview_dict.get('Date Range', ''))
+        assert date_range_val != 'N/A', (
+            f"Excel Date Range should be computed from messages, got: {date_range_val}"
+        )
+        assert '2024-06-15' in date_range_val, (
+            f"Excel Date Range should include first day (2024-06-15), got: {date_range_val}"
+        )
+        assert '2024-06-16' in date_range_val, (
+            f"Excel Date Range should include second day (2024-06-16), got: {date_range_val}"
+        )
+
+        # Report Generated must have an actual timestamp
+        report_generated_val = str(overview_dict.get('Report Generated', ''))
+        assert report_generated_val and report_generated_val != 'N/A', (
+            f"Excel 'Report Generated' should have a timestamp, got: {report_generated_val}"
+        )
+        # Should contain a year (basic sanity check that it's a real date)
+        assert '20' in report_generated_val, (
+            f"Excel 'Report Generated' doesn't look like a date: {report_generated_val}"
+        )
+
+        # Total Messages should reflect the full 48-message dataset
+        total_msg_val = overview_dict.get('Total Messages', 0)
+        assert int(total_msg_val) >= 40, (
+            f"Excel Total Messages should be >= 40, got: {total_msg_val}"
+        )
         wb.close()
+
+        # ---------------------------------------------------------------
+        # 10. Verify HTML report date is populated
+        # ---------------------------------------------------------------
+        assert 'Report Date' in html_content, (
+            "HTML report should contain 'Report Date' label"
+        )
+        # The report_date template variable should have rendered a real timestamp
+        # (not an empty string). format_timestamp() produces "YYYY-MM-DD HH:MM:SS TZ".
+        import re
+        html_date_match = re.search(
+            r'Report Date.*?(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})', html_content, re.DOTALL
+        )
+        assert html_date_match, (
+            "HTML report 'Report Date' field should contain a rendered timestamp"
+        )
 
     # ------------------------------------------------------------------
     # Attachment processor test

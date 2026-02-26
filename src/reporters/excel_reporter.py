@@ -201,10 +201,34 @@ class ExcelReporter:
         
         logger.info(f"Created sheet '{sheet_name}' with {len(person_messages)} messages")
     
+    @staticmethod
+    def _compute_date_range(messages: list) -> str:
+        """Return a 'YYYY-MM-DD to YYYY-MM-DD' string from a list of message dicts."""
+        if not messages:
+            return 'N/A'
+        timestamps = []
+        for msg in messages:
+            ts = msg.get('timestamp')
+            if ts is None:
+                continue
+            try:
+                parsed = pd.to_datetime(ts, utc=True)
+                if not pd.isna(parsed):
+                    timestamps.append(parsed)
+            except Exception:
+                continue
+        if not timestamps:
+            return 'N/A'
+        earliest = min(timestamps)
+        latest = max(timestamps)
+        return f"{earliest.strftime('%Y-%m-%d')} to {latest.strftime('%Y-%m-%d')}"
+
     def _write_overview_sheet(self, writer, extracted_data: Dict,
                             analysis_results: Dict, review_decisions: Dict):
         """Write overview sheet with summary statistics."""
         compliance = LegalComplianceManager(config=self.config, forensic_recorder=self.forensic)
+        messages = extracted_data.get('messages', [])
+        date_range = self._compute_date_range(messages)
         overview = {
             'Metric': [
                 'Total Messages',
@@ -216,9 +240,9 @@ class ExcelReporter:
                 'Report Generated'
             ],
             'Value': [
-                extracted_data.get('total_messages', len(extracted_data.get('messages', []))),
-                'N/A',
-                ', '.join(set(m.get('source', '') for m in extracted_data.get('messages', []) if m.get('source'))),
+                extracted_data.get('total_messages', len(messages)),
+                date_range,
+                ', '.join(set(m.get('source', '') for m in messages if m.get('source'))),
                 analysis_results.get('threats', {}).get('summary', {}).get('messages_with_threats', 0),
                 review_decisions.get('total_reviewed', 0),
                 review_decisions.get('relevant', 0),
