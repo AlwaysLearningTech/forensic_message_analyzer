@@ -2,12 +2,13 @@
 """
 Pre-run validation script — verifies everything works before the full $20+ run.
 
-Runs the FULL pipeline including a 5-message AI test (~$0.29) to verify
-token counting and API connectivity. Never skip this — it catches bugs
-that would otherwise waste real money on the full run.
+Runs the FULL pipeline: extraction, all non-AI analysis phases, a small AI
+sample test (~$0.29), and end-to-end report generation using ALL extracted
+messages. Never skip this — it catches bugs that would otherwise waste real
+money on the full run.
 
 Usage:
-    python3 validate_before_run.py              # Full validation with 5-message AI test (~$0.29)
+    python3 validate_before_run.py              # Full validation with AI test (~$0.29)
     python3 validate_before_run.py --estimate    # Just show extraction stats + cost estimate
     python3 validate_before_run.py --ai-sample 10  # Custom AI sample size
 """
@@ -312,12 +313,15 @@ def main():
             failed += 1
 
     # ---------------------------------------------------------------
-    # Test 8: End-to-end pipeline (review → filtering → reports)
+    # Test 8: End-to-end pipeline (ALL messages → reports)
+    # Uses every extracted message for analysis and report generation
+    # so that reports reflect the same data as the production run.
+    # AI analysis uses Test 7's sample results (or a stub).
     # ---------------------------------------------------------------
     if args.estimate:
         print(f"\n[8/8] End-to-end pipeline: SKIPPED (--estimate flag)")
     else:
-        print(f"\n[8/8] End-to-end pipeline (auto-review → filtering → reports)...")
+        print(f"\n[8/8] End-to-end pipeline (ALL {len(messages):,} messages → analysis → review → reports)...")
         temp_dir = tempfile.mkdtemp(prefix="fma_validate_")
         try:
             import pandas as pd
@@ -337,32 +341,34 @@ def main():
             original_output_dir = val_config.output_dir
             val_config.output_dir = temp_dir
 
-            # Build extracted_data from sample
-            # JSON round-trip to match real pipeline (strips tz-aware datetimes to strings)
+            # Build extracted_data from the FULL message set (not the AI sample).
+            # The AI test (Test 7) used a small sample to validate the API, but
+            # report generation must use all extracted messages so that reports
+            # reflect the real data volume, date range, and cost estimates.
             extracted_data = json.loads(json.dumps({
-                'messages': sample,
+                'messages': messages,
                 'screenshots': [],
-                'combined': sample,
+                'combined': messages,
                 'third_party_contacts': [],
             }, default=str))
             sample_msgs = extracted_data['messages']
 
-            # Run analysis on sample
-            sample_df = pd.DataFrame(sample)
+            # Run analysis on full message set
+            full_df = pd.DataFrame(messages)
             temp_forensic = ForensicRecorder(Path(temp_dir))
 
             ta = ThreatAnalyzer(temp_forensic)
-            threat_results = ta.detect_threats(sample_df)
+            threat_results = ta.detect_threats(full_df)
             threat_summary = ta.generate_threat_summary(threat_results)
 
             sa = SentimentAnalyzer(temp_forensic)
-            sentiment_results = sa.analyze_sentiment(sample_df)
+            sentiment_results = sa.analyze_sentiment(full_df)
 
             pa = YamlPatternAnalyzer(temp_forensic)
-            pattern_results = pa.analyze_patterns(sample_df)
+            pattern_results = pa.analyze_patterns(full_df)
 
             cm = CommunicationMetricsAnalyzer()
-            metrics_results = cm.analyze_messages(sample)
+            metrics_results = cm.analyze_messages(messages)
 
             # Use AI results from Test 7 if available, otherwise empty
             if ai_test_results:
