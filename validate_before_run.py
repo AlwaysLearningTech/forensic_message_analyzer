@@ -155,15 +155,23 @@ def main():
 
     # ---------------------------------------------------------------
     # Test 5: Non-AI analysis phases (free)
+    # Results flow into Test 8 for report generation.
     # ---------------------------------------------------------------
     print("\n[5/8] Non-AI analysis phases (timezone handling test)...")
     import pandas as pd
+    combined_df = None
+    threat_results = None
+    threat_summary = None
+    sentiment_results = None
+    pattern_results = None
+    metrics = None
     try:
         combined_df = pd.DataFrame(messages)
 
         from src.analyzers.threat_analyzer import ThreatAnalyzer
         ta = ThreatAnalyzer(forensic)
         threat_results = ta.detect_threats(combined_df)
+        threat_summary = ta.generate_threat_summary(threat_results)
         print(f"  ThreatAnalyzer: PASS ({len(threat_results)} results)")
 
         from src.analyzers.sentiment_analyzer import SentimentAnalyzer
@@ -261,12 +269,58 @@ def main():
         failed += 1
 
     # ---------------------------------------------------------------
-    # Test 7: AI test (5 messages — ~$0.29)
+    # Test 7: AI test (representative sample — ~$0.29)
     # ---------------------------------------------------------------
-    # Prepare sample for Test 7 (AI) and Test 8 (end-to-end)
+    # Build a representative sample that includes different message
+    # types so the AI sees what the real data looks like: attachments,
+    # tapbacks, threats, and normal conversation.
     sample_size = args.ai_sample
-    sample = mapped_messages[:sample_size]
     ai_test_results = None  # Populated by Test 7 if AI runs
+
+    # Categorise messages so the sample reflects the real distribution
+    msgs_with_attachments = [m for m in mapped_messages if m.get('attachment') or m.get('attachments')]
+    msgs_with_tapbacks = [m for m in mapped_messages if m.get('is_tapback')]
+    msgs_with_threats = []
+    threat_keywords = ['kill', 'hurt', 'destroy', 'stalk', 'burn', 'regret', 'find you']
+    for m in mapped_messages:
+        content = str(m.get('content', '')).lower()
+        if any(kw in content for kw in threat_keywords):
+            msgs_with_threats.append(m)
+    msgs_normal = [m for m in mapped_messages
+                   if m not in msgs_with_attachments
+                   and m not in msgs_with_tapbacks
+                   and m not in msgs_with_threats]
+
+    # Assemble sample: prioritise variety, fill remainder with normal msgs
+    sample_set = []
+    seen_ids = set()
+
+    def _add(msg):
+        mid = msg.get('message_id') or msg.get('guid') or id(msg)
+        if mid not in seen_ids:
+            seen_ids.add(mid)
+            sample_set.append(msg)
+
+    for bucket in [msgs_with_attachments, msgs_with_tapbacks, msgs_with_threats]:
+        for m in bucket:
+            if len(sample_set) < sample_size:
+                _add(m)
+
+    for m in msgs_normal:
+        if len(sample_set) < sample_size:
+            _add(m)
+
+    # Fall back to head-of-list if categories were empty
+    if not sample_set:
+        sample_set = mapped_messages[:sample_size]
+
+    sample = sample_set[:sample_size]
+
+    attachment_count = sum(1 for m in sample if m.get('attachment') or m.get('attachments'))
+    print(f"\n  AI sample: {len(sample)} messages "
+          f"({attachment_count} with attachments, "
+          f"{sum(1 for m in sample if m.get('is_tapback'))} tapbacks, "
+          f"{sum(1 for m in sample if m in msgs_with_threats)} threats)")
 
     if args.estimate:
         print(f"\n[7/8] AI test: SKIPPED (--estimate flag)")
@@ -314,21 +368,18 @@ def main():
 
     # ---------------------------------------------------------------
     # Test 8: End-to-end pipeline (ALL messages → reports)
-    # Uses every extracted message for analysis and report generation
-    # so that reports reflect the same data as the production run.
-    # AI analysis uses Test 7's sample results (or a stub).
+    # Assembles results from Test 5 (analysis) + Test 7 (AI), then
+    # runs review → filtering → report generation.  No analysis is
+    # re-run — data flows from earlier phases exactly as production.
     # ---------------------------------------------------------------
     if args.estimate:
         print(f"\n[8/8] End-to-end pipeline: SKIPPED (--estimate flag)")
+    elif threat_results is None:
+        print(f"\n[8/8] End-to-end pipeline: SKIPPED (Test 5 failed — no analysis results)")
     else:
-        print(f"\n[8/8] End-to-end pipeline (ALL {len(messages):,} messages → analysis → review → reports)...")
+        print(f"\n[8/8] End-to-end pipeline (ALL {len(messages):,} messages → review → reports)...")
         temp_dir = tempfile.mkdtemp(prefix="fma_validate_")
         try:
-            import pandas as pd
-            from src.analyzers.threat_analyzer import ThreatAnalyzer
-            from src.analyzers.sentiment_analyzer import SentimentAnalyzer
-            from src.analyzers.yaml_pattern_analyzer import YamlPatternAnalyzer
-            from src.analyzers.communication_metrics import CommunicationMetricsAnalyzer
             from src.review.manual_review_manager import ManualReviewManager
             from src.main import ForensicAnalyzer
             from src.reporters.excel_reporter import ExcelReporter
@@ -338,39 +389,19 @@ def main():
 
             # Create a config with output_dir pointing to temp dir for validation
             val_config = Config()
-            original_output_dir = val_config.output_dir
             val_config.output_dir = temp_dir
 
-            # Build extracted_data from the FULL message set (not the AI sample).
-            # The AI test (Test 7) used a small sample to validate the API, but
-            # report generation must use all extracted messages so that reports
-            # reflect the real data volume, date range, and cost estimates.
+            # Build extracted_data from the FULL message set (Test 3 output).
+            # JSON round-trip to match real pipeline (strips tz-aware datetimes).
             extracted_data = json.loads(json.dumps({
                 'messages': messages,
                 'screenshots': [],
                 'combined': messages,
                 'third_party_contacts': [],
             }, default=str))
-            sample_msgs = extracted_data['messages']
 
-            # Run analysis on full message set
-            full_df = pd.DataFrame(messages)
-            temp_forensic = ForensicRecorder(Path(temp_dir))
-
-            ta = ThreatAnalyzer(temp_forensic)
-            threat_results = ta.detect_threats(full_df)
-            threat_summary = ta.generate_threat_summary(threat_results)
-
-            sa = SentimentAnalyzer(temp_forensic)
-            sentiment_results = sa.analyze_sentiment(full_df)
-
-            pa = YamlPatternAnalyzer(temp_forensic)
-            pattern_results = pa.analyze_patterns(full_df)
-
-            cm = CommunicationMetricsAnalyzer()
-            metrics_results = cm.analyze_messages(messages)
-
-            # Use AI results from Test 7 if available, otherwise empty
+            # Assemble analysis_results from Test 5 outputs + Test 7 AI output.
+            # No analysis is re-run here — this is purely assembly.
             if ai_test_results:
                 ai_analysis = ai_test_results
             else:
@@ -395,7 +426,7 @@ def main():
                 },
                 'sentiment': sentiment_results.to_dict('records') if hasattr(sentiment_results, 'to_dict') else sentiment_results,
                 'patterns': pattern_results.to_dict('records') if hasattr(pattern_results, 'to_dict') else pattern_results,
-                'metrics': metrics_results,
+                'metrics': metrics,
                 'ai_analysis': ai_analysis,
             }
 
@@ -423,9 +454,12 @@ def main():
 
             print(f"  {len(items_for_review)} items flagged for review")
 
+            # Filter analysis by review decisions
+            analyzer = ForensicAnalyzer(val_config)
+
             # Auto-review with mixed decisions
             review_dir = Path(temp_dir) / "reviews"
-            manager = ManualReviewManager(review_dir=review_dir, forensic_recorder=temp_forensic)
+            manager = ManualReviewManager(review_dir=review_dir, forensic_recorder=analyzer.forensic)
             decision_cycle = ['relevant', 'not_relevant', 'uncertain']
             for i, item in enumerate(items_for_review):
                 decision = decision_cycle[i % 3]
@@ -442,10 +476,6 @@ def main():
                   f"{review_results['not_relevant']} not_relevant, "
                   f"{review_results['uncertain']} uncertain")
 
-            # Filter analysis by review decisions
-            temp_config = Config()
-            temp_config.output_dir = temp_dir
-            analyzer = ForensicAnalyzer(temp_config)
             filtered_analysis = analyzer._filter_analysis_by_review(analysis_results, review_results)
             print("  Filtering: PASS")
 
