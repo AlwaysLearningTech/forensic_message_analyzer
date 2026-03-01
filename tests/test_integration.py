@@ -792,12 +792,54 @@ class TestSystemIntegration:
         }, default=str))
 
         # ---------------------------------------------------------------
-        # 2. Run all analysis phases
+        # 2. Preserve attachments (FRE 1002 — mirrors production pipeline)
         # ---------------------------------------------------------------
         temp_dir = tmp_path / "output"
         temp_dir.mkdir()
         forensic = ForensicRecorder(temp_dir)
 
+        integrity = ForensicIntegrity(forensic)
+        att_dest_dir = temp_dir / "attachments"
+        preserved = {}          # {original_path_str: preserved_path}
+        original_hashes = {}    # {original_path_str: sha256_hash}
+
+        for msg in extracted_data['messages']:
+            att_path_str = msg.get('attachment')
+            if att_path_str:
+                att_path = Path(att_path_str)
+                if att_path_str in preserved:
+                    msg['attachment'] = str(preserved[att_path_str])
+                elif att_path.is_file():
+                    original_hashes[att_path_str] = forensic.compute_hash(att_path)
+                    copy_path = integrity.create_working_copy(att_path, att_dest_dir)
+                    assert copy_path is not None, f"Failed to preserve {att_path.name}"
+                    preserved[att_path_str] = copy_path
+                    msg['attachment'] = str(copy_path)
+
+            for att in msg.get('attachments', []):
+                att_list_path_str = att.get('path')
+                if not att_list_path_str:
+                    continue
+                att_list_path = Path(att_list_path_str)
+                if att_list_path_str in preserved:
+                    att['path'] = str(preserved[att_list_path_str])
+                elif att_list_path.is_file():
+                    if att_list_path_str not in original_hashes:
+                        original_hashes[att_list_path_str] = forensic.compute_hash(att_list_path)
+                    copy_path = integrity.create_working_copy(att_list_path, att_dest_dir)
+                    assert copy_path is not None, f"Failed to preserve {att_list_path.name}"
+                    preserved[att_list_path_str] = copy_path
+                    att['path'] = str(copy_path)
+
+        assert len(preserved) == 5, (
+            f"Expected 5 unique attachment files preserved, got {len(preserved)}: "
+            f"{[Path(str(p)).name for p in preserved.values()]}"
+        )
+        assert att_dest_dir.exists(), "Attachments output directory should exist"
+
+        # ---------------------------------------------------------------
+        # 3. Run all analysis phases
+        # ---------------------------------------------------------------
         df = pd.DataFrame(messages)
 
         ta = ThreatAnalyzer(forensic)
@@ -961,7 +1003,7 @@ class TestSystemIntegration:
         }
 
         # ---------------------------------------------------------------
-        # 3. Build review items and apply mixed decisions
+        # 4. Build review items and apply mixed decisions
         # ---------------------------------------------------------------
         items_for_review = []
         threat_details = analysis_results['threats']['details']
@@ -1020,7 +1062,7 @@ class TestSystemIntegration:
         assert review_results['uncertain'] >= 1
 
         # ---------------------------------------------------------------
-        # 4. Filter analysis by review decisions
+        # 5. Filter analysis by review decisions
         # ---------------------------------------------------------------
         config.output_dir = str(temp_dir)
         analyzer = ForensicAnalyzer(config)
@@ -1040,7 +1082,7 @@ class TestSystemIntegration:
                 )
 
         # ---------------------------------------------------------------
-        # 5. Generate all report formats
+        # 6. Generate all report formats
         # ---------------------------------------------------------------
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -1089,7 +1131,7 @@ class TestSystemIntegration:
         assert Path(chain_path).exists(), "Chain of custody file not created"
 
         # ---------------------------------------------------------------
-        # 6. Verify output directory has the expected files
+        # 7. Verify output directory has the expected files
         # ---------------------------------------------------------------
         output_files = [f for f in temp_dir.rglob("*") if f.is_file()]
         assert len(output_files) >= 5, (
@@ -1099,7 +1141,7 @@ class TestSystemIntegration:
         )
 
         # ---------------------------------------------------------------
-        # 7. Verify HTML report content reflects special message types
+        # 8. Verify HTML report content reflects special message types
         # ---------------------------------------------------------------
         html_path = html_paths.get('html')
         assert html_path, "No HTML path returned"
@@ -1165,7 +1207,7 @@ class TestSystemIntegration:
         )
 
         # ---------------------------------------------------------------
-        # 8. Verify JSON report preserves special fields
+        # 9. Verify JSON report preserves special fields
         # ---------------------------------------------------------------
         json_messages = json_data.get('extraction', {}).get('messages', [])
         if not json_messages:
@@ -1196,7 +1238,7 @@ class TestSystemIntegration:
         )
 
         # ---------------------------------------------------------------
-        # 9. Verify Excel report has content and date fields
+        # 10. Verify Excel report has content and date fields
         # ---------------------------------------------------------------
         wb = openpyxl.load_workbook(excel_path, read_only=True)
         sheet_names = wb.sheetnames
@@ -1241,7 +1283,7 @@ class TestSystemIntegration:
         wb.close()
 
         # ---------------------------------------------------------------
-        # 10. Verify HTML report date is populated
+        # 11. Verify HTML report date is populated
         # ---------------------------------------------------------------
         assert 'Report Date' in html_content, (
             "HTML report should contain 'Report Date' label"
@@ -1254,6 +1296,44 @@ class TestSystemIntegration:
         )
         assert html_date_match, (
             "HTML report 'Report Date' field should contain a rendered timestamp"
+        )
+
+        # ---------------------------------------------------------------
+        # 12. Verify attachment preservation (FRE 1002)
+        # ---------------------------------------------------------------
+        # Preserved copies must exist with matching hashes
+        for original_path_str, preserved_path in preserved.items():
+            assert preserved_path.exists(), (
+                f"Preserved attachment missing: {preserved_path}"
+            )
+            preserved_hash = forensic.compute_hash(preserved_path)
+            assert preserved_hash == original_hashes[original_path_str], (
+                f"Hash mismatch for preserved copy of {Path(original_path_str).name}: "
+                f"original={original_hashes[original_path_str]}, "
+                f"copy={preserved_hash}"
+            )
+
+        # Message dicts must reference preserved copies, not originals
+        for msg in extracted_data['messages']:
+            att_path = msg.get('attachment')
+            if att_path:
+                assert str(att_dest_dir) in att_path, (
+                    f"Message attachment should reference preserved copy in "
+                    f"{att_dest_dir}, got: {att_path}"
+                )
+            for att in msg.get('attachments', []):
+                att_list_path = att.get('path')
+                if att_list_path:
+                    assert str(att_dest_dir) in att_list_path, (
+                        f"Message attachments list should reference preserved copy, "
+                        f"got: {att_list_path}"
+                    )
+
+        # Output directory should contain exactly 5 preserved files
+        preserved_files = list(att_dest_dir.iterdir())
+        assert len(preserved_files) == 5, (
+            f"Expected 5 preserved files in attachments dir, got "
+            f"{len(preserved_files)}: {[f.name for f in preserved_files]}"
         )
 
     # ------------------------------------------------------------------

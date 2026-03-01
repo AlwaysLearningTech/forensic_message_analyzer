@@ -162,14 +162,6 @@ class ForensicReporter:
             except Exception as e:
                 logger.error(f"Failed to save legal team summary: {e}")
 
-        # Generate unedited all-messages forensic export (CSV + Excel)
-        try:
-            export_paths = self._generate_all_messages_export(extracted_data, timestamp)
-            reports.update(export_paths)
-            logger.info(f"Generated all-messages export: {list(export_paths.keys())}")
-        except Exception as e:
-            logger.error(f"Failed to generate all-messages export: {e}")
-
         # Record report generation
         self.forensic.record_action(
             "reports_generated",
@@ -830,120 +822,6 @@ class ForensicReporter:
         )
         
         return output_path
-
-    def _generate_all_messages_export(self, extracted_data: Dict,
-                                      timestamp: str) -> Dict[str, Path]:
-        """
-        Generate unedited, unfiltered export of ALL messages for forensic preservation.
-
-        Produces both CSV and Excel files sorted chronologically with no filtering
-        or enrichment — raw forensic data suitable for court submission.
-
-        Args:
-            extracted_data: Data from extraction phase (contains 'messages' key)
-            timestamp: Timestamp string for file naming
-
-        Returns:
-            Dict mapping format name to output file path
-        """
-        messages = extracted_data.get('messages', extracted_data.get('combined', []))
-        if not messages:
-            logger.warning("No messages to export for all-messages forensic record")
-            return {}
-
-        # Core columns plus all forensic fields — no analysis enrichment
-        export_columns = [
-            'timestamp', 'sender', 'recipient', 'content', 'source', 'message_id',
-            'guid', 'service',
-            # Forensic timestamps
-            'date_read', 'date_delivered', 'is_read',
-            'date_edited', 'date_retracted',
-            # Threading
-            'reply_to_guid', 'thread_originator_guid',
-            # Classification
-            'subject', 'item_type', 'is_audio_message',
-            'expressive_send_style_id', 'was_detonated',
-            # Transport
-            'destination_caller_id', 'was_downgraded',
-            # Emergency / app
-            'is_sos', 'balloon_bundle_id',
-            # Group management
-            'group_title', 'group_action_type',
-            # Tapback
-            'is_tapback', 'associated_message_guid', 'associated_message_type',
-            # Reactions on parent message
-            'reactions',
-        ]
-
-        df = pd.DataFrame(messages)
-
-        # Serialize reactions list to JSON string for tabular export
-        if 'reactions' in df.columns:
-            import json
-            df['reactions'] = df['reactions'].apply(
-                lambda x: json.dumps(x, default=str) if isinstance(x, list) and x else ''
-            )
-
-        # Keep only columns that exist in the data
-        available_columns = [col for col in export_columns if col in df.columns]
-        df = df[available_columns]
-
-        # Sort chronologically and convert to local timezone for display
-        if 'timestamp' in df.columns:
-            import pytz
-            tz = pytz.timezone(self.config.timezone)
-            tz_abbr = datetime.now(tz).strftime('%Z')
-            df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
-            df = df.sort_values('timestamp', na_position='last')
-            # Convert to local timezone for display
-            df['timestamp'] = df['timestamp'].dt.tz_convert(tz).dt.strftime('%Y-%m-%d %H:%M:%S %Z')
-            # Label column with timezone abbreviation
-            df = df.rename(columns={'timestamp': f'Timestamp ({tz_abbr})'})
-
-        paths = {}
-
-        # CSV export
-        csv_path = self.output_dir / f"all_messages_{timestamp}.csv"
-        df.to_csv(csv_path, index=False, encoding='utf-8')
-        csv_hash = self.forensic.compute_hash(csv_path)
-        self.forensic.record_action(
-            "all_messages_csv_generated",
-            f"Generated all-messages CSV ({len(df)} messages) with hash {csv_hash}",
-            {"path": str(csv_path), "hash": csv_hash, "message_count": len(df)}
-        )
-        paths['all_messages_csv'] = csv_path
-
-        # Excel export
-        xlsx_path = self.output_dir / f"all_messages_{timestamp}.xlsx"
-        with pd.ExcelWriter(xlsx_path, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='All Messages', index=False)
-            # Auto-size columns
-            worksheet = writer.sheets['All Messages']
-            for i, col in enumerate(df.columns):
-                col_max = df[col].astype(str).str.len().max() if len(df) > 0 else 0
-                if pd.isna(col_max):
-                    col_max = 0
-                max_len = max(int(col_max), len(col))
-                # Convert column index to Excel letter(s) (A, B, ..., Z, AA, AB, ...)
-                col_letter = ''
-                idx = i
-                while True:
-                    col_letter = chr(65 + idx % 26) + col_letter
-                    idx = idx // 26 - 1
-                    if idx < 0:
-                        break
-                worksheet.column_dimensions[col_letter].width = min(max_len + 2, 80)
-
-        xlsx_hash = self.forensic.compute_hash(xlsx_path)
-        self.forensic.record_action(
-            "all_messages_xlsx_generated",
-            f"Generated all-messages Excel ({len(df)} messages) with hash {xlsx_hash}",
-            {"path": str(xlsx_path), "hash": xlsx_hash, "message_count": len(df)}
-        )
-        paths['all_messages_xlsx'] = xlsx_path
-
-        logger.info(f"Generated all-messages forensic export: {len(df)} messages in CSV + Excel")
-        return paths
 
     def _generate_legal_team_summary(self, extracted_data: Dict,
                                      analysis_results: Dict,

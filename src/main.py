@@ -133,6 +133,83 @@ class ForensicAnalyzer:
         print(f"    Hashed {hashed} source files")
 
     # ------------------------------------------------------------------
+    # Attachment preservation (FRE 1002 — Best Evidence Rule)
+    # ------------------------------------------------------------------
+
+    def _preserve_attachments(self, extracted_data: Dict):
+        """
+        Create hash-verified working copies of all attachment files.
+
+        Copies each original attachment to output_dir/attachments/ and
+        updates the message dicts to reference the preserved copy.
+        Deduplicates so the same source file is only copied once even
+        if referenced by multiple messages.
+        """
+        messages = extracted_data.get('messages', [])
+        dest_dir = Path(self.config.output_dir) / "attachments"
+
+        preserved = {}   # {original_path_str: preserved_path}
+        preserved_count = 0
+        image_count = 0
+        missing_count = 0
+
+        IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.heic', '.heif', '.tiff', '.bmp', '.webp'}
+
+        print("\n[*] Preserving attachment files (FRE 1002 — Best Evidence Rule)...")
+
+        for msg in messages:
+            # Handle primary attachment path
+            att_path_str = msg.get('attachment')
+            if att_path_str:
+                att_path = Path(att_path_str)
+                if att_path_str in preserved:
+                    # Already copied — just update the reference
+                    msg['attachment'] = str(preserved[att_path_str])
+                elif att_path.is_file():
+                    copy_path = self.integrity.create_working_copy(att_path, dest_dir)
+                    if copy_path:
+                        preserved[att_path_str] = copy_path
+                        msg['attachment'] = str(copy_path)
+                        preserved_count += 1
+                        if att_path.suffix.lower() in IMAGE_EXTS:
+                            image_count += 1
+                else:
+                    missing_count += 1
+                    self.forensic.record_action(
+                        "attachment_missing",
+                        f"Attachment file not found: {att_path_str}",
+                        {"path": att_path_str, "message_id": msg.get('message_id', '')}
+                    )
+
+            # Handle attachments list (multiple per message)
+            for att in msg.get('attachments', []):
+                att_list_path_str = att.get('path')
+                if not att_list_path_str:
+                    continue
+                att_list_path = Path(att_list_path_str)
+                if att_list_path_str in preserved:
+                    att['path'] = str(preserved[att_list_path_str])
+                elif att_list_path.is_file():
+                    copy_path = self.integrity.create_working_copy(att_list_path, dest_dir)
+                    if copy_path:
+                        preserved[att_list_path_str] = copy_path
+                        att['path'] = str(copy_path)
+                        if att_list_path_str not in preserved:
+                            preserved_count += 1
+                            if att_list_path.suffix.lower() in IMAGE_EXTS:
+                                image_count += 1
+                        preserved[att_list_path_str] = copy_path
+                else:
+                    if att_list_path_str not in preserved:
+                        missing_count += 1
+
+        other_count = preserved_count - image_count
+        print(f"    Preserved {preserved_count} attachment files "
+              f"({image_count} images, {other_count} other)")
+        if missing_count:
+            print(f"    WARNING: {missing_count} attachment files not found on disk")
+
+    # ------------------------------------------------------------------
     # Pipeline state (for resume after crash)
     # ------------------------------------------------------------------
 
@@ -215,7 +292,10 @@ class ForensicAnalyzer:
             'combined': all_messages,  # For backwards compatibility
             'third_party_contacts': self.third_party_registry.get_all(),
         }
-        
+
+        # Preserve original attachment files with hash verification (FRE 1002)
+        self._preserve_attachments(extraction_results)
+
         with open(output_file, 'w') as f:
             json.dump(extraction_results, f, indent=2, default=str)
 
