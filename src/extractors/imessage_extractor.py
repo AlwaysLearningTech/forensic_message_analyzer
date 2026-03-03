@@ -300,6 +300,39 @@ class IMessageExtractor:
 
         return edits
 
+    @staticmethod
+    def _compute_time_until_read(sent_ts, read_ts) -> str:
+        """Compute human-readable delay between send and read timestamps.
+
+        Both arguments are ISO datetime strings from the SQL query.
+        Returns a string like '2m 30s', '1h 15m', '2d 3h', or '' if
+        either timestamp is missing.
+        """
+        if not sent_ts or not read_ts:
+            return ''
+        try:
+            sent = pd.to_datetime(sent_ts, utc=True)
+            read = pd.to_datetime(read_ts, utc=True)
+            delta = read - sent
+            total_seconds = int(delta.total_seconds())
+            if total_seconds < 0:
+                return ''
+            if total_seconds < 60:
+                return f'{total_seconds}s'
+            minutes = total_seconds // 60
+            seconds = total_seconds % 60
+            if minutes < 60:
+                return f'{minutes}m {seconds}s' if seconds else f'{minutes}m'
+            hours = minutes // 60
+            mins = minutes % 60
+            if hours < 24:
+                return f'{hours}h {mins}m' if mins else f'{hours}h'
+            days = hours // 24
+            hrs = hours % 24
+            return f'{days}d {hrs}h' if hrs else f'{days}d'
+        except Exception:
+            return ''
+
     # ------------------------------------------------------------------
     # Attachment extraction
     # ------------------------------------------------------------------
@@ -521,6 +554,11 @@ class IMessageExtractor:
                         'date_edited': pd.to_datetime(r['date_edited'], utc=True) if r.get('date_edited') else None,
                         'edit_history': self._parse_edit_history(r.get('message_summary_info')) if r.get('date_edited') else [],
                         'date_retracted': pd.to_datetime(r['date_retracted'], utc=True) if r.get('date_retracted') else None,
+
+                        # Computed forensic fields
+                        'time_until_read': self._compute_time_until_read(
+                            r.get('timestamp'), r.get('date_read')
+                        ),
 
                         # Threading
                         'reply_to_guid': r.get('reply_to_guid'),
