@@ -25,10 +25,10 @@
   - Phone numbers automatically expand to match common formats (e.g., +12345678901 → also matches 234-567-8901, (234) 567-8901, 2345678901)
   - Only need to list each phone number ONCE in any format - variations generated automatically
   - Config creates `contact_mappings` dict mapping display names to expanded identifier lists
-  - `AI_CONTACTS`: JSON array of person names whose conversations to send to AI (e.g., `'["Marcia Snyder"]'`)
+  - `AI_CONTACTS`: JSON array of person names whose conversations to send to AI (e.g., `'["Jane Doe"]'`)
     - Two-tier filter: at least one party must be in `ai_contacts_specified` (the raw AI_CONTACTS names),
       AND both parties must be in `ai_contacts` (expanded set including PERSON1_NAME)
-    - `ai_contacts_specified` = set from AI_CONTACTS (e.g. {"Marcia Snyder"}), or None if unset (all mapped)
+    - `ai_contacts_specified` = set from AI_CONTACTS (e.g. {"Jane Doe"}), or None if unset (all mapped)
     - `ai_contacts` = ai_contacts_specified + PERSON1_NAME. If AI_CONTACTS unset, defaults to ALL mapped persons
     - Note: 'Me' is normalized to PERSON1_NAME during extraction (in DataExtractor.extract_all()),
       so downstream code never sees 'Me' as a sender/recipient

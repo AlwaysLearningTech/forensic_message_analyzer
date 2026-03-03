@@ -73,7 +73,7 @@ def _owner_message(msg_id="1001", content="Hello from owner", msg_type="Text"):
     }
 
 
-def _other_message(msg_id="1002", content="Hi from other", display_name="Kiara Snyder", msg_type="Text"):
+def _other_message(msg_id="1002", content="Hi from other", display_name="Alice Johnson", msg_type="Text"):
     """Message sent by another identified person."""
     return {
         "id": msg_id,
@@ -141,10 +141,10 @@ class TestTeamsExtractor:
     def test_basic_extraction(self, recorder, tmp_path):
         """Extract owner + other person messages from a 1:1 conversation."""
         conv = _make_conversation(
-            display_name="Kiara Snyder",
+            display_name="Alice Johnson",
             messages=[
-                _owner_message(content="Hello Kiara"),
-                _other_message(content="Hi Dad!", display_name="Kiara Snyder"),
+                _owner_message(content="Hello Alice"),
+                _other_message(content="Hi Dad!", display_name="Alice Johnson"),
             ],
         )
         payload = _build_messages_json([conv])
@@ -155,13 +155,13 @@ class TestTeamsExtractor:
 
         assert len(messages) == 2
         assert messages[0]['source'] == 'teams'
-        assert messages[0]['content'] == 'Hello Kiara'
+        assert messages[0]['content'] == 'Hello Alice'
         assert messages[1]['content'] == 'Hi Dad!'
 
     def test_sender_identification_owner(self, recorder, tmp_path):
         """Owner messages have from=userId, should map to PERSON1."""
         conv = _make_conversation(
-            display_name="Kiara Snyder",
+            display_name="Alice Johnson",
             messages=[_owner_message(content="test")],
         )
         payload = _build_messages_json([conv])
@@ -179,8 +179,8 @@ class TestTeamsExtractor:
     def test_sender_identification_display_name(self, recorder, tmp_path):
         """Messages with displayName should resolve to that person."""
         conv = _make_conversation(
-            display_name="Kiara Snyder",
-            messages=[_other_message(display_name="Kiara Snyder", content="test")],
+            display_name="Alice Johnson",
+            messages=[_other_message(display_name="Alice Johnson", content="test")],
         )
         payload = _build_messages_json([conv])
         _make_tar(payload, tmp_path)
@@ -189,12 +189,12 @@ class TestTeamsExtractor:
         messages = extractor.extract_all()
 
         assert len(messages) == 1
-        assert messages[0]['sender'] == 'Kiara Snyder'
+        assert messages[0]['sender'] == 'Alice Johnson'
 
     def test_system_messages_skipped(self, recorder, tmp_path):
         """System messages (ThreadActivity) should be skipped."""
         conv = _make_conversation(
-            display_name="Kiara Snyder",
+            display_name="Alice Johnson",
             messages=[
                 _owner_message(content="Hello"),
                 _system_message(),
@@ -213,7 +213,7 @@ class TestTeamsExtractor:
     def test_content_type_filtering(self, recorder, tmp_path):
         """Only content message types should be extracted."""
         conv = _make_conversation(
-            display_name="Kiara Snyder",
+            display_name="Alice Johnson",
             messages=[
                 _owner_message(msg_type="Text", content="text msg"),
                 _owner_message(msg_id="1010", msg_type="RichText", content="rich msg"),
@@ -237,7 +237,7 @@ class TestTeamsExtractor:
     def test_html_stripping(self, recorder, tmp_path):
         """RichText/Html content should have tags stripped."""
         conv = _make_conversation(
-            display_name="Kiara Snyder",
+            display_name="Alice Johnson",
             messages=[
                 _owner_message(
                     msg_type="RichText/Html",
@@ -297,11 +297,11 @@ class TestTeamsExtractor:
         }
 
         conv = _make_conversation(
-            display_name="Kiara Snyder",
+            display_name="Alice Johnson",
             member_count=2,
             messages=[
                 _owner_message(content="Hello"),
-                _other_message(display_name="Kiara Snyder", content="Hi"),
+                _other_message(display_name="Alice Johnson", content="Hi"),
                 unidentified_msg,
             ],
         )
@@ -312,16 +312,16 @@ class TestTeamsExtractor:
         messages = extractor.extract_all()
 
         # All 3 should be extracted; the unidentified one should have
-        # sender inferred as "Kiara Snyder" because it's a 1:1 chat
+        # sender inferred as "Alice Johnson" because it's a 1:1 chat
         assert len(messages) == 3
         unid = [m for m in messages if m['content'] == 'Unidentified sender message']
         assert len(unid) == 1
-        assert unid[0]['sender'] == 'Kiara Snyder'
+        assert unid[0]['sender'] == 'Alice Johnson'
 
     def test_message_dict_structure(self, recorder, tmp_path):
         """Each message dict should have the expected keys."""
         conv = _make_conversation(
-            display_name="Kiara Snyder",
+            display_name="Alice Johnson",
             messages=[_owner_message(content="test structure")],
         )
         payload = _build_messages_json([conv])
@@ -344,7 +344,7 @@ class TestTeamsExtractor:
     def test_empty_content_skipped(self, recorder, tmp_path):
         """Messages with empty content should be skipped."""
         conv = _make_conversation(
-            display_name="Kiara Snyder",
+            display_name="Alice Johnson",
             messages=[
                 _owner_message(content=""),
                 _owner_message(msg_id="1005", content="   "),
@@ -363,7 +363,7 @@ class TestTeamsExtractor:
     def test_forensic_recording(self, recorder, tmp_path):
         """Extraction should record forensic actions."""
         conv = _make_conversation(
-            display_name="Kiara Snyder",
+            display_name="Alice Johnson",
             messages=[_owner_message(content="forensic test")],
         )
         payload = _build_messages_json([conv])

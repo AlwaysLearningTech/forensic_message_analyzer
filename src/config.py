@@ -56,7 +56,7 @@ class Config:
         self.ai_model = os.getenv('AI_MODEL')
         
         # Contact mappings - flexible system that allows custom names
-        # PERSON1_NAME defines the name used in reports (e.g., "David Snyder")
+        # PERSON1_NAME defines the name used in reports (e.g., "John Doe")
         # PERSON1_MAPPING contains the list of identifiers to match (phones, emails, names)
         person1_name = os.getenv('PERSON1_NAME', 'Person1')
         person2_name = os.getenv('PERSON2_NAME', 'Person2')
@@ -81,7 +81,7 @@ class Config:
         }
 
         # AI analysis contacts — which mapped persons' conversations get sent to AI
-        # ai_contacts_specified: the explicit names from AI_CONTACTS (e.g. {"Marcia Snyder"})
+        # ai_contacts_specified: the explicit names from AI_CONTACTS (e.g. {"Jane Doe"})
         # ai_contacts: the full set including Me/PERSON1 (used to validate both parties are known)
         # Filter logic: at least one party must be in ai_contacts_specified,
         #   AND both parties must be in ai_contacts. This ensures only conversations

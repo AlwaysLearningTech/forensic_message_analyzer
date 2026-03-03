@@ -181,8 +181,8 @@ class TestSystemIntegration:
         # 0. Load production config — use the same env vars as a real run
         # ---------------------------------------------------------------
         config = Config()
-        p1 = config.person1_name  # e.g. "David Snyder"
-        p2 = config.person2_name  # e.g. "Marcia Snyder"
+        p1 = config.person1_name
+        p2 = config.person2_name
 
         # ---------------------------------------------------------------
         # 0b. Create test image fixtures for attachment testing

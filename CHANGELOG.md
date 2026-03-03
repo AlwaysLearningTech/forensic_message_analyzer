@@ -164,7 +164,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Behavioral Analyzer**: Fixed `mode()[0]` crash when series is empty
 - **Excel Column Naming**: Fixed overflow beyond column Z (chr(65+i) only works for A-Z); replaced with proper base-26 conversion
 - **Data Extractor Null Guards**: Added `if self.imessage:` / `if self.whatsapp:` etc. guards and `or []` coalescing on extractor returns
-- **WhatsApp Recipient**: David's messages had recipient=David instead of Marcia
+- **WhatsApp Recipient**: Person1's messages had recipient=Person1 instead of Person2
 - **Contact Filter**: Require BOTH parties mapped (AND not OR)
 - **Timezone Handling**: Fixed tz-naive vs tz-aware datetime comparison crashes in communication metrics and participant analysis
 - **Token Counting**: Fixed estimated token counts for cost reporting
