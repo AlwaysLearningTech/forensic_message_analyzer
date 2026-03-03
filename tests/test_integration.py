@@ -1378,6 +1378,41 @@ class TestSystemIntegration:
         )
 
         # ---------------------------------------------------------------
+        # 11c. Verify legal appendices in HTML report
+        # ---------------------------------------------------------------
+        assert 'Appendix A: Methodology Statement' in html_content, (
+            "HTML report should contain Appendix A: Methodology Statement"
+        )
+        assert 'Appendix B: Completeness Validation' in html_content, (
+            "HTML report should contain Appendix B: Completeness Validation"
+        )
+        assert 'Appendix C: Limitations' in html_content, (
+            "HTML report should contain Appendix C: Limitations"
+        )
+
+        # ---------------------------------------------------------------
+        # 11d. Verify person3 appears in reports even with no messages
+        # ---------------------------------------------------------------
+        p3 = config.person3_name
+        assert p3 is not None, "person3_name should be configured"
+
+        # Excel: person3 should have a sheet
+        assert p3[:31] in sheet_names or any(p3[:31] in s for s in sheet_names), (
+            f"Excel report should have a sheet for person3 '{p3}', "
+            f"has sheets: {sheet_names}"
+        )
+
+        # HTML: person3 should appear in the report
+        assert p3 in html_content, (
+            f"HTML report should contain person3 name '{p3}'"
+        )
+
+        # Chat: person3 should appear in chat report
+        assert p3 in chat_content, (
+            f"Chat report should contain person3 name '{p3}'"
+        )
+
+        # ---------------------------------------------------------------
         # 12. Verify attachment preservation (FRE 1002)
         # ---------------------------------------------------------------
         # Preserved copies must exist with matching hashes
