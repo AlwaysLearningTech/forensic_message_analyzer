@@ -376,6 +376,67 @@ class IMessageExtractor:
             pass
         return result
 
+    @staticmethod
+    def _parse_rich_link(blob_data) -> dict:
+        """Parse payload_data BLOB to extract URL preview or shared location.
+
+        For messages with balloon_bundle_id containing 'URLBalloonProvider',
+        the payload_data is a binary plist with a 'richLinkMetadata' dict.
+
+        If specialization2.address exists -> shared location (PlacemarkMessage).
+        Otherwise -> URL preview (URLMessage).
+
+        Returns dict with extracted fields, or empty dict on failure.
+        """
+        if not blob_data:
+            return {}
+        try:
+            import plistlib
+            plist = plistlib.loads(blob_data)
+        except Exception:
+            return {}
+
+        rlm = plist.get('richLinkMetadata') or plist.get('metadata')
+        if not rlm or not isinstance(rlm, dict):
+            return {}
+
+        result = {}
+
+        # Extract URL (nested dict with 'URL' key)
+        url_dict = rlm.get('URL')
+        if isinstance(url_dict, dict):
+            result['rich_link_url'] = url_dict.get('URL', '')
+        elif isinstance(url_dict, str):
+            result['rich_link_url'] = url_dict
+
+        orig_url_dict = rlm.get('originalURL')
+        if isinstance(orig_url_dict, dict):
+            result['rich_link_original_url'] = orig_url_dict.get('URL', '')
+        elif isinstance(orig_url_dict, str):
+            result['rich_link_original_url'] = orig_url_dict
+
+        result['rich_link_title'] = rlm.get('title', '')
+        result['rich_link_summary'] = rlm.get('summary', '')
+        result['rich_link_site_name'] = rlm.get('siteName', '')
+
+        # Check for shared location (PlacemarkMessage)
+        spec2 = rlm.get('specialization2')
+        if isinstance(spec2, dict) and spec2.get('address'):
+            result['is_shared_location'] = True
+            result['location_name'] = spec2.get('name', '')
+            result['location_address'] = spec2.get('address', '')
+            addr_comp = spec2.get('addressComponents', {})
+            if isinstance(addr_comp, dict):
+                result['location_city'] = addr_comp.get('_city', '')
+                result['location_state'] = addr_comp.get('_state', '')
+                result['location_postal_code'] = addr_comp.get('_postalCode', '')
+                result['location_country'] = addr_comp.get('_country', '')
+                result['location_street'] = addr_comp.get('_street', '')
+        else:
+            result['is_shared_location'] = False
+
+        return result
+
     # ------------------------------------------------------------------
     # Attachment extraction
     # ------------------------------------------------------------------
@@ -521,6 +582,12 @@ class IMessageExtractor:
                 else:
                     select_parts.append('NULL as message_summary_info')
 
+                # URL preview / shared location payload (iOS 16+)
+                if 'payload_data' in msg_cols:
+                    select_parts.append('m.payload_data')
+                else:
+                    select_parts.append('NULL as payload_data')
+
                 select_clause = ',\n                    '.join(select_parts)
 
                 # No tapback filter — all messages including reactions are extracted.
@@ -660,6 +727,14 @@ class IMessageExtractor:
                                 break
                         if attachments:
                             msg_dict['attachments'] = attachments
+
+                    # Parse URL preview / shared location from payload_data
+                    balloon = r.get('balloon_bundle_id') or ''
+                    payload = r.get('payload_data')
+                    if payload and 'URLBalloonProvider' in balloon:
+                        link_info = self._parse_rich_link(payload)
+                        if link_info:
+                            msg_dict.update(link_info)
 
                     messages.append(msg_dict)
 

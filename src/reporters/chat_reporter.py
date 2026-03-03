@@ -417,6 +417,31 @@ class ChatReporter:
                     f'[Attachment: {escape(fname)}]</div>'
                 )
 
+        # Shared location display
+        if msg.get('is_shared_location'):
+            loc_name = escape(msg.get('location_name', ''))
+            loc_addr = escape(msg.get('location_address', ''))
+            loc_parts = [p for p in [loc_name, loc_addr] if p]
+            if loc_parts:
+                parts.append(
+                    f'<div style="margin-top:4px;padding:4px 6px;background:#e8f5e9;'
+                    f'border-left:3px solid #4caf50;font-size:12px;">'
+                    f'<strong>Shared Location:</strong> {" — ".join(loc_parts)}</div>'
+                )
+
+        # URL preview display
+        elif msg.get('rich_link_title'):
+            title = escape(msg.get('rich_link_title', ''))
+            url = escape(msg.get('rich_link_url', ''))
+            site = escape(msg.get('rich_link_site_name', ''))
+            site_display = f' ({site})' if site else ''
+            parts.append(
+                f'<div style="margin-top:4px;padding:4px 6px;background:#e3f2fd;'
+                f'border-left:3px solid #2196f3;font-size:12px;">'
+                f'<strong>{title}</strong>{site_display}'
+                f'{f"<br><span style=color:#666>{url}</span>" if url else ""}</div>'
+            )
+
         # Tapbacks
         tapback_html = self._render_tapbacks(msg, tapback_map)
         if tapback_html:

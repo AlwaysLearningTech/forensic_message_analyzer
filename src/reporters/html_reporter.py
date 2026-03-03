@@ -213,8 +213,17 @@ REPORT_TEMPLATE = """\
         {% endfor %}
       </div>
       {% endif %}
+      {% if m.is_shared_location %}
+      <div style="margin-top:4px;padding:4px 6px;background:#e8f5e9;border-left:3px solid #4caf50;font-size:11px;">
+        <strong>Shared Location:</strong> {{ m.location_name }}{% if m.location_address %} — {{ m.location_address }}{% endif %}
+      </div>
+      {% elif m.rich_link_title %}
+      <div style="margin-top:4px;padding:4px 6px;background:#e3f2fd;border-left:3px solid #2196f3;font-size:11px;">
+        <strong>{{ m.rich_link_title }}</strong>{% if m.rich_link_site_name %} ({{ m.rich_link_site_name }}){% endif %}
+        {% if m.rich_link_url %}<br><span style="color:#666;">{{ m.rich_link_url }}</span>{% endif %}
+      </div>
+      {% endif %}
     </td>
-    <td>{{ m.source }}</td>
     <td>{{ m.threat_categories or '' }}</td>
     <td>
       {% if m.is_sos %}<span class="sos-flag">SOS</span> {% endif %}
@@ -583,6 +592,13 @@ class HtmlReporter:
                     'was_downgraded': m.get('was_downgraded', False),
                     'thread_originator_guid': m.get('thread_originator_guid'),
                     'reactions': reactions_display,
+                    # Rich link / location fields
+                    'is_shared_location': m.get('is_shared_location', False),
+                    'location_name': m.get('location_name', ''),
+                    'location_address': m.get('location_address', ''),
+                    'rich_link_title': m.get('rich_link_title', ''),
+                    'rich_link_url': m.get('rich_link_url', ''),
+                    'rich_link_site_name': m.get('rich_link_site_name', ''),
                 })
 
             persons.append({'name': person, 'messages': rows})
