@@ -1672,3 +1672,177 @@ class TestSystemIntegration:
         results = analyzer.analyze_sentiment(test_data)
         assert len(results) == 5, "Should handle all edge cases without crashing"
         assert 'sentiment_polarity' in results.columns
+
+
+class TestPipelineSplit:
+    """Test the split pipeline: Phases 1-3 stop, then Phases 4-7 finalize."""
+
+    def test_save_and_load_pipeline_state(self, tmp_path):
+        """Test pipeline state round-trip with review_complete flag."""
+        config = Config()
+        config.output_dir = str(tmp_path)
+        recorder = ForensicRecorder(tmp_path)
+
+        analyzer = ForensicAnalyzer(config)
+
+        # Simulate Phase 1-2 outputs
+        ext_file = tmp_path / "extracted_data_test.json"
+        ana_file = tmp_path / "analysis_results_test.json"
+        rev_file = tmp_path / "review_results_test.json"
+        ext_file.write_text('{"messages": []}')
+        ana_file.write_text('{"threats": {}}')
+        rev_file.write_text('{"total_reviewed": 5, "relevant": 3, "not_relevant": 1, "uncertain": 1, "reviews": []}')
+
+        analyzer._extracted_data_path = ext_file
+        analyzer._analysis_results_path = ana_file
+
+        # Save state with review_complete=True
+        analyzer._save_pipeline_state(
+            review_session_id="test_session_123",
+            review_results_path=str(rev_file),
+            review_complete=True,
+        )
+
+        # Verify state file exists
+        state_path = tmp_path / "pipeline_state.json"
+        assert state_path.exists(), "pipeline_state.json should be created"
+
+        # Load and verify
+        state = analyzer._load_pipeline_state()
+        assert state is not None
+        assert state["review_complete"] is True
+        assert state["review_session_id"] == "test_session_123"
+        assert state["extracted_data_path"] == str(ext_file)
+        assert state["analysis_results_path"] == str(ana_file)
+        assert state["review_results_path"] == str(rev_file)
+
+    def test_save_pipeline_state_without_review(self, tmp_path):
+        """Test pipeline state saved mid-pipeline (before review completes)."""
+        config = Config()
+        config.output_dir = str(tmp_path)
+
+        analyzer = ForensicAnalyzer(config)
+
+        ext_file = tmp_path / "extracted_data_test.json"
+        ana_file = tmp_path / "analysis_results_test.json"
+        ext_file.write_text('{"messages": []}')
+        ana_file.write_text('{"threats": {}}')
+        analyzer._extracted_data_path = ext_file
+        analyzer._analysis_results_path = ana_file
+
+        # Save without review_complete (crash recovery state)
+        analyzer._save_pipeline_state()
+
+        state = analyzer._load_pipeline_state()
+        assert state is not None
+        assert state["review_complete"] is False
+        assert state["review_results_path"] is None
+
+    def test_clear_pipeline_state(self, tmp_path):
+        """Test pipeline state cleanup after successful finalization."""
+        config = Config()
+        config.output_dir = str(tmp_path)
+
+        analyzer = ForensicAnalyzer(config)
+        analyzer._extracted_data_path = tmp_path / "ext.json"
+        analyzer._analysis_results_path = tmp_path / "ana.json"
+
+        analyzer._save_pipeline_state()
+        assert (tmp_path / "pipeline_state.json").exists()
+
+        analyzer._clear_pipeline_state()
+        assert not (tmp_path / "pipeline_state.json").exists()
+
+    def test_load_pipeline_state_missing(self, tmp_path):
+        """Test loading pipeline state when no state file exists."""
+        config = Config()
+        config.output_dir = str(tmp_path)
+
+        analyzer = ForensicAnalyzer(config)
+        state = analyzer._load_pipeline_state()
+        assert state is None
+
+    def test_finalize_requires_completed_review(self, tmp_path):
+        """Test that run_finalize raises when review is not complete."""
+        config = Config()
+        config.output_dir = str(tmp_path)
+
+        analyzer = ForensicAnalyzer(config)
+
+        # No state file at all
+        with pytest.raises(RuntimeError, match="No pipeline state found"):
+            analyzer.run_finalize()
+
+        # State file exists but review not complete
+        analyzer._extracted_data_path = tmp_path / "ext.json"
+        analyzer._analysis_results_path = tmp_path / "ana.json"
+        analyzer._save_pipeline_state()  # review_complete defaults to False
+
+        with pytest.raises(RuntimeError, match="Review is not yet complete"):
+            analyzer.run_finalize()
+
+    def test_finalize_validates_missing_files(self, tmp_path):
+        """Test that run_finalize raises when data files are missing."""
+        config = Config()
+        config.output_dir = str(tmp_path)
+
+        analyzer = ForensicAnalyzer(config)
+
+        # Write state referencing non-existent files
+        state = {
+            "timestamp": "2024-01-01T00:00:00",
+            "extracted_data_path": str(tmp_path / "nonexistent_ext.json"),
+            "analysis_results_path": str(tmp_path / "nonexistent_ana.json"),
+            "review_results_path": str(tmp_path / "nonexistent_rev.json"),
+            "review_session_id": "test",
+            "review_complete": True,
+        }
+        state_path = tmp_path / "pipeline_state.json"
+        state_path.write_text(json.dumps(state))
+
+        with pytest.raises(RuntimeError, match="missing files"):
+            analyzer.run_finalize()
+
+    def test_review_phase_saves_results_to_disk(self, tmp_path):
+        """Test that run_review_phase persists review results as JSON."""
+        config = Config()
+        config.output_dir = str(tmp_path)
+        recorder = ForensicRecorder(tmp_path)
+
+        analyzer = ForensicAnalyzer(config)
+
+        # Minimal data for review phase
+        analysis_results = {
+            'threats': {
+                'details': [
+                    {
+                        'content': 'I will hurt you',
+                        'threat_detected': True,
+                        'threat_categories': 'physical threat',
+                        'threat_confidence': 0.9,
+                        'message_id': 'msg1',
+                        'sender': 'Person1',
+                        'recipient': 'Person2',
+                    }
+                ],
+                'summary': {'messages_with_threats': 1},
+            }
+        }
+        extracted_data = {'messages': [], 'screenshots': []}
+
+        # Run review with no items (empty review)
+        review_results = analyzer.run_review_phase(analysis_results, extracted_data)
+
+        # Verify review results file was created
+        review_files = list(tmp_path.glob("review_results_*.json"))
+        assert len(review_files) == 1, "Should create exactly one review_results file"
+
+        # Verify the file can be loaded
+        with open(review_files[0]) as f:
+            loaded = json.load(f)
+        assert 'total_reviewed' in loaded
+        assert 'reviews' in loaded
+
+        # Verify the path was saved on the analyzer
+        assert hasattr(analyzer, '_review_results_path')
+        assert analyzer._review_results_path == review_files[0]
