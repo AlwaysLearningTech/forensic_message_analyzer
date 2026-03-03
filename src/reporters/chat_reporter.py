@@ -133,6 +133,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .tapbacks span { font-size: 16px; margin-right: 2px; }
 .reply-indicator { font-size: 11px; color: #6c757d; font-style: italic; margin-bottom: 4px;
                    border-left: 2px solid #adb5bd; padding-left: 6px; }
+.edit-history { margin-top: 6px; padding: 6px 8px; background: #f8f9fa;
+               border-left: 3px solid #dee2e6; font-size: 12px; }
+.edit-history-label { font-weight: bold; color: #6c757d; margin-bottom: 2px; }
+.edit-entry { color: #495057; margin: 2px 0; }
+.edit-ts { color: #adb5bd; font-size: 11px; }
 .clearfix::after { content: ''; display: table; clear: both; }
 .empty-section { padding: 24px; text-align: center; color: #888; font-style: italic; }
 .legal-notice { background: #f8f9fa; padding: 16px 24px; font-size: 11px; color: #6c757d;
@@ -378,6 +383,20 @@ class ChatReporter:
         if msg.get('is_unsent'):
             content = '[Message unsent]'
         parts.append(f'<div class="bubble-content">{escape(content)}</div>')
+
+        # Edit history (show original and intermediate versions)
+        edit_history = msg.get('edit_history', [])
+        if edit_history and len(edit_history) > 1:
+            parts.append('<div class="edit-history">')
+            parts.append('<div class="edit-history-label">Edit history:</div>')
+            for i, edit in enumerate(edit_history[:-1]):
+                label = 'Original' if i == 0 else f'Edit {i}'
+                ts_str = ''
+                if edit.get('timestamp'):
+                    ts_str = f' <span class="edit-ts">({edit["timestamp"]})</span>'
+                content_text = escape(edit.get('content', ''))
+                parts.append(f'<div class="edit-entry"><strong>{label}:</strong>{ts_str} {content_text}</div>')
+            parts.append('</div>')
 
         # Inline image or attachment placeholder
         att_path = msg.get('attachment', '')

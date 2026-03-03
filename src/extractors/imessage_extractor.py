@@ -236,6 +236,71 @@ class IMessageExtractor:
         return {row[1] for row in cursor.fetchall()}
 
     # ------------------------------------------------------------------
+    # Edit history parsing (iOS 16+)
+    # ------------------------------------------------------------------
+
+    def _parse_edit_history(self, blob_data) -> list:
+        """Parse message_summary_info BLOB to extract edit history.
+
+        iOS 16+ stores edit history as a binary plist in the
+        message_summary_info column.  The plist contains an 'ec' dict
+        mapping part indices to arrays of edit events.  Each event has
+        'd' (Apple-epoch timestamp) and 't' (typedstream-encoded text).
+
+        Returns list of dicts ordered oldest-first:
+            [{'timestamp': <datetime|None>, 'content': <str>}, ...]
+        Empty list when no edit data is present.
+        """
+        if not blob_data:
+            return []
+        try:
+            import plistlib
+            plist = plistlib.loads(blob_data)
+        except Exception:
+            return []
+
+        ec = plist.get('ec')
+        if not ec or not isinstance(ec, dict):
+            return []
+
+        # Process part 0 (primary message body — most messages have one part)
+        part_edits = ec.get('0') or ec.get(0)
+        if not part_edits or not isinstance(part_edits, list):
+            return []
+
+        from datetime import datetime as _dt, timezone as _tz
+
+        edits = []
+        for event in part_edits:
+            if not isinstance(event, dict):
+                continue
+            ts_raw = event.get('d')
+            text_blob = event.get('t')
+
+            # Convert Apple epoch to UTC datetime
+            ts = None
+            if ts_raw:
+                try:
+                    apple_epoch = 978307200  # seconds from Unix epoch to 2001-01-01
+                    if ts_raw > 1e15:  # nanoseconds
+                        ts_raw = ts_raw / 1e9
+                    ts = _dt.fromtimestamp(ts_raw + apple_epoch, tz=_tz.utc)
+                except Exception:
+                    pass
+
+            # Decode typedstream text (same format as attributedBody)
+            content = None
+            if text_blob and isinstance(text_blob, bytes):
+                content = self.decode_attributed_body(text_blob)
+
+            edits.append({
+                'timestamp': ts,
+                'content': content or '',
+            })
+
+        return edits
+
+    # ------------------------------------------------------------------
     # Attachment extraction
     # ------------------------------------------------------------------
 
@@ -364,6 +429,12 @@ class IMessageExtractor:
                     else:
                         select_parts.append(f"NULL as {col}")
 
+                # Edit history BLOB (iOS 16+)
+                if 'message_summary_info' in msg_cols:
+                    select_parts.append('m.message_summary_info')
+                else:
+                    select_parts.append('NULL as message_summary_info')
+
                 select_clause = ',\n                    '.join(select_parts)
 
                 # No tapback filter — all messages including reactions are extracted.
@@ -448,6 +519,7 @@ class IMessageExtractor:
                         'date_delivered': pd.to_datetime(r['date_delivered'], utc=True) if r.get('date_delivered') else None,
                         'is_read': bool(r.get('is_read')) if r.get('is_read') is not None else None,
                         'date_edited': pd.to_datetime(r['date_edited'], utc=True) if r.get('date_edited') else None,
+                        'edit_history': self._parse_edit_history(r.get('message_summary_info')) if r.get('date_edited') else [],
                         'date_retracted': pd.to_datetime(r['date_retracted'], utc=True) if r.get('date_retracted') else None,
 
                         # Threading
@@ -506,19 +578,22 @@ class IMessageExtractor:
             # Record extraction with detailed metadata
             tapback_count = sum(1 for m in messages if m.get('is_tapback'))
             edited_count = sum(1 for m in messages if m.get('date_edited'))
+            edit_history_count = sum(1 for m in messages if m.get('edit_history'))
             retracted_count = sum(1 for m in messages if m.get('date_retracted'))
             sos_count = sum(1 for m in messages if m.get('is_sos'))
 
             self.forensic.record_action(
                 "imessage_extraction",
                 f"Extracted {len(messages)} messages ({tapback_count} tapbacks, "
-                f"{edited_count} edited, {retracted_count} retracted/unsent, "
+                f"{edited_count} edited ({edit_history_count} with recovered history), "
+                f"{retracted_count} retracted/unsent, "
                 f"{sos_count} SOS) from iMessage database",
                 {
                     "path": str(self.db_path),
                     "message_count": len(messages),
                     "tapback_count": tapback_count,
                     "edited_count": edited_count,
+                    "edit_history_count": edit_history_count,
                     "retracted_count": retracted_count,
                     "sos_count": sos_count,
                     "participants": list(self.config.contact_mappings.keys()),

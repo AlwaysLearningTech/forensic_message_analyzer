@@ -198,7 +198,21 @@ class ExcelReporter:
                 person_messages['timestamp'], utc=True, errors='coerce'
             ).dt.tz_convert(tz).dt.strftime('%Y-%m-%d %H:%M:%S %Z')
 
-        column_order = ['timestamp', 'sender', 'recipient', 'content', 'source']
+        column_order = ['timestamp', 'sender', 'recipient', 'content', 'edit_history_text', 'source']
+
+        # Create human-readable edit history column
+        if 'edit_history' in person_messages.columns:
+            def _format_edit_history(hist):
+                if not hist or not isinstance(hist, list) or len(hist) <= 1:
+                    return ''
+                parts = []
+                for i, edit in enumerate(hist[:-1]):
+                    label = 'Original' if i == 0 else f'Edit {i}'
+                    ts = edit.get('timestamp', '')
+                    ct = edit.get('content', '')
+                    parts.append(f'{label} ({ts}): {ct}' if ts else f'{label}: {ct}')
+                return ' | '.join(parts)
+            person_messages['edit_history_text'] = person_messages['edit_history'].apply(_format_edit_history)
         
         # Add threat columns if they exist
         threat_cols = ['threat_detected', 'threat_categories', 'threat_confidence', 'harmful_content']

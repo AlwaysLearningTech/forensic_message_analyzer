@@ -205,6 +205,14 @@ REPORT_TEMPLATE = """\
       {% endif %}
       {% if m.reactions %}<div class="reactions-list">{{ m.reactions }}</div>{% endif %}
       {% if m.thread_originator_guid %}<div class="edited-flag">Thread: {{ m.thread_originator_guid }}</div>{% endif %}
+      {% if m.edit_history and m.edit_history|length > 1 %}
+      <div style="margin-top:4px;padding:4px 6px;background:#f8f9fa;border-left:3px solid #dee2e6;font-size:11px;">
+        <strong style="color:#6c757d;">Edit history:</strong>
+        {% for edit in m.edit_history[:-1] %}
+        <div>{{ 'Original' if loop.index0 == 0 else 'Edit ' ~ loop.index0 }}{% if edit.timestamp %} ({{ edit.timestamp }}){% endif %}: {{ edit.content }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
     </td>
     <td>{{ m.source }}</td>
     <td>{{ m.threat_categories or '' }}</td>
@@ -567,6 +575,7 @@ class HtmlReporter:
                     # New forensic fields
                     'is_tapback': m.get('is_tapback', False),
                     'date_edited': m.get('date_edited'),
+                    'edit_history': m.get('edit_history', []),
                     'date_retracted': m.get('date_retracted'),
                     'is_sos': m.get('is_sos', False),
                     'was_downgraded': m.get('was_downgraded', False),

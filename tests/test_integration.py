@@ -402,6 +402,10 @@ class TestSystemIntegration:
                 'source': 'iMessage',
                 'service': 'iMessage',
                 'date_edited': '2024-06-15T13:01:00+00:00',
+                'edit_history': [
+                    {'timestamp': '2024-06-15T13:00:00+00:00', 'content': 'I will make you regret this'},
+                    {'timestamp': '2024-06-15T13:01:00+00:00', 'content': 'I meant to say I am sorry'},
+                ],
             },
             # --- Retracted/unsent message ---
             {
@@ -736,6 +740,10 @@ class TestSystemIntegration:
                 'source': 'iMessage',
                 'service': 'iMessage',
                 'date_edited': '2024-06-16T13:06:00+00:00',
+                'edit_history': [
+                    {'timestamp': '2024-06-16T13:05:00+00:00', 'content': 'You better watch yourself'},
+                    {'timestamp': '2024-06-16T13:06:00+00:00', 'content': 'I did not mean that last message'},
+                ],
             },
             {
                 'message_id': 'imsg_045',
@@ -1225,6 +1233,14 @@ class TestSystemIntegration:
             "HTML report should contain 'Edited' flag for edited message"
         )
 
+        # Edit history — original text should be visible
+        assert 'Edit history' in html_content, (
+            "HTML report should show edit history for edited messages"
+        )
+        assert 'I will make you regret this' in html_content, (
+            "HTML report should show original message text before edit"
+        )
+
         # Retracted/Unsent flag
         assert 'Unsent' in html_content, (
             "HTML report should contain 'Unsent' flag for retracted message"
@@ -1456,6 +1472,14 @@ class TestSystemIntegration:
         # Inline images (at least one base64 image)
         assert 'data:image/' in chat_content, (
             "Chat report should contain base64-embedded images"
+        )
+
+        # Edit history in chat report
+        assert 'edit-history' in chat_content, (
+            "Chat report should contain edit-history elements for edited messages"
+        )
+        assert 'I will make you regret this' in chat_content, (
+            "Chat report should show original message text before edit"
         )
 
         # ---------------------------------------------------------------
