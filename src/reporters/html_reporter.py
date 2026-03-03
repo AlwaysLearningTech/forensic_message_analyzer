@@ -216,6 +216,10 @@ REPORT_TEMPLATE = """\
       {% if m.is_tapback %}Tapback{% endif %}
     </td>
   </tr>
+  {% else %}
+  <tr><td colspan="7" style="text-align:center;color:#888;font-style:italic;padding:16px;">
+    No messages found for this contact
+  </td></tr>
   {% endfor %}
 </table>
 </div>
@@ -354,6 +358,9 @@ class HtmlReporter:
     ) -> Dict[str, Any]:
         messages = extracted_data.get('messages', extracted_data.get('combined', []))
         mapped_persons = list(self.config.contact_mappings.keys())
+        # Exclude person1 — their messages appear in every other person's section
+        person1 = getattr(self.config, 'person1_name', None)
+        display_persons = sorted(p for p in mapped_persons if p != person1)
 
         # --- overview stats ---
         sources = set()
@@ -386,7 +393,7 @@ class HtmlReporter:
 
         # --- per-person messages with inline images ---
         compliance = LegalComplianceManager(config=self.config, forensic_recorder=self.forensic)
-        persons = self._build_person_data(messages, mapped_persons, analysis_results, compliance)
+        persons = self._build_person_data(messages, display_persons, analysis_results, compliance)
 
         # --- conversation threads ---
         threads: List[Dict] = []
@@ -451,6 +458,7 @@ class HtmlReporter:
                 if m.get('sender') == person or m.get('recipient') == person
             ]
             if not person_msgs:
+                persons.append({'name': person, 'messages': []})
                 continue
 
             rows = []

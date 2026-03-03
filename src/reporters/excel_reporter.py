@@ -94,27 +94,21 @@ class ExcelReporter:
                 if 'messages' in extracted_data:
                     df_messages = pd.DataFrame(extracted_data['messages'])
 
-                    # Get unique participants and filter to only mapped persons
-                    if 'recipient' in df_messages.columns and 'sender' in df_messages.columns:
-                        participants = set(df_messages['recipient'].unique()) | set(df_messages['sender'].unique())
-                        # Only include participants that are in the contact mappings
-                        # Exclude person1 (device owner) — their tab would just be all
-                        # messages combined.  Each other person's tab already shows the
-                        # full conversation between person1 and that contact.
-                        person1 = getattr(self.config, 'person1_name', None)
-                        participants = sorted(
-                            p for p in participants
-                            if p in mapped_persons and p != person1
-                        )
+                    # Create a tab for every mapped person except person1.
+                    # Always create the tab even if zero messages match (documents
+                    # absence of communication, which is itself evidence).
+                    person1 = getattr(self.config, 'person1_name', None)
+                    persons = sorted(
+                        p for p in mapped_persons if p != person1
+                    )
 
-                        # Create a tab for each mapped person
-                        for person in participants:
-                            self._write_person_sheet(
-                                writer,
-                                df_messages,
-                                analysis_results,
-                                person
-                            )
+                    for person in persons:
+                        self._write_person_sheet(
+                            writer,
+                            df_messages,
+                            analysis_results,
+                            person
+                        )
                     
                     # NOTE: We decided NOT to publish all messages
                     # Only person-specific tabs are included for privacy
@@ -164,8 +158,19 @@ class ExcelReporter:
             (df_messages['recipient'] == person_name) |
             (df_messages['sender'] == person_name)
         ].copy()
-        
+
+        # Create sheet name (Excel limits to 31 characters and disallows certain characters)
+        # Remove invalid characters: : \ / ? * [ ]
+        sheet_name = person_name[:31]
+        invalid_chars = [':', '\\', '/', '?', '*', '[', ']']
+        for char in invalid_chars:
+            sheet_name = sheet_name.replace(char, '_')
+
         if person_messages.empty:
+            # Create empty sheet with header row to document absence of messages
+            empty_df = pd.DataFrame(columns=['Timestamp', 'Sender', 'Recipient', 'Content', 'Source'])
+            empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
+            logger.info(f"Created empty sheet '{sheet_name}' (no messages for this contact)")
             return
         
         # Threat columns might already be in the messages DataFrame from analysis
@@ -221,13 +226,6 @@ class ExcelReporter:
                 columns={'timestamp': f'Timestamp ({tz_abbr})'}
             )
 
-        # Create sheet name (Excel limits to 31 characters and disallows certain characters)
-        # Remove invalid characters: : \ / ? * [ ]
-        sheet_name = person_name[:31]
-        invalid_chars = [':', '\\', '/', '?', '*', '[', ']']
-        for char in invalid_chars:
-            sheet_name = sheet_name.replace(char, '_')
-        
         person_messages.to_excel(writer, sheet_name=sheet_name, index=False)
         
         logger.info(f"Created sheet '{sheet_name}' with {len(person_messages)} messages")
