@@ -453,7 +453,33 @@ class ForensicAnalyzer:
         # AI analysis runs post-review (Phase 5), so AI-detected threats
         # and notable quotes are no longer added to the review queue.
 
-        print(f"\n[*] {len(items_for_review)} items flagged for review (mapped contacts only)")
+        # Add ALL email messages for review — emails are low-volume and each
+        # is purposeful.  Third-party emails (counselors, attorneys, family)
+        # provide crucial corroboration; mapped-person emails may need context
+        # annotations from the reviewer.
+        all_messages = extracted_data.get('messages', [])
+        mapped_persons = set(self.config.contact_mappings.keys())
+        for msg in all_messages:
+            if msg.get('source') != 'email':
+                continue
+            sender = msg.get('sender', '')
+            recipient = msg.get('recipient', '')
+            is_third_party = sender not in mapped_persons or recipient not in mapped_persons
+            item_type = 'third_party_email' if is_third_party else 'email'
+            subject = msg.get('subject', '')
+            content = msg.get('content', '')
+            label = f"Subject: {subject}" if subject else (content[:80] if content else '(no content)')
+            items_for_review.append({
+                'id': f"email_{msg.get('message_id', '')}",
+                'type': item_type,
+                'content': content,
+                'categories': f"{'Third-Party ' if is_third_party else ''}Email: {sender} → {recipient}",
+                'confidence': 0.0,
+                'message_id': msg.get('message_id', ''),
+                'subject': subject,
+            })
+
+        print(f"\n[*] {len(items_for_review)} items flagged for review (threats + emails)")
 
         # Filter out already-reviewed items (resume support)
         if already_reviewed:
