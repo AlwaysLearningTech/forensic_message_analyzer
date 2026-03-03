@@ -7,6 +7,7 @@ Run this script to perform forensic analysis of messages.
 import sys
 import argparse
 import logging
+from datetime import datetime
 from pathlib import Path
 
 # Add src to path
@@ -93,6 +94,13 @@ if __name__ == "__main__":
     try:
         if not _pre_run_validation():
             sys.exit(2)
+
+        # Create a timestamped run subfolder so each run is isolated
+        run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir = Path(config.output_dir) / f"run_{run_timestamp}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        config.output_dir = str(run_dir)
+
         success = main(config, resume=args.resume)
         try:
             _post_run_verification()

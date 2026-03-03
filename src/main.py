@@ -39,9 +39,11 @@ class ForensicAnalyzer:
     
     def __init__(self, config: Config = None):
         """Initialize the forensic analyzer with necessary components.
-        
+
         Args:
             config: Configuration instance. If None, creates a new one.
+                    The caller is responsible for setting config.output_dir
+                    to the desired run-specific directory (see run.py).
         """
         self.config = config if config is not None else Config()
         self.forensic = ForensicRecorder(Path(self.config.output_dir))
@@ -375,7 +377,7 @@ class ForensicAnalyzer:
         
         # Communication metrics
         print("\n[*] Calculating communication metrics...")
-        metrics_analyzer = CommunicationMetricsAnalyzer()
+        metrics_analyzer = CommunicationMetricsAnalyzer(forensic_recorder=self.forensic)
         metrics_results = metrics_analyzer.analyze_messages(messages)
         results['metrics'] = metrics_results
         print("    Communication metrics calculated")

@@ -1147,9 +1147,9 @@ class TestSystemIntegration:
         assert html_path, "No HTML path returned"
         html_content = Path(html_path).read_text(encoding='utf-8')
 
-        # Image attachment: base64 data URI should be embedded
-        assert 'data:image/png;base64,' in html_content, (
-            "HTML report should contain base64-embedded PNG image"
+        # Image attachment: compressed base64 data URI should be embedded
+        assert 'data:image/jpeg;base64,' in html_content, (
+            "HTML report should contain base64-embedded JPEG image (compressed for report size)"
         )
 
         # Missing attachment: fallback text

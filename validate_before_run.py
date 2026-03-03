@@ -185,7 +185,7 @@ def main():
         print(f"  YamlPatternAnalyzer: PASS ({len(pattern_results)} results)")
 
         from src.analyzers.communication_metrics import CommunicationMetricsAnalyzer
-        cm = CommunicationMetricsAnalyzer()
+        cm = CommunicationMetricsAnalyzer(forensic_recorder=forensic)
         metrics = cm.analyze_messages(messages)
         print(f"  CommunicationMetrics: PASS")
 
@@ -378,7 +378,9 @@ def main():
         print(f"\n[8/8] End-to-end pipeline: SKIPPED (Test 5 failed — no analysis results)")
     else:
         print(f"\n[8/8] End-to-end pipeline (ALL {len(messages):,} messages → review → reports)...")
-        temp_dir = tempfile.mkdtemp(prefix="fma_validate_")
+        validate_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        temp_dir = str(Path(config.output_dir) / f"validate_{validate_timestamp}")
+        Path(temp_dir).mkdir(parents=True, exist_ok=True)
         try:
             from src.review.manual_review_manager import ManualReviewManager
             from src.main import ForensicAnalyzer

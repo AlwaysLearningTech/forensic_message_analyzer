@@ -5,11 +5,13 @@ then converts to PDF via WeasyPrint.
 """
 
 import base64
+import io
 import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from PIL import Image
 from jinja2 import Environment, BaseLoader
 
 from ..config import Config
@@ -21,25 +23,52 @@ logger = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.heic', '.webp', '.tiff', '.bmp'}
 
+# Max pixel dimension for images embedded in HTML (preserves aspect ratio).
+# Originals are preserved unmodified in output_dir/attachments/.
+_HTML_IMG_MAX_DIM = 800
+_HTML_IMG_JPEG_QUALITY = 70
+
 
 def _b64_img(path_str: str) -> Optional[str]:
-    """Return a data-URI for an image file, or None if unreadable."""
+    """Return a compressed data-URI for an image file, or None if unreadable.
+
+    Images are resized to fit within _HTML_IMG_MAX_DIM pixels and re-encoded
+    as JPEG to keep the HTML report at a manageable size.  Original files are
+    preserved unmodified in the attachments/ output directory.
+    """
     p = Path(path_str)
     if not p.is_file():
         return None
     suffix = p.suffix.lower()
-    mime = {
-        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-        '.png': 'image/png', '.gif': 'image/gif',
-        '.webp': 'image/webp', '.heic': 'image/heic',
-        '.tiff': 'image/tiff', '.bmp': 'image/bmp',
-    }.get(suffix, 'application/octet-stream')
-    try:
-        data = p.read_bytes()
-        encoded = base64.b64encode(data).decode('ascii')
-        return f"data:{mime};base64,{encoded}"
-    except Exception:
+    if suffix not in IMAGE_EXTENSIONS:
         return None
+    try:
+        img = Image.open(p)
+        # Convert RGBA/palette to RGB for JPEG encoding
+        if img.mode in ('RGBA', 'P', 'LA'):
+            img = img.convert('RGB')
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+        # Resize if larger than max dimension
+        if max(img.size) > _HTML_IMG_MAX_DIM:
+            img.thumbnail((_HTML_IMG_MAX_DIM, _HTML_IMG_MAX_DIM), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=_HTML_IMG_JPEG_QUALITY, optimize=True)
+        encoded = base64.b64encode(buf.getvalue()).decode('ascii')
+        return f"data:image/jpeg;base64,{encoded}"
+    except Exception:
+        # Fallback: embed raw bytes if PIL can't handle the format
+        try:
+            mime = {
+                '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                '.png': 'image/png', '.gif': 'image/gif',
+                '.webp': 'image/webp',
+            }.get(suffix, 'application/octet-stream')
+            data = p.read_bytes()
+            encoded = base64.b64encode(data).decode('ascii')
+            return f"data:{mime};base64,{encoded}"
+        except Exception:
+            return None
 
 
 # ---------------------------------------------------------------------------
