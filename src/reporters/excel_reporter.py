@@ -3,9 +3,10 @@ Excel report generation for forensic analysis results.
 """
 
 import pandas as pd
+import pytz
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import logging
 
 from ..config import Config
@@ -18,12 +19,34 @@ logger = logging.getLogger(__name__)
 
 class ExcelReporter:
     """Generate Excel reports with multiple sheets for different analysis aspects."""
-    
+
     def __init__(self, forensic_recorder: ForensicRecorder, config: Config = None):
         """Initialize Excel reporter."""
         self.config = config if config is not None else Config()
         self.forensic = forensic_recorder
         self.output_dir = Path(self.config.output_dir)
+
+    def _format_local_timestamp(self, ts) -> str:
+        """Convert a timestamp value to local timezone string for display."""
+        if ts is None:
+            return ''
+        try:
+            parsed = pd.to_datetime(ts, utc=True)
+            if pd.isna(parsed):
+                return ''
+            tz = pytz.timezone(self.config.timezone)
+            return parsed.tz_convert(tz).strftime('%Y-%m-%d %H:%M:%S %Z')
+        except Exception:
+            return str(ts)
+
+    @staticmethod
+    def _lookup_review_decision(item_id: str, review_decisions: Dict) -> str:
+        """Look up the review decision for a given item ID."""
+        reviews = review_decisions.get('reviews', [])
+        for review in reviews:
+            if isinstance(review, dict) and review.get('item_id') == item_id:
+                return review.get('decision', '')
+        return ''
     
     def generate_report(self, extracted_data: Dict, analysis_results: Dict,
                        review_decisions: Dict, output_path: Path) -> Path:
@@ -51,12 +74,21 @@ class ExcelReporter:
                 overview_data['total_messages'] = filtered_message_count
                 self._write_overview_sheet(writer, overview_data, analysis_results, review_decisions)
 
-                # AI Analysis sheets (if AI analysis is available)
+                # Findings Summary — generated whenever ANY findings exist
+                self._write_findings_summary_sheet(
+                    writer, analysis_results, review_decisions
+                )
+
+                # AI Analysis sheet (risk indicators + AI-detected threats)
                 ai_analysis = analysis_results.get('ai_analysis', {})
                 if ai_analysis and ai_analysis.get('conversation_summary') and \
                    'not configured' not in ai_analysis.get('conversation_summary', '').lower():
-                    self._write_findings_summary_sheet(writer, ai_analysis)
                     self._write_ai_analysis_sheet(writer, ai_analysis)
+
+                # Timeline of key events
+                self._write_timeline_sheet(
+                    writer, extracted_data, analysis_results
+                )
 
                 # Get messages DataFrame
                 if 'messages' in extracted_data:
@@ -153,7 +185,6 @@ class ExcelReporter:
         
         # Reorder columns for better readability
         # Convert timestamps to local timezone for display
-        import pytz
         tz = pytz.timezone(self.config.timezone)
         tz_abbr = datetime.now(tz).strftime('%Z')
         if 'timestamp' in person_messages.columns:
@@ -300,40 +331,260 @@ class ExcelReporter:
         except Exception as e:
             logger.error(f"Failed to write Conversation Threads sheet: {e}")
 
-    def _write_findings_summary_sheet(self, writer, ai_analysis: Dict):
+    def _write_findings_summary_sheet(self, writer, analysis_results: Dict,
+                                      review_decisions: Dict):
         """
-        Write a 'Findings Summary' sheet with AI executive summary and recommendations.
+        Write a 'Findings Summary' sheet with all confirmed findings,
+        AI-identified threats, risk indicators, patterns, and recommendations
+        — each with verifiable timestamps.
 
         Args:
             writer: Active pd.ExcelWriter object.
-            ai_analysis: AI analysis results dictionary.
+            analysis_results: Full analysis results dictionary.
+            review_decisions: Review decisions dictionary.
         """
         try:
             rows = []
 
-            # AI Executive Summary row
+            # --- Confirmed threats (from threat analyzer) ---
+            threat_details = analysis_results.get('threats', {}).get('details', [])
+            if isinstance(threat_details, list):
+                for idx, item in enumerate(threat_details):
+                    if not isinstance(item, dict):
+                        continue
+                    if not item.get('threat_detected'):
+                        continue
+                    review_id = f"threat_{idx}"
+                    rows.append({
+                        'Section': 'Confirmed Threat',
+                        'Timestamp': self._format_local_timestamp(item.get('timestamp')),
+                        'Sender': item.get('sender', ''),
+                        'Content': item.get('content', ''),
+                        'Category': item.get('threat_categories', ''),
+                        'Severity / Confidence': item.get('threat_confidence', ''),
+                        'Review Decision': self._lookup_review_decision(review_id, review_decisions),
+                    })
+
+            # --- AI-identified threats ---
+            ai_analysis = analysis_results.get('ai_analysis', {})
+            threat_assessment = ai_analysis.get('threat_assessment', {})
+            if threat_assessment.get('found'):
+                for i, detail in enumerate(threat_assessment.get('details', [])):
+                    review_id = f"ai_threat_{i}"
+                    if isinstance(detail, dict):
+                        rows.append({
+                            'Section': 'AI-Identified Threat',
+                            'Timestamp': '',
+                            'Sender': '',
+                            'Content': detail.get('quote', ''),
+                            'Category': detail.get('type', ''),
+                            'Severity / Confidence': str(detail.get('severity', '')).upper(),
+                            'Review Decision': self._lookup_review_decision(review_id, review_decisions),
+                        })
+                    else:
+                        rows.append({
+                            'Section': 'AI-Identified Threat',
+                            'Timestamp': '',
+                            'Sender': '',
+                            'Content': str(detail),
+                            'Category': '',
+                            'Severity / Confidence': '',
+                            'Review Decision': self._lookup_review_decision(review_id, review_decisions),
+                        })
+
+            # --- Risk indicators ---
+            risk_indicators = ai_analysis.get('risk_indicators', [])
+            for risk in risk_indicators:
+                if isinstance(risk, dict):
+                    rows.append({
+                        'Section': 'Risk Indicator',
+                        'Timestamp': '',
+                        'Sender': '',
+                        'Content': risk.get('indicator', risk.get('description', '')),
+                        'Category': '',
+                        'Severity / Confidence': str(risk.get('severity', '')).upper(),
+                        'Review Decision': '',
+                    })
+                else:
+                    rows.append({
+                        'Section': 'Risk Indicator',
+                        'Timestamp': '',
+                        'Sender': '',
+                        'Content': str(risk),
+                        'Category': '',
+                        'Severity / Confidence': '',
+                        'Review Decision': '',
+                    })
+
+            # --- Pattern detections ---
+            pattern_details = analysis_results.get('patterns', [])
+            if isinstance(pattern_details, list):
+                for item in pattern_details:
+                    if not isinstance(item, dict):
+                        continue
+                    patterns = item.get('patterns_detected', '')
+                    if not patterns:
+                        continue
+                    rows.append({
+                        'Section': 'Pattern Detection',
+                        'Timestamp': self._format_local_timestamp(item.get('timestamp')),
+                        'Sender': item.get('sender', ''),
+                        'Content': item.get('content', ''),
+                        'Category': patterns,
+                        'Severity / Confidence': item.get('pattern_score', ''),
+                        'Review Decision': '',
+                    })
+
+            # --- AI Executive Summary ---
             conversation_summary = ai_analysis.get('conversation_summary', '')
-            if conversation_summary:
+            if conversation_summary and 'not configured' not in conversation_summary.lower():
                 rows.append({
                     'Section': 'AI Executive Summary',
+                    'Timestamp': '',
+                    'Sender': '',
                     'Content': conversation_summary,
+                    'Category': '',
+                    'Severity / Confidence': '',
+                    'Review Decision': '',
                 })
 
-            # Each recommendation as a row
+            # --- Recommendations ---
             recommendations = ai_analysis.get('recommendations', [])
             for i, rec in enumerate(recommendations, 1):
                 rows.append({
                     'Section': f'Recommendation {i}',
+                    'Timestamp': '',
+                    'Sender': '',
                     'Content': str(rec),
+                    'Category': '',
+                    'Severity / Confidence': '',
+                    'Review Decision': '',
                 })
 
             if rows:
                 df_summary = pd.DataFrame(rows)
+                # Ensure consistent column order
+                col_order = ['Section', 'Timestamp', 'Sender', 'Content',
+                             'Category', 'Severity / Confidence', 'Review Decision']
+                col_order = [c for c in col_order if c in df_summary.columns]
+                df_summary = df_summary[col_order]
                 df_summary.to_excel(writer, sheet_name='Findings Summary', index=False)
                 logger.info(f"Created 'Findings Summary' sheet with {len(rows)} rows")
 
         except Exception as e:
             logger.error(f"Failed to write Findings Summary sheet: {e}")
+
+    def _write_timeline_sheet(self, writer, extracted_data: Dict,
+                              analysis_results: Dict):
+        """
+        Write a 'Timeline' sheet with key events sorted chronologically.
+
+        Includes: threats, SOS messages, pattern detections, AI sentiment shifts.
+
+        Args:
+            writer: Active pd.ExcelWriter object.
+            extracted_data: Extracted data dictionary with messages.
+            analysis_results: Full analysis results dictionary.
+        """
+        try:
+            events = []
+
+            # --- Threat events ---
+            threat_details = analysis_results.get('threats', {}).get('details', [])
+            if isinstance(threat_details, list):
+                for item in threat_details:
+                    if not isinstance(item, dict):
+                        continue
+                    if not item.get('threat_detected'):
+                        continue
+                    events.append({
+                        'Timestamp': self._format_local_timestamp(item.get('timestamp')),
+                        'Event Type': 'Threat',
+                        'Sender': item.get('sender', ''),
+                        'Content': item.get('content', ''),
+                        'Source': item.get('source', ''),
+                        'Details': item.get('threat_categories', ''),
+                        '_sort_ts': item.get('timestamp', ''),
+                    })
+
+            # --- SOS messages ---
+            messages = extracted_data.get('messages', [])
+            for msg in messages:
+                if msg.get('is_sos'):
+                    events.append({
+                        'Timestamp': self._format_local_timestamp(msg.get('timestamp')),
+                        'Event Type': 'SOS',
+                        'Sender': msg.get('sender', ''),
+                        'Content': msg.get('content', ''),
+                        'Source': msg.get('source', ''),
+                        'Details': 'Emergency SOS triggered',
+                        '_sort_ts': msg.get('timestamp', ''),
+                    })
+
+            # --- Pattern detections ---
+            pattern_details = analysis_results.get('patterns', [])
+            if isinstance(pattern_details, list):
+                for item in pattern_details:
+                    if not isinstance(item, dict):
+                        continue
+                    patterns = item.get('patterns_detected', '')
+                    if not patterns:
+                        continue
+                    events.append({
+                        'Timestamp': self._format_local_timestamp(item.get('timestamp')),
+                        'Event Type': 'Pattern',
+                        'Sender': item.get('sender', ''),
+                        'Content': item.get('content', ''),
+                        'Source': item.get('source', ''),
+                        'Details': patterns,
+                        '_sort_ts': item.get('timestamp', ''),
+                    })
+
+            # --- AI sentiment shifts ---
+            ai_analysis = analysis_results.get('ai_analysis', {})
+            sentiment = ai_analysis.get('sentiment_analysis', {})
+            shifts = sentiment.get('shifts', [])
+            for shift in shifts:
+                if isinstance(shift, dict):
+                    events.append({
+                        'Timestamp': self._format_local_timestamp(shift.get('timestamp', shift.get('date', ''))),
+                        'Event Type': 'Sentiment Shift',
+                        'Sender': '',
+                        'Content': shift.get('description', str(shift)),
+                        'Source': '',
+                        'Details': f"From {shift.get('from', '?')} to {shift.get('to', '?')}",
+                        '_sort_ts': shift.get('timestamp', shift.get('date', '')),
+                    })
+
+            if not events:
+                logger.info("No timeline events to write")
+                return
+
+            # Sort chronologically by raw timestamp
+            def sort_key(e):
+                ts = e.get('_sort_ts', '')
+                if not ts:
+                    return ''
+                try:
+                    return str(pd.to_datetime(ts, utc=True))
+                except Exception:
+                    return str(ts)
+
+            events.sort(key=sort_key)
+
+            # Remove sort key before writing
+            for e in events:
+                e.pop('_sort_ts', None)
+
+            df_timeline = pd.DataFrame(events)
+            col_order = ['Timestamp', 'Event Type', 'Sender', 'Content', 'Source', 'Details']
+            col_order = [c for c in col_order if c in df_timeline.columns]
+            df_timeline = df_timeline[col_order]
+            df_timeline.to_excel(writer, sheet_name='Timeline', index=False)
+            logger.info(f"Created 'Timeline' sheet with {len(events)} events")
+
+        except Exception as e:
+            logger.error(f"Failed to write Timeline sheet: {e}")
 
     def _write_ai_analysis_sheet(self, writer, ai_analysis: Dict):
         """

@@ -1283,6 +1283,38 @@ class TestSystemIntegration:
         assert int(total_msg_val) >= 40, (
             f"Excel Total Messages should be >= 40, got: {total_msg_val}"
         )
+
+        # Findings Summary sheet should exist with timestamped findings
+        assert 'Findings Summary' in sheet_names, (
+            f"Excel report missing 'Findings Summary' sheet, has: {sheet_names}"
+        )
+        findings_ws = wb['Findings Summary']
+        findings_headers = [cell.value for cell in next(findings_ws.iter_rows(min_row=1, max_row=1))]
+        assert 'Timestamp' in findings_headers, (
+            f"Findings Summary should have 'Timestamp' column, has: {findings_headers}"
+        )
+        assert 'Section' in findings_headers, (
+            f"Findings Summary should have 'Section' column, has: {findings_headers}"
+        )
+        # Should have at least one confirmed threat row
+        findings_rows = list(findings_ws.iter_rows(min_row=2, values_only=True))
+        findings_sections = [row[0] for row in findings_rows if row[0]]
+        assert 'Confirmed Threat' in findings_sections, (
+            f"Findings Summary should contain 'Confirmed Threat' rows, has sections: {findings_sections}"
+        )
+
+        # Timeline sheet should exist with chronological events
+        assert 'Timeline' in sheet_names, (
+            f"Excel report missing 'Timeline' sheet, has: {sheet_names}"
+        )
+        timeline_ws = wb['Timeline']
+        timeline_headers = [cell.value for cell in next(timeline_ws.iter_rows(min_row=1, max_row=1))]
+        assert 'Event Type' in timeline_headers, (
+            f"Timeline should have 'Event Type' column, has: {timeline_headers}"
+        )
+        timeline_rows = list(timeline_ws.iter_rows(min_row=2, values_only=True))
+        assert len(timeline_rows) > 0, "Timeline sheet should have at least one event"
+
         wb.close()
 
         # ---------------------------------------------------------------
