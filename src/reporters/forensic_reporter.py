@@ -212,6 +212,27 @@ class ForensicReporter:
             if line.strip():
                 doc.add_paragraph(line)
 
+        # Completeness Validation (FRE 106)
+        messages = extracted_data.get('messages', extracted_data.get('combined', []))
+        completeness = self.compliance.validate_completeness(messages)
+        doc.add_heading('Completeness Validation', 1)
+        doc.add_paragraph(
+            f"Total messages: {completeness.get('total_messages', 0)}. "
+            f"Conversations analyzed: {len(completeness.get('conversations', {}))}. "
+            f"Complete: {'Yes' if completeness.get('is_complete') else 'No'}."
+        )
+        issues = completeness.get('issues', [])
+        if issues:
+            doc.add_paragraph('Issues detected:')
+            for issue in issues:
+                doc.add_paragraph(issue, style='List Bullet')
+
+        # Limitations
+        doc.add_heading('Limitations', 1)
+        limitations = self._generate_limitations(analysis_results)
+        for item in limitations:
+            doc.add_paragraph(item, style='List Bullet')
+
         doc.add_page_break()
 
         # === AI-Powered Findings Summary ===
@@ -1058,3 +1079,56 @@ class ForensicReporter:
         )
 
         return summary.strip()
+
+    def _generate_limitations(self, analysis_results: Dict) -> list:
+        """Generate limitation statements based on available data and features."""
+        limitations = []
+
+        if not getattr(self.config, 'messages_db_path', None):
+            limitations.append(
+                "iMessage database was not configured — iMessage conversations are not included."
+            )
+        if not getattr(self.config, 'whatsapp_source_dir', None):
+            limitations.append(
+                "WhatsApp export directory was not configured — WhatsApp messages are not included."
+            )
+        if not getattr(self.config, 'email_source_dir', None):
+            limitations.append(
+                "Email source directory was not configured — email messages are not included."
+            )
+        if not getattr(self.config, 'teams_source_dir', None):
+            limitations.append(
+                "Microsoft Teams export directory was not configured — Teams messages are not included."
+            )
+        if not getattr(self.config, 'screenshot_source_dir', None):
+            limitations.append(
+                "Screenshot directory was not configured — screenshot OCR analysis was not performed."
+            )
+
+        if not getattr(self.config, 'enable_sentiment_analysis', True):
+            limitations.append("Sentiment analysis was disabled for this run.")
+        if not getattr(self.config, 'enable_image_analysis', True):
+            limitations.append("Image analysis was disabled for this run.")
+        if not getattr(self.config, 'enable_ocr', True):
+            limitations.append("OCR was disabled for this run.")
+
+        ai = analysis_results.get('ai_analysis', {})
+        summary = ai.get('conversation_summary', '')
+        if not summary or 'not configured' in summary.lower() or 'not available' in summary.lower():
+            limitations.append(
+                "AI-powered analysis was not available — threat assessment, behavioral analysis, "
+                "and conversation summarization were limited to rule-based methods."
+            )
+
+        if getattr(self.config, 'start_date', None) or getattr(self.config, 'end_date', None):
+            start = getattr(self.config, 'start_date', 'beginning')
+            end = getattr(self.config, 'end_date', 'present')
+            limitations.append(
+                f"Analysis was filtered to date range: {start} to {end}. "
+                f"Messages outside this range were excluded."
+            )
+
+        if not limitations:
+            limitations.append("No significant limitations identified for this analysis.")
+
+        return limitations
