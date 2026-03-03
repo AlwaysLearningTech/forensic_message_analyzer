@@ -495,6 +495,10 @@ class ExcelReporter:
                         continue
                     if not item.get('threat_detected'):
                         continue
+                    # Skip email-source threats; emails are added in the
+                    # email communications section below to avoid duplicates.
+                    if item.get('source') == 'email':
+                        continue
                     events.append({
                         'Timestamp': self._format_local_timestamp(item.get('timestamp')),
                         'Event Type': 'Threat',

@@ -33,7 +33,7 @@ _MIME_MAP = {
     '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
     '.png': 'image/png', '.gif': 'image/gif',
     '.webp': 'image/webp', '.tiff': 'image/tiff',
-    '.bmp': 'image/bmp',
+    '.bmp': 'image/bmp', '.heic': 'image/heic',
 }
 
 

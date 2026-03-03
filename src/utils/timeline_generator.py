@@ -90,6 +90,10 @@ class TimelineGenerator:
         significant_df = df[filter_mask]
 
         for _, row in significant_df.iterrows():
+            # Skip email-source messages here; they are added in the
+            # email communications section below to avoid duplicates.
+            if row.get('source') == 'email':
+                continue
             # Build conversation context for this flagged message
             context_html = ""
             msg_id = row.get("message_id")

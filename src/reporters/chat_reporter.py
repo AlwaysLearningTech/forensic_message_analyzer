@@ -30,7 +30,7 @@ _MIME_MAP = {
     '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
     '.png': 'image/png', '.gif': 'image/gif',
     '.webp': 'image/webp', '.tiff': 'image/tiff',
-    '.bmp': 'image/bmp',
+    '.bmp': 'image/bmp', '.heic': 'image/heic',
 }
 
 # Tapback type codes from iMessage
@@ -316,11 +316,11 @@ class ChatReporter:
         badges = []
         if msg.get('is_sos'):
             badges.append('<span class="flag-badge sos">SOS</span>')
-        if msg.get('is_edited'):
+        if msg.get('date_edited'):
             badges.append('<span class="flag-badge edited">Edited</span>')
-        if msg.get('is_unsent'):
+        if msg.get('date_retracted'):
             badges.append('<span class="flag-badge unsent">Unsent</span>')
-        if msg.get('is_sms_fallback'):
+        if msg.get('was_downgraded'):
             badges.append('<span class="flag-badge sms-fallback">SMS</span>')
         return ' '.join(badges)
 

@@ -66,14 +66,15 @@ class ForensicAnalyzer:
         hashed = 0
 
         # iMessage database
-        db_path = Path(self.config.messages_db_path).expanduser()
-        if db_path.exists():
-            h = self.forensic.compute_hash(db_path)
-            self.forensic.record_action(
-                "source_file_hashed", f"Pre-extraction hash of iMessage database",
-                {"file": str(db_path), "hash": h}
-            )
-            hashed += 1
+        if self.config.messages_db_path:
+            db_path = Path(self.config.messages_db_path).expanduser()
+            if db_path.exists():
+                h = self.forensic.compute_hash(db_path)
+                self.forensic.record_action(
+                    "source_file_hashed", f"Pre-extraction hash of iMessage database",
+                    {"file": str(db_path), "hash": h}
+                )
+                hashed += 1
 
         # WhatsApp source files
         wa_dir = self.config.whatsapp_source_dir
@@ -386,35 +387,9 @@ class ForensicAnalyzer:
         # At this point combined_df has threat, sentiment, and pattern columns.
         self._enriched_df = combined_df.copy()
 
-        # AI analysis (Anthropic Claude) — only for messages involving mapped contacts
-        print("\n[*] Running AI analysis...")
-        try:
-            from src.analyzers.ai_analyzer import AIAnalyzer
-            ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic)
-            if ai_analyzer.client:
-                # Filter to only conversations between AI-targeted contacts
-                # Both parties must be known (in ai_contacts), AND at least one
-                # party must be a specifically targeted contact (ai_contacts_specified)
-                ai_contacts = self.config.ai_contacts
-                ai_specified = self.config.ai_contacts_specified
-                mapped_messages = [
-                    m for m in messages
-                    if m.get('sender') in ai_contacts and m.get('recipient') in ai_contacts
-                    and (ai_specified is None or m.get('sender') in ai_specified or m.get('recipient') in ai_specified)
-                ]
-                skipped = len(messages) - len(mapped_messages)
-                if skipped:
-                    print(f"    Filtered to {len(mapped_messages)} mapped-contact messages (skipped {skipped} unmapped)")
-                ai_results = ai_analyzer.analyze_messages(mapped_messages, batch_size=self.config.batch_size)
-                results['ai_analysis'] = ai_results
-                risk_count = len(ai_results.get('risk_indicators', []))
-                print(f"    AI analysis complete - {risk_count} risk indicators found")
-            else:
-                results['ai_analysis'] = ai_analyzer._empty_analysis()
-                print("    AI analysis skipped - Anthropic Claude not configured")
-        except Exception as e:
-            print(f"    AI analysis error: {e}")
-            results['ai_analysis'] = {}
+        # AI analysis runs post-review (Phase 5) so it can incorporate
+        # human-verified findings into its summary and risk assessment.
+        results['ai_analysis'] = {}
 
         # Save analysis results
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -475,49 +450,8 @@ class ForensicAnalyzer:
                             'message_id': item.get('message_id', ''),
                         })
 
-        # Add AI-detected threats to review queue
-        ai_analysis = analysis_results.get('ai_analysis', {})
-        if ai_analysis.get('threat_assessment', {}).get('found'):
-            for i, detail in enumerate(ai_analysis['threat_assessment'].get('details', [])):
-                if isinstance(detail, dict):
-                    items_for_review.append({
-                        'id': f"ai_threat_{i}",
-                        'type': 'ai_threat',
-                        'content': detail.get('quote', detail.get('type', '')),
-                        'categories': detail.get('type', ''),
-                        'confidence': 0.0,
-                        'severity': detail.get('severity', ''),
-                        'threat_type': detail.get('type', ''),
-                    })
-
-        # Add AI-notable quotes to the review queue
-        notable_quotes = ai_analysis.get('notable_quotes', [])
-        if notable_quotes:
-            all_msgs = extracted_data.get('messages', [])
-            existing_contents = {item.get('content', '') for item in items_for_review}
-            for qi, nq in enumerate(notable_quotes):
-                if not isinstance(nq, dict):
-                    continue
-                quote_text = nq.get('quote', '')
-                if not quote_text or len(quote_text) < 10:
-                    continue
-                # Find matching message by substring match on content
-                for msg in all_msgs:
-                    content = msg.get('content', '')
-                    if quote_text.lower() in content.lower() and _is_mapped(msg):
-                        if content not in existing_contents:
-                            items_for_review.append({
-                                'id': f"ai_notable_{qi}",
-                                'type': 'ai_notable',
-                                'content': content,
-                                'categories': f"AI Notable: {nq.get('significance', '')}",
-                                'confidence': 0.0,
-                                'severity': 'medium',
-                                'threat_type': 'ai_notable_quote',
-                                'message_id': msg.get('message_id', ''),
-                            })
-                            existing_contents.add(content)
-                        break
+        # AI analysis runs post-review (Phase 5), so AI-detected threats
+        # and notable quotes are no longer added to the review queue.
 
         print(f"\n[*] {len(items_for_review)} items flagged for review (mapped contacts only)")
 
@@ -709,40 +643,7 @@ class ForensicAnalyzer:
                 print(f"    Filtered {cleared} unverified threats from reports")
 
         # --- Filter AI analysis findings ---
-        if 'ai_analysis' in filtered:
-            ai = filtered['ai_analysis']
-
-            # Filter AI-detected threat details
-            if ai.get('threat_assessment', {}).get('details'):
-                original = ai['threat_assessment']['details']
-                approved_ai = []
-                for i, detail in enumerate(original):
-                    if f"ai_threat_{i}" in approved_ids:
-                        approved_ai.append(detail)
-                ai_cleared = len(original) - len(approved_ai)
-                ai['threat_assessment']['details'] = approved_ai
-                ai['threat_assessment']['found'] = len(approved_ai) > 0
-                if ai_cleared:
-                    print(f"    Filtered {ai_cleared} unverified AI threats from reports")
-
-            # Filter risk indicators derived from threats
-            if not ai.get('threat_assessment', {}).get('found'):
-                ai['risk_indicators'] = [
-                    r for r in ai.get('risk_indicators', [])
-                    if r.get('type') != 'threat'
-                ]
-
-            # Filter notable quotes: only keep those approved during review
-            if ai.get('notable_quotes'):
-                original_nq = ai['notable_quotes']
-                approved_nq = []
-                for i, nq in enumerate(original_nq):
-                    if f"ai_notable_{i}" in approved_ids:
-                        approved_nq.append(nq)
-                nq_cleared = len(original_nq) - len(approved_nq)
-                ai['notable_quotes'] = approved_nq
-                if nq_cleared:
-                    print(f"    Filtered {nq_cleared} unverified AI notable quotes from reports")
+        # AI analysis runs post-review (Phase 5) and doesn't need filtering.
 
         self.forensic.record_action(
             "analysis_filtered_by_review",
@@ -756,10 +657,70 @@ class ForensicAnalyzer:
 
         return filtered
 
+    def run_ai_analysis_phase(self, extracted_data: Dict,
+                              filtered_analysis: Dict) -> Dict:
+        """Run AI analysis on post-review data (Phase 5).
+
+        AI analysis runs after manual review so it can incorporate
+        human-verified findings into its summary and risk assessment.
+        The AI sees all mapped-contact messages for full conversation
+        context, but the filtered_analysis provides confirmed findings.
+
+        Args:
+            extracted_data: Raw extraction data with all messages.
+            filtered_analysis: Analysis results filtered by review decisions.
+
+        Returns:
+            AI analysis results dict (or empty dict on error/skip).
+        """
+        print("\n" + "="*60)
+        print("PHASE 5: AI ANALYSIS (POST-REVIEW)")
+        print("="*60)
+
+        try:
+            from src.analyzers.ai_analyzer import AIAnalyzer
+            ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic)
+            if not ai_analyzer.client:
+                print("    AI analysis skipped - not configured")
+                return ai_analyzer._empty_analysis()
+
+            messages = extracted_data.get('messages', [])
+            ai_contacts = self.config.ai_contacts
+            ai_specified = self.config.ai_contacts_specified
+            mapped_messages = [
+                m for m in messages
+                if m.get('sender') in ai_contacts
+                and m.get('recipient') in ai_contacts
+                and (ai_specified is None
+                     or m.get('sender') in ai_specified
+                     or m.get('recipient') in ai_specified)
+            ]
+            skipped = len(messages) - len(mapped_messages)
+            if skipped:
+                print(f"    Filtered to {len(mapped_messages)} mapped-contact "
+                      f"messages (skipped {skipped} unmapped)")
+
+            ai_results = ai_analyzer.analyze_messages(
+                mapped_messages, batch_size=self.config.batch_size
+            )
+            risk_count = len(ai_results.get('risk_indicators', []))
+            print(f"    AI analysis complete - {risk_count} risk indicators found")
+
+            self.manifest.add_operation("ai_analysis", "success",
+                                        {"message_count": len(mapped_messages),
+                                         "risk_indicators": risk_count})
+            return ai_results
+
+        except Exception as e:
+            print(f"    AI analysis error: {e}")
+            import traceback
+            traceback.print_exc()
+            return {}
+
     def run_reporting_phase(self, data: Dict, analysis: Dict, review: Dict) -> Dict:
         """Generate reports in multiple formats."""
         print("\n" + "="*60)
-        print("PHASE 5: REPORT GENERATION")
+        print("PHASE 6: REPORT GENERATION")
         print("="*60)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -853,7 +814,7 @@ class ForensicAnalyzer:
     def run_documentation_phase(self, data: Dict, analysis_results: Dict = None) -> Dict:
         """Generate final documentation and chain of custody."""
         print("\n" + "="*60)
-        print("PHASE 6: DOCUMENTATION")
+        print("PHASE 7: DOCUMENTATION")
         print("="*60)
         
         # Generate chain of custody
@@ -981,8 +942,12 @@ class ForensicAnalyzer:
             review_results = self.run_review_phase(analysis_results, extracted_data, resume_session_id=resume_session_id)
 
             # Phase 4: Behavioral Analysis (post-review)
-            behavioral_results = self.run_behavioral_phase(extracted_data, analysis_results, review_results)
-            analysis_results['behavioral'] = behavioral_results
+            try:
+                behavioral_results = self.run_behavioral_phase(extracted_data, analysis_results, review_results)
+                analysis_results['behavioral'] = behavioral_results
+            except Exception as e:
+                print(f"\n[!] Behavioral analysis failed (non-fatal): {e}")
+                analysis_results['behavioral'] = {}
 
             # Update third-party contact data (screenshots may have added more during analysis)
             extracted_data['third_party_contacts'] = self.third_party_registry.get_all()
@@ -992,10 +957,17 @@ class ForensicAnalyzer:
                 for src, count in tp_summary['by_source'].items():
                     print(f"    {src}: {count}")
 
-            # Phase 5: Reporting
+            # Phase 5: AI Analysis (post-review)
+            # Filter local analysis by review decisions first, then let AI
+            # incorporate confirmed findings into its summary.
+            filtered_for_ai = self._filter_analysis_by_review(analysis_results, review_results)
+            ai_results = self.run_ai_analysis_phase(extracted_data, filtered_for_ai)
+            analysis_results['ai_analysis'] = ai_results
+
+            # Phase 6: Reporting
             reports = self.run_reporting_phase(extracted_data, analysis_results, review_results)
 
-            # Phase 6: Documentation (pass analysis_results for enriched timeline)
+            # Phase 7: Documentation (pass analysis_results for enriched timeline)
             documentation = self.run_documentation_phase(extracted_data, analysis_results)
 
             print("\n" + "="*80)
