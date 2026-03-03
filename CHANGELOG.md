@@ -5,6 +5,33 @@ All notable changes to the Forensic Message Analyzer will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.0] - 2026-03-02
+
+### Added
+- **Chat-bubble HTML reporter**: New iMessage-style `ChatReporter` with left/right aligned message bubbles, per-person sections, inline attachment images, and threat/sentiment indicators (`src/reporters/chat_reporter.py`)
+- **Excel Findings Summary sheet**: Rewritten with verifiable timestamps, confirmed threats, AI-identified risk indicators, pattern detections, and recommendations
+- **Excel Timeline sheet**: Chronological case event timeline including threats, SOS messages, pattern detections, sentiment shifts, email communications, and third-party email corroboration
+- **Legal appendices in HTML report**: Appendix A (Methodology Statement), Appendix B (Completeness Validation with gap detection and one-sided conversation flags), Appendix C (Limitations)
+- **Case chronology timelines**: Both HTML interactive timeline and Excel Timeline sheet now include all email messages alongside flagged events — emails between mapped persons labeled "Email", emails involving unmapped contacts (counselors, attorneys, family) labeled "Third-Party Email" with distinct visual styling
+- **All mapped persons get output**: Every mapped person gets a tab/section in Excel, HTML, and chat-bubble reports even when they have zero messages (documents absence of communication for legal completeness)
+- **Attachment preservation with hash verification**: Original attachments copied with SHA-256 verification per FRE 1002 Best Evidence Rule
+- **Per-run output isolation**: Each analysis run creates a timestamped subdirectory to prevent file comingling across runs
+- **Expanded integration tests**: 50+ synthetic messages covering iMessage, WhatsApp, email (mapped and third-party), with images, tapbacks, emoji, SOS, unsent, and edge cases; legal appendix and person3 coverage assertions
+
+### Changed
+- **Preserve original image format**: HTML report inlines images in their original format (PNG, HEIC, etc.) instead of converting all to JPEG
+- **Validation pipeline flow**: Data now flows phase-to-phase without re-running analysis; `validate_before_run.py` generates reports from ALL messages instead of 5-message AI sample
+- **Timeline generator signature**: `create_timeline()` and `generate_html_timeline()` now accept optional `extracted_data` parameter for email event inclusion
+- **.env.example synced**: All env vars read by `config.py` now documented in `.env.example`
+- **Non-capturing groups in threat patterns**: Suppresses pandas FutureWarning about regex capture groups
+
+### Fixed
+- **Excel Date Range bug**: Overview sheet date range calculation corrected
+- **Per-run .jsonl file leak**: Forensic recorder log files now written inside per-run output directory instead of repo root
+- **HTML image compression**: Fixed quality degradation from aggressive JPEG recompression
+- **Test file leaks**: All tests now use `tmp_path` fixture for output, preventing leftover files in repo directory
+- **ManualReviewManager leak in validation**: Validation script passes `forensic_recorder` to prevent orphaned log files
+
 ## [4.1.1] - 2026-02-24
 
 ### Added

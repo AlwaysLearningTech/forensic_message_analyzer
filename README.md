@@ -82,8 +82,9 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
   - Manual review breakdown
   - Chain of custody reference
 - **Forensic Export**: Unedited, unfiltered CSV and Excel export of all messages for court admissibility
-- **HTML/PDF Reports**: Inline base64 images, per-person message tables, conversation threads, risk indicators, and legal compliance footer (PDF via WeasyPrint)
-- **Timeline Visualization**: Interactive HTML timelines
+- **HTML/PDF Reports**: Inline base64 images, per-person message tables, conversation threads, risk indicators, legal compliance footer, legal appendices (Methodology, Completeness Validation, Limitations) (PDF via WeasyPrint)
+- **Chat-Bubble Reports**: iMessage-style chat-bubble HTML report with left/right aligned message bubbles, per-person sections, inline attachments, and threat/sentiment indicators
+- **Timeline Visualization**: Interactive HTML timelines with case chronology — combines flagged events (threats, patterns, SOS) with all email communications including third-party corroboration (counselors, attorneys, family)
 - **Manual Review**: Structured decision tracking
 - **Run Manifest**: Complete documentation of analysis process
 
@@ -250,7 +251,7 @@ Run the complete forensic analysis:
 python3 run.py
 ```
 
-This executes five phases:
+This executes six phases:
 1. **Data Extraction**: Collects messages from all sources (iMessage, WhatsApp, email, Teams, screenshots)
    - Automatically extracts ZIP files (e.g., WhatsApp_SourceFiles.zip) and TAR archives (Teams exports)
    - Decodes modern iMessage binary format (attributedBody)
@@ -265,13 +266,16 @@ This executes five phases:
    - Behavioral pattern analysis
    - Communication metrics
 3. **Manual Review**: Flags items for human review
-4. **Report Generation**: Creates comprehensive reports
-   - Excel: Separate tabs per person with integrated threat/sentiment data
+4. **Behavioral Analysis**: Post-review behavioral pattern analysis
+5. **Report Generation**: Creates comprehensive reports
+   - Excel: Separate tabs per person with integrated threat/sentiment data, plus Findings Summary, Timeline, AI Analysis, Conversation Threads, and Third Party Contacts sheets
    - Word: Complete analysis with all sections
    - PDF: Matches Word content for legal distribution
    - JSON: Raw data for additional processing
-   - Timeline: Interactive HTML visualization
-5. **Documentation**: Generates chain of custody and manifest
+   - HTML/PDF: Per-person message tables, inline images, legal appendices (Methodology, Completeness Validation, Limitations)
+   - Chat-bubble HTML: iMessage-style conversation view with aligned message bubbles
+   - Timeline: Interactive HTML visualization with case chronology (flagged events + email communications)
+6. **Documentation**: Generates chain of custody and manifest
 
 ### Expected Output
 
@@ -288,11 +292,17 @@ forensic_message_analyzer/
 └── output/
     └── report_YYYYMMDD_HHMMSS.xlsx
         ├── Overview (summary statistics)
-        ├── Person 2 (filtered conversations)
-        ├── Person 3 (filtered conversations)
-        ├── Person 1 (filtered conversations)
-        └── Manual Review (if applicable)
+        ├── Findings Summary (confirmed threats, AI findings, patterns, recommendations)
+        ├── AI Analysis (risk indicators, AI-detected threats)
+        ├── Timeline (chronological events: threats, SOS, patterns, emails, third-party emails)
+        ├── Person 2 (filtered conversations with chat data)
+        ├── Person 3 (filtered conversations with chat data)
+        ├── Conversation Threads (thread summaries with participants, time ranges)
+        ├── Manual Review (if applicable)
+        └── Third Party Contacts (unmapped contacts discovered during extraction)
 ```
+
+Note: Person 1 does not get a separate tab because every other person's tab already shows their conversations with Person 1. All mapped persons get tabs even with zero messages to document absence of communication.
 
 Each person tab includes:
 - Message details (timestamp, sender, recipient, content, source)
@@ -440,7 +450,9 @@ forensic_message_analyzer/
 │   │   └── web_review.py       # Flask-based web review UI
 │   ├── reporters/               # Report generation
 │   │   ├── forensic_reporter.py # Main reporter (Excel, Word, PDF)
-│   │   ├── html_reporter.py    # HTML/PDF report with inline images
+│   │   ├── excel_reporter.py    # Standalone Excel report with multiple sheets
+│   │   ├── html_reporter.py    # HTML/PDF report with inline images and legal appendices
+│   │   ├── chat_reporter.py    # iMessage-style chat-bubble HTML report
 │   │   └── json_reporter.py    # JSON output
 │   ├── utils/                   # Utilities and helpers
 │   │   ├── conversation_threading.py # Thread detection and grouping
@@ -456,6 +468,8 @@ forensic_message_analyzer/
 │   ├── test_core_functionality.py # Core component tests
 │   ├── test_integration.py      # End-to-end tests
 │   ├── test_forensic_utils.py   # Forensic utilities tests
+│   ├── test_teams_extractor.py  # Microsoft Teams extractor tests
+│   ├── test_third_party_registry.py # Third-party contact registry tests
 │   └── run_all_tests.sh         # Test runner script
 ├── patterns/                    # YAML pattern definitions
 │   └── analysis_patterns.yaml
@@ -519,7 +533,9 @@ forensic_message_analyzer/
 
 #### Utilities
 - **TimelineGenerator(forensic_recorder)**
-  - `create_timeline(df, output_path)`: Create HTML timeline
+  - `create_timeline(df, output_path, raw_messages=None, extracted_data=None)`: Create HTML timeline with case chronology
+  - When `extracted_data` is provided, all email messages are included alongside flagged events
+  - Email events classified as "email" (mapped persons) or "third-party-email" (counselors, attorneys, etc.)
 
 - **ManualReviewManager()**
   - `add_review(item_id, item_type, decision, notes)`: Add review decision
@@ -527,6 +543,14 @@ forensic_message_analyzer/
 
 - **HtmlReporter(forensic_recorder)**
   - `generate_report(extracted_data, analysis_results, review_decisions, output_path, pdf=True)`: Generate HTML/PDF report with inline images
+  - Includes legal appendices (Methodology, Completeness Validation, Limitations)
+
+- **ChatReporter(forensic_recorder)**
+  - `generate_report(extracted_data, analysis_results, review_decisions, output_path)`: Generate iMessage-style chat-bubble HTML report
+
+- **ExcelReporter(forensic_recorder)**
+  - `generate_report(extracted_data, analysis_results, review_decisions, output_path)`: Generate multi-sheet Excel report
+  - Sheets: Overview, Findings Summary, AI Analysis, Timeline, per-person chat, Conversation Threads, Manual Review, Third Party Contacts
 
 - **ThirdPartyRegistry(forensic_recorder, config)**
   - `register(identifier, display_name, source, context)`: Register unmapped contact
@@ -617,12 +641,19 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
   - Overview cards, per-person message tables, conversation threads
   - Inline base64 attachment images (iMessage and WhatsApp)
   - Risk indicators, AI summary, legal compliance footer
+  - Legal appendices: Appendix A (Methodology), Appendix B (Completeness Validation), Appendix C (Limitations)
 
 - `forensic_analysis_YYYYMMDD_HHMMSS.pdf` - PDF conversion of HTML report (via WeasyPrint)
 
-- `timeline_YYYYMMDD_HHMMSS.html` - Interactive timeline visualization
+- `timeline_YYYYMMDD_HHMMSS.html` - Interactive timeline visualization (case chronology)
   - Chronological message view with filtering
   - Threat highlighting and sentiment indicators
+  - Email communications with subject lines (purple border for mapped persons, pink for third-party)
+  - Third-party emails (counselors, attorneys, family) provide corroborating evidence context
+
+- `chat_report_YYYYMMDD_HHMMSS.html` - iMessage-style chat-bubble report
+  - Per-person conversation sections with left/right aligned message bubbles
+  - Inline attachment images, threat/sentiment visual indicators, conversation threading
 
 - `legal_team_summary_YYYYMMDD_HHMMSS.txt` - AI-generated narrative summary for attorneys
   - Explains key findings in plain language
@@ -660,6 +691,7 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
 ├── forensic_report_20251006_011543.pdf
 ├── forensic_analysis_20251006_011543.html
 ├── forensic_analysis_20251006_011543.pdf
+├── chat_report_20251006_011543.html
 ├── timeline_20251006_011545.html
 ├── legal_team_summary_20251006_011545.txt
 ├── all_messages_20251006_011545.csv

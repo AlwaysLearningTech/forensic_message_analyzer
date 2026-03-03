@@ -14,7 +14,7 @@
   - `src/extractors/`: Data extraction from iMessage, WhatsApp, email, Microsoft Teams, and screenshots
   - `src/analyzers/`: Automated analysis including threats, sentiment, patterns, OCR, metrics, and AI-powered analysis
   - `src/review/`: Manual review management, interactive review, and web-based review interface
-  - `src/reporters/`: Report generation (Excel, Word, PDF, JSON)
+  - `src/reporters/`: Report generation (Excel, Word, PDF, JSON, HTML, chat-bubble HTML)
   - `src/utils/`: Chain of custody, run manifest, timeline creation, conversation threading, legal compliance
   - `src/forensic_utils.py`: Core forensic integrity, evidence validation, and Daubert compliance
   - `src/config.py`: Configuration management with flexible contact mapping
@@ -57,6 +57,8 @@
 - **ForensicAnalyzer(config=None)**: `src/main.py` - Main workflow orchestrator, takes **Config** (NOT ForensicRecorder!)
   - Creates internally: `self.forensic`, `self.integrity`, `self.manifest`, `self.third_party_registry`
   - Methods: `run_full_analysis()`, `run_extraction_phase()`, `run_analysis_phase(data)`, `run_review_phase(analysis, data)`, `run_behavioral_phase(data, analysis, review)`, `run_reporting_phase(data, analysis, review)`, `run_documentation_phase(data, analysis)`
+  - Reporting phase calls: ForensicReporter, ExcelReporter, HtmlReporter, ChatReporter, JSONReporter
+  - Documentation phase generates: chain of custody, timeline (with email events), run manifest
 - **ThirdPartyRegistry(forensic_recorder, config=None)**: `src/third_party_registry.py` - Tracks third-party tools for forensic provenance
 - **DataExtractor(forensic, third_party_registry=None)**: `src/extractors/data_extractor.py` - Takes ForensicRecorder
   - Method: `extract_all(start_date=None, end_date=None)` returns list of dicts with messages from all sources
@@ -104,15 +106,32 @@
 - **InteractiveReview(review_manager)**: `src/review/interactive_review.py` - Takes ManualReviewManager
 - **WebReview(review_manager, forensic_recorder=None)**: `src/review/web_review.py` - Web-based review interface
 - **TimelineGenerator(forensic)**: `src/utils/timeline_generator.py` - Takes ForensicRecorder
-  - Method: `create_timeline(df, output_path, raw_messages=None)` - NOT generate_timeline()!
-  - Method: `generate_html_timeline(df, raw_messages=None)`
-  - Note: Requires DataFrame and output path; raw_messages is optional
+  - Method: `create_timeline(df, output_path, raw_messages=None, extracted_data=None)` - NOT generate_timeline()!
+  - Method: `generate_html_timeline(df, raw_messages=None, extracted_data=None)`
+  - Note: Requires DataFrame and output path; raw_messages and extracted_data are optional
+  - Note: When extracted_data is provided, all email messages are included on the timeline as "email" or "third-party-email" events
 - **ConversationThreader(default_gap_hours=2.0)**: `src/utils/conversation_threading.py` - Used by TimelineGenerator
 - **RunManifest(forensic_recorder=None)**: `src/utils/run_manifest.py` - Optional ForensicRecorder
   - Methods: `add_input_file()`, `add_output_file()`, `generate_manifest(output_path=None)`
   - Methods: `add_operation()`, `validate_manifest()`, `add_extraction_summary()`, `add_analysis_summary()`, `add_report_summary()`
   - Note: `generate_manifest()` returns a Path object, not a dict!
   - Note: Files must exist to be added properly
+- **ExcelReporter(forensic_recorder, config=None)**: `src/reporters/excel_reporter.py` - Standalone Excel report generator
+  - Method: `generate_report(extracted_data, analysis_results, review_decisions, output_path)` - Returns Path
+  - Sheets produced: Overview, Findings Summary, AI Analysis, Timeline, per-person chat tabs, Conversation Threads, Manual Review, Third Party Contacts
+  - Note: Person1 does NOT get a per-person tab (every other tab already shows their conversations)
+  - Note: All mapped persons get sheets even if they have zero messages (documents absence of communication)
+  - Note: Timeline sheet includes email events labeled "Email" or "Third-Party Email"
+- **HtmlReporter(forensic_recorder, config=None)**: `src/reporters/html_reporter.py` - HTML/PDF report with inline images
+  - Method: `generate_report(extracted_data, analysis_results, review_decisions, output_path, pdf=True)` - Returns Dict[str, Path]
+  - Includes: overview cards, per-person message tables, conversation threads, risk indicators, AI summary
+  - Includes: Legal appendices (Appendix A: Methodology, Appendix B: Completeness Validation, Appendix C: Limitations)
+  - Inline base64 attachment images, forensic status indicators (SOS, Unsent, Edited, SMS, Tapback)
+  - PDF via WeasyPrint (degrades gracefully if WeasyPrint unavailable)
+- **ChatReporter(forensic_recorder, config=None)**: `src/reporters/chat_reporter.py` - iMessage-style chat-bubble HTML report
+  - Method: `generate_report(extracted_data, analysis_results, review_decisions, output_path)` - Returns Dict[str, Path]
+  - Per-person chat sections with left/right aligned message bubbles
+  - Inline attachment images, threat/sentiment indicators, conversation threading
 
 ## IMPORTANT: Verified Method Names and Signatures
 - ForensicAnalyzer takes **Config** (NOT ForensicRecorder!) - `ForensicAnalyzer(config=None)`
@@ -125,7 +144,7 @@
 - AIAnalyzer uses `analyze_messages(messages, batch_size=50)` NOT analyze(df, threat_results)!
 - ScreenshotAnalyzer uses `analyze_screenshots()` with NO params - NOT process_screenshots(paths)!
 - AttachmentProcessor.process_attachments takes optional **Path** - NOT DataFrame!
-- TimelineGenerator uses `create_timeline(df, output_path, raw_messages=None)` NOT generate_timeline()
+- TimelineGenerator uses `create_timeline(df, output_path, raw_messages=None, extracted_data=None)` NOT generate_timeline()
 - ManualReviewManager uses `add_review()` with positional arguments, NO `load_existing_reviews()` method but HAS `load_reviews(session_id)`
 - ForensicRecorder has optional `output_dir` param - `ForensicRecorder(output_dir=None)`
 - ForensicRecorder.record_action(action, details, metadata) creates dict with 'details' NOT 'description'
@@ -241,8 +260,11 @@ Repository (code only)          Local Data Storage
 - **Main workflow**: `src/main.py`
 - **Configuration**: `src/config.py`, `.env.example`
 - **Forensic utilities**: `src/forensic_utils.py`
-- **Tests**: `tests/test_integration.py`, `tests/test_imports.py`
-- **Documentation**: `README.md`, this file
+- **Reporters**: `src/reporters/excel_reporter.py`, `src/reporters/html_reporter.py`, `src/reporters/chat_reporter.py`, `src/reporters/forensic_reporter.py`, `src/reporters/json_reporter.py`
+- **Timeline**: `src/utils/timeline_generator.py`
+- **Legal compliance**: `src/utils/legal_compliance.py`
+- **Tests**: `tests/test_integration.py`, `tests/test_core_functionality.py`, `tests/test_forensic_utils.py`, `tests/test_imports.py`, `tests/test_teams_extractor.py`, `tests/test_third_party_registry.py`
+- **Documentation**: `README.md`, `CHANGELOG.md`, this file
 
 ## Conventions
 - Use `forensic.record_action()` for all significant operations
