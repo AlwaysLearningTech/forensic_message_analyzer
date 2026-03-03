@@ -27,7 +27,7 @@ class TimelineGenerator:
         self._tz = pytz.timezone(self.config.timezone)
 
     def create_timeline(self, df: pd.DataFrame, output_path: Path,
-                        raw_messages: list = None):
+                        raw_messages: list = None, extracted_data: dict = None):
         """
         Create HTML timeline visualization.
 
@@ -37,12 +37,16 @@ class TimelineGenerator:
             raw_messages: Optional flat list of message dicts used for
                 conversation context lookup.  When not provided the
                 DataFrame is converted to dicts automatically.
+            extracted_data: Optional extraction-phase dict.  When provided,
+                email messages are included on the timeline alongside
+                flagged events.
         """
         if raw_messages is None:
             raw_messages = df.to_dict("records")
 
         # Create HTML timeline
-        html_content = self.generate_html_timeline(df, raw_messages)
+        html_content = self.generate_html_timeline(df, raw_messages,
+                                                   extracted_data=extracted_data)
 
         with open(output_path, 'w') as f:
             f.write(html_content)
@@ -55,8 +59,16 @@ class TimelineGenerator:
         )
 
     def generate_html_timeline(self, df: pd.DataFrame,
-                               raw_messages: list = None) -> str:
-        """Generate HTML timeline content with conversation context."""
+                               raw_messages: list = None,
+                               extracted_data: dict = None) -> str:
+        """Generate HTML timeline content with conversation context.
+
+        Args:
+            df: DataFrame with messages and analysis columns.
+            raw_messages: Flat list of message dicts for context lookup.
+            extracted_data: Extraction-phase dict.  When provided, all email
+                messages are added to the timeline alongside flagged events.
+        """
         if raw_messages is None:
             raw_messages = df.to_dict("records")
 
@@ -94,8 +106,32 @@ class TimelineGenerator:
                 'type': self.determine_event_type(row),
                 'sender': row.get('sender', 'Unknown'),
                 'context_html': context_html,
+                'subject': '',
             }
             events.append(event)
+
+        # --- Email communications (case chronology context) ---
+        # All emails are included because they are low-volume and each is
+        # purposeful.  Third-party emails (counselors, attorneys, family)
+        # provide crucial corroboration for court chronologies.
+        if extracted_data:
+            mapped_persons = set(self.config.contact_mappings.keys())
+            for msg in extracted_data.get('messages', []):
+                if msg.get('source') != 'email':
+                    continue
+                sender = msg.get('sender', '')
+                recipient = msg.get('recipient', '')
+                is_third_party = sender not in mapped_persons or recipient not in mapped_persons
+                event_type = 'third-party-email' if is_third_party else 'email'
+                subject = msg.get('subject', '')
+                events.append({
+                    'date': self._format_local_ts(msg.get('timestamp')),
+                    'content': (msg.get('content', '') or '')[:100],
+                    'type': event_type,
+                    'sender': sender,
+                    'context_html': '',
+                    'subject': subject,
+                })
 
         # Sort by date
         events.sort(key=lambda x: x['date'])
@@ -112,6 +148,8 @@ class TimelineGenerator:
                 .threat {{ border-color: #dc3545; background: #f8d7da; }}
                 .pattern {{ border-color: #ffc107; background: #fff3cd; }}
                 .sentiment {{ border-color: #17a2b8; background: #d1ecf1; }}
+                .email {{ border-color: #6f42c1; background: #f3e8ff; }}
+                .third-party-email {{ border-color: #e83e8c; background: #fce4ec; }}
                 .date {{ font-weight: bold; color: #666; }}
                 .content {{ margin-top: 5px; }}
                 .sender {{ font-style: italic; color: #999; }}
@@ -156,10 +194,16 @@ class TimelineGenerator:
             context_section = event.get('context_html', '')
             safe_sender = html_module.escape(str(event['sender']))
             safe_content = html_module.escape(str(event['content']))
+            subject = event.get('subject', '')
+            subject_html = ''
+            if subject:
+                safe_subject = html_module.escape(subject)
+                subject_html = f'<div class="content" style="font-weight:bold;">Subject: {safe_subject}</div>'
             html += f"""
                 <div class="event {event['type']}">
                     <div class="date">{event['date']}</div>
                     <div class="sender">From: {safe_sender}</div>
+                    {subject_html}
                     <div class="content">{safe_content}...</div>
                     {context_section}
                 </div>

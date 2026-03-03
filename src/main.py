@@ -900,7 +900,7 @@ class ForensicAnalyzer:
                             for col in merge_cols:
                                 df[col] = analysis_df[col].values
 
-            timeline_gen.create_timeline(df, timeline_path)
+            timeline_gen.create_timeline(df, timeline_path, extracted_data=data)
             print(f"    Saved to {timeline_path}")
         else:
             print("\n[!] Skipping timeline generation (no message data)")

@@ -554,6 +554,30 @@ class ExcelReporter:
                         '_sort_ts': shift.get('timestamp', shift.get('date', '')),
                     })
 
+            # --- Email communications (all emails provide chronological context) ---
+            # Emails are low-volume and each is purposeful; third-party emails
+            # (counselors, attorneys, family) provide crucial corroboration.
+            messages = extracted_data.get('messages', [])
+            mapped_persons = set(self.config.contact_mappings.keys())
+            for msg in messages:
+                if msg.get('source') != 'email':
+                    continue
+                sender = msg.get('sender', '')
+                recipient = msg.get('recipient', '')
+                is_third_party = sender not in mapped_persons or recipient not in mapped_persons
+                event_type = 'Third-Party Email' if is_third_party else 'Email'
+                subject = msg.get('subject', '')
+                content_preview = (msg.get('content', '') or '')[:100]
+                events.append({
+                    'Timestamp': self._format_local_timestamp(msg.get('timestamp')),
+                    'Event Type': event_type,
+                    'Sender': sender,
+                    'Content': content_preview,
+                    'Source': 'email',
+                    'Details': f'Subject: {subject}' if subject else '',
+                    '_sort_ts': msg.get('timestamp', ''),
+                })
+
             if not events:
                 logger.info("No timeline events to write")
                 return

@@ -782,6 +782,43 @@ class TestSystemIntegration:
                 'source': 'iMessage',
                 'service': 'iMessage',
             },
+
+            # ============================================================
+            # Email messages — third-party corroboration + mapped persons
+            # ============================================================
+            # Third-party email from counselor
+            {
+                'message_id': 'email_001',
+                'content': 'Following up on our session regarding the safety concerns you raised.',
+                'sender': 'counselor@therapy.com',
+                'recipient': p1,
+                'timestamp': '2024-06-15T14:00:00+00:00',
+                'source': 'email',
+                'subject': 'Re: Safety Concerns - Session Follow-up',
+                'file': 'counselor_followup.eml',
+            },
+            # Email from person1 to attorney
+            {
+                'message_id': 'email_002',
+                'content': 'Please find attached the screenshots of threatening messages.',
+                'sender': p1,
+                'recipient': 'attorney@lawfirm.com',
+                'timestamp': '2024-06-16T10:00:00+00:00',
+                'source': 'email',
+                'subject': 'Evidence for Protective Order Filing',
+                'file': 'attorney_evidence.eml',
+            },
+            # Email between mapped persons
+            {
+                'message_id': 'email_003',
+                'content': 'I need you to sign the custody agreement by Friday.',
+                'sender': p2,
+                'recipient': p1,
+                'timestamp': '2024-06-16T14:00:00+00:00',
+                'source': 'email',
+                'subject': 'Custody Agreement',
+                'file': 'custody_agreement.eml',
+            },
         ]
 
         # JSON round-trip to match real pipeline behaviour
@@ -862,7 +899,7 @@ class TestSystemIntegration:
         # Verify threat detection found the right messages
         threat_count = int(threat_df['threat_detected'].sum())
         assert threat_count >= 8, (
-            f"Expected at least 8 threats from 48 synthetic messages, "
+            f"Expected at least 8 threats from synthetic messages, "
             f"got {threat_count}"
         )
 
@@ -1327,6 +1364,26 @@ class TestSystemIntegration:
         )
         timeline_rows = list(timeline_ws.iter_rows(min_row=2, values_only=True))
         assert len(timeline_rows) > 0, "Timeline sheet should have at least one event"
+
+        # Verify email events appear in the Timeline (case chronology)
+        event_type_col = timeline_headers.index('Event Type')
+        details_col = timeline_headers.index('Details')
+        timeline_event_types = [row[event_type_col] for row in timeline_rows if row[event_type_col]]
+        assert 'Third-Party Email' in timeline_event_types, (
+            f"Timeline should contain 'Third-Party Email' events (counselor, attorney), "
+            f"has event types: {set(timeline_event_types)}"
+        )
+        assert 'Email' in timeline_event_types, (
+            f"Timeline should contain 'Email' events (between mapped persons), "
+            f"has event types: {set(timeline_event_types)}"
+        )
+        # Verify subject lines are present in Details column
+        timeline_details = [row[details_col] for row in timeline_rows if row[details_col]]
+        subject_details = [d for d in timeline_details if 'Subject:' in str(d)]
+        assert len(subject_details) >= 2, (
+            f"Timeline should have at least 2 email events with 'Subject:' in Details, "
+            f"found {len(subject_details)}"
+        )
 
         wb.close()
 
