@@ -216,14 +216,17 @@ class ForensicAnalyzer:
     # Pipeline state (for resume after crash)
     # ------------------------------------------------------------------
 
-    def _save_pipeline_state(self, review_session_id: str = None):
-        """Save pipeline state so a crashed run can resume from the review phase."""
+    def _save_pipeline_state(self, review_session_id: str = None,
+                             review_results_path: str = None,
+                             review_complete: bool = False):
+        """Save pipeline state so a crashed run can resume or finalize later."""
         state = {
             "timestamp": datetime.now().isoformat(),
             "extracted_data_path": str(self._extracted_data_path) if self._extracted_data_path else None,
             "analysis_results_path": str(self._analysis_results_path) if self._analysis_results_path else None,
+            "review_results_path": review_results_path,
             "review_session_id": review_session_id,
-            "review_complete": False,
+            "review_complete": review_complete,
         }
         state_path = Path(self.config.output_dir) / "pipeline_state.json"
         with open(state_path, 'w') as f:
@@ -414,6 +417,7 @@ class ForensicAnalyzer:
 
         manager = ManualReviewManager(session_id=resume_session_id, config=self.config,
                                        forensic_recorder=self.forensic)
+        self._review_session_id = manager.session_id
         already_reviewed = manager.reviewed_item_ids
 
         # Present items for review — only from mapped contacts
@@ -546,6 +550,13 @@ class ForensicAnalyzer:
                                      "relevant": review_summary['relevant'],
                                      "not_relevant": review_summary['not_relevant'],
                                      "uncertain": review_summary['uncertain']})
+
+        # Persist review results to disk for finalize phase
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        review_output = Path(self.config.output_dir) / f"review_results_{timestamp}.json"
+        with open(review_output, 'w') as f:
+            json.dump(review_summary, f, indent=2, default=str)
+        self._review_results_path = review_output
 
         return review_summary
     
@@ -909,14 +920,19 @@ class ForensicAnalyzer:
         return result
     
     def run_full_analysis(self, resume: bool = False):
-        """Run the complete forensic analysis workflow.
+        """Run extraction, analysis, and review phases (1-3), then stop.
+
+        After review completes, pipeline state is saved and the process
+        exits.  Run ``run_finalize()`` (via ``python3 run.py --finalize``)
+        to continue with behavioral analysis, AI analysis, reporting, and
+        documentation (Phases 4-7).
 
         Args:
-            resume: If True, skip extraction and AI analysis by loading
+            resume: If True, skip extraction and analysis by loading
                     saved state from a previous run. Resumes at the review phase.
         """
         print("\n" + "="*80)
-        print(" FORENSIC MESSAGE ANALYZER - FULL WORKFLOW ")
+        print(" FORENSIC MESSAGE ANALYZER — PHASES 1-3 ")
         print("="*80)
         print(f"Session started: {datetime.now()}")
         print(f"Output directory: {self.config.output_dir}")
@@ -967,6 +983,90 @@ class ForensicAnalyzer:
             # Phase 3: Review
             review_results = self.run_review_phase(analysis_results, extracted_data, resume_session_id=resume_session_id)
 
+            # Save complete state with review results for finalize
+            self._save_pipeline_state(
+                review_session_id=getattr(self, '_review_session_id', None),
+                review_results_path=str(self._review_results_path) if getattr(self, '_review_results_path', None) else None,
+                review_complete=True,
+            )
+
+            print("\n" + "="*80)
+            print(" REVIEW COMPLETE — PIPELINE PAUSED ")
+            print("="*80)
+            print(f"\nRun directory: {self.config.output_dir}")
+            print(f"\nTo generate reports, run:")
+            print(f"  python3 run.py --finalize \"{self.config.output_dir}\"")
+            print(f"\nOr auto-detect the latest run:")
+            print(f"  python3 run.py --finalize")
+
+        except Exception as e:
+            print(f"\n[ERROR] Workflow failed: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+    def run_finalize(self):
+        """Run post-review phases (4-7) using saved pipeline state.
+
+        Loads extraction data, analysis results, and review decisions
+        from disk, then runs behavioral analysis, AI analysis, reporting,
+        and documentation.
+        """
+        print("\n" + "="*80)
+        print(" FORENSIC MESSAGE ANALYZER — FINALIZE (POST-REVIEW) ")
+        print("="*80)
+        print(f"Session started: {datetime.now()}")
+        print(f"Output directory: {self.config.output_dir}")
+
+        state = self._load_pipeline_state()
+        if not state:
+            raise RuntimeError(
+                "No pipeline state found. Run the full pipeline first "
+                "(python3 run.py) to complete Phases 1-3."
+            )
+        if not state.get("review_complete"):
+            raise RuntimeError(
+                "Review is not yet complete. Run the full pipeline or "
+                "resume review (python3 run.py --resume) before finalizing."
+            )
+
+        # Validate all required paths exist
+        ext_path = state.get("extracted_data_path")
+        ana_path = state.get("analysis_results_path")
+        rev_path = state.get("review_results_path")
+
+        missing = []
+        for label, path in [("Extraction data", ext_path), ("Analysis results", ana_path), ("Review results", rev_path)]:
+            if not path or not Path(path).exists():
+                missing.append(f"{label}: {path or '(not set)'}")
+        if missing:
+            raise RuntimeError(
+                "Pipeline state references missing files:\n  " + "\n  ".join(missing)
+            )
+
+        # Load saved data
+        print(f"\n[*] Loading saved pipeline data...")
+        print(f"    Extraction: {Path(ext_path).name}")
+        print(f"    Analysis:   {Path(ana_path).name}")
+        print(f"    Review:     {Path(rev_path).name}")
+
+        with open(ext_path) as f:
+            extracted_data = json.load(f)
+        with open(ana_path) as f:
+            analysis_results = json.load(f)
+        with open(rev_path) as f:
+            review_results = json.load(f)
+
+        self._extracted_data_path = Path(ext_path)
+        self._analysis_results_path = Path(ana_path)
+
+        self.forensic.record_action(
+            "finalize_started",
+            "Post-review finalization started from saved pipeline state",
+            {"state_timestamp": state.get("timestamp", "unknown")},
+        )
+
+        try:
             # Phase 4: Behavioral Analysis (post-review)
             try:
                 behavioral_results = self.run_behavioral_phase(extracted_data, analysis_results, review_results)
@@ -984,8 +1084,6 @@ class ForensicAnalyzer:
                     print(f"    {src}: {count}")
 
             # Phase 5: AI Analysis (post-review)
-            # Filter local analysis by review decisions first, then let AI
-            # incorporate confirmed findings into its summary.
             filtered_for_ai = self._filter_analysis_by_review(analysis_results, review_results)
             ai_results = self.run_ai_analysis_phase(extracted_data, filtered_for_ai)
             analysis_results['ai_analysis'] = ai_results
@@ -1010,21 +1108,24 @@ class ForensicAnalyzer:
             self._clear_pipeline_state()
 
         except Exception as e:
-            print(f"\n[ERROR] Workflow failed: {e}")
+            print(f"\n[ERROR] Finalize failed: {e}")
             import traceback
             traceback.print_exc()
             raise
 
 
 def main(config: Config = None, resume: bool = False):
-    """Main entry point for the forensic analyzer.
+    """Main entry point for the forensic analyzer (Phases 1-3).
+
+    Runs extraction, local analysis, and manual review, then stops.
+    Use ``finalize()`` to run the remaining phases.
 
     Args:
         config: Configuration instance. If None, creates a new one.
-        resume: If True, resume from saved pipeline state (skip extraction + AI).
+        resume: If True, resume from saved pipeline state (skip extraction + analysis).
 
     Returns:
-        bool: True if analysis completed successfully, False otherwise.
+        bool: True if completed successfully, False otherwise.
     """
     try:
         analyzer = ForensicAnalyzer(config)
@@ -1032,4 +1133,26 @@ def main(config: Config = None, resume: bool = False):
         return True
     except Exception as e:
         print(f"\n[ERROR] Analysis failed: {e}")
+        return False
+
+
+def finalize(config: Config = None):
+    """Entry point for the finalize (post-review) phase (Phases 4-7).
+
+    Loads saved pipeline state including review decisions, then runs
+    behavioral analysis, AI analysis, reporting, and documentation.
+
+    Args:
+        config: Configuration instance. ``config.output_dir`` must point
+                to the run directory from the original pipeline run.
+
+    Returns:
+        bool: True if completed successfully, False otherwise.
+    """
+    try:
+        analyzer = ForensicAnalyzer(config)
+        analyzer.run_finalize()
+        return True
+    except Exception as e:
+        print(f"\n[ERROR] Finalize failed: {e}")
         return False
