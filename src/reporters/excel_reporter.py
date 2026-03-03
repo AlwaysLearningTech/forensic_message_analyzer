@@ -76,7 +76,8 @@ class ExcelReporter:
 
                 # Findings Summary — generated whenever ANY findings exist
                 self._write_findings_summary_sheet(
-                    writer, analysis_results, review_decisions
+                    writer, analysis_results, review_decisions,
+                    messages=extracted_data.get('messages', [])
                 )
 
                 # AI Analysis sheet (risk indicators + AI-detected threats)
@@ -252,6 +253,24 @@ class ExcelReporter:
         latest = max(timestamps)
         return f"{earliest.strftime('%Y-%m-%d')} to {latest.strftime('%Y-%m-%d')}"
 
+    @staticmethod
+    def _match_quote_to_message(quote: str, messages: list) -> dict:
+        """Match an AI-identified quote to its source message via substring matching.
+
+        Returns dict with 'timestamp' and 'sender' if found, empty values otherwise.
+        """
+        if not quote or not messages:
+            return {'timestamp': None, 'sender': ''}
+        quote_lower = quote.lower().strip()
+        for msg in messages:
+            content = msg.get('content', '')
+            if content and quote_lower in content.lower():
+                return {
+                    'timestamp': msg.get('timestamp'),
+                    'sender': msg.get('sender', ''),
+                }
+        return {'timestamp': None, 'sender': ''}
+
     def _write_overview_sheet(self, writer, extracted_data: Dict,
                             analysis_results: Dict, review_decisions: Dict):
         """Write overview sheet with summary statistics."""
@@ -330,7 +349,8 @@ class ExcelReporter:
             logger.error(f"Failed to write Conversation Threads sheet: {e}")
 
     def _write_findings_summary_sheet(self, writer, analysis_results: Dict,
-                                      review_decisions: Dict):
+                                      review_decisions: Dict,
+                                      messages: list = None):
         """
         Write a 'Findings Summary' sheet with all confirmed findings,
         AI-identified threats, risk indicators, patterns, and recommendations
@@ -340,6 +360,7 @@ class ExcelReporter:
             writer: Active pd.ExcelWriter object.
             analysis_results: Full analysis results dictionary.
             review_decisions: Review decisions dictionary.
+            messages: Original messages list for cross-referencing AI quotes.
         """
         try:
             rows = []
@@ -370,11 +391,13 @@ class ExcelReporter:
                 for i, detail in enumerate(threat_assessment.get('details', [])):
                     review_id = f"ai_threat_{i}"
                     if isinstance(detail, dict):
+                        quote = detail.get('quote', '')
+                        match = self._match_quote_to_message(quote, messages or [])
                         rows.append({
                             'Section': 'AI-Identified Threat',
-                            'Timestamp': '',
-                            'Sender': '',
-                            'Content': detail.get('quote', ''),
+                            'Timestamp': self._format_local_timestamp(match['timestamp']),
+                            'Sender': match['sender'],
+                            'Content': quote,
                             'Category': detail.get('type', ''),
                             'Severity / Confidence': str(detail.get('severity', '')).upper(),
                             'Review Decision': self._lookup_review_decision(review_id, review_decisions),
@@ -398,7 +421,7 @@ class ExcelReporter:
                         'Section': 'Risk Indicator',
                         'Timestamp': '',
                         'Sender': '',
-                        'Content': risk.get('indicator', risk.get('description', '')),
+                        'Content': risk.get('indicator', risk.get('description', risk.get('detail', ''))),
                         'Category': '',
                         'Severity / Confidence': str(risk.get('severity', '')).upper(),
                         'Review Decision': '',
@@ -630,7 +653,7 @@ class ExcelReporter:
                     rows.append({
                         'Category': 'Risk Indicator',
                         'Severity': str(risk.get('severity', 'unknown')).upper(),
-                        'Description': risk.get('indicator', risk.get('description', '')),
+                        'Description': risk.get('indicator', risk.get('description', risk.get('detail', ''))),
                         'Recommended Action': risk.get('recommended_action', ''),
                     })
                 else:

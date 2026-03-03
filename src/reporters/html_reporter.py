@@ -440,7 +440,7 @@ class HtmlReporter:
             if isinstance(ri, dict):
                 risk_indicators.append({
                     'severity': str(ri.get('severity', '')).upper(),
-                    'description': ri.get('indicator', ri.get('description', '')),
+                    'description': ri.get('indicator', ri.get('description', ri.get('detail', ''))),
                     'action': ri.get('recommended_action', ''),
                 })
             else:

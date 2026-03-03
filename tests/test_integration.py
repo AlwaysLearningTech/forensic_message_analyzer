@@ -991,11 +991,11 @@ class TestSystemIntegration:
             'key_topics': ['custody', 'threats', 'emotional abuse', 'property damage'],
             'risk_indicators': [
                 {'type': 'threat', 'severity': 'high',
-                 'detail': 'Multiple explicit threats of harm'},
+                 'description': 'Multiple explicit threats of harm'},
                 {'type': 'behavioral', 'severity': 'medium',
-                 'detail': 'Pattern of emotional abuse and name-calling'},
+                 'description': 'Pattern of emotional abuse and name-calling'},
                 {'type': 'emergency', 'severity': 'critical',
-                 'detail': 'Emergency SOS was triggered during conversation'},
+                 'description': 'Emergency SOS was triggered during conversation'},
             ],
             'notable_quotes': [
                 {
@@ -1352,6 +1352,30 @@ class TestSystemIntegration:
         assert 'Confirmed Threat' in findings_sections, (
             f"Findings Summary should contain 'Confirmed Threat' rows, has sections: {findings_sections}"
         )
+
+        # Verify AI-Identified Threat rows now have timestamps (quote matching)
+        section_col = findings_headers.index('Section')
+        timestamp_col = findings_headers.index('Timestamp')
+        sender_col = findings_headers.index('Sender')
+        content_col = findings_headers.index('Content')
+        ai_threat_rows = [row for row in findings_rows
+                          if row[section_col] == 'AI-Identified Threat']
+        assert len(ai_threat_rows) >= 1, "Should have AI-Identified Threat rows"
+        # At least some should have timestamps (quotes that match messages)
+        ai_rows_with_ts = [r for r in ai_threat_rows if r[timestamp_col]]
+        assert len(ai_rows_with_ts) >= 1, (
+            f"AI-Identified Threat rows should have timestamps after quote matching, "
+            f"got {len(ai_rows_with_ts)} of {len(ai_threat_rows)} with timestamps"
+        )
+
+        # Verify Risk Indicator rows have non-empty content
+        risk_rows = [row for row in findings_rows
+                     if row[section_col] == 'Risk Indicator']
+        assert len(risk_rows) >= 1, "Should have Risk Indicator rows"
+        for rr in risk_rows:
+            assert rr[content_col], (
+                f"Risk Indicator row should have non-empty Content, got: {rr}"
+            )
 
         # Timeline sheet should exist with chronological events
         assert 'Timeline' in sheet_names, (

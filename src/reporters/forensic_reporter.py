@@ -74,7 +74,25 @@ class ForensicReporter:
     def _esc(text) -> str:
         """Escape text for safe use in ReportLab Paragraph (XML/HTML context)."""
         return html_module.escape(str(text)) if text else ''
-    
+
+    @staticmethod
+    def _match_quote_to_message(quote: str, messages: list) -> dict:
+        """Match an AI-identified quote to its source message via substring matching.
+
+        Returns dict with 'timestamp' and 'sender' if found, empty values otherwise.
+        """
+        if not quote or not messages:
+            return {'timestamp': None, 'sender': ''}
+        quote_lower = quote.lower().strip()
+        for msg in messages:
+            content = msg.get('content', '')
+            if content and quote_lower in content.lower():
+                return {
+                    'timestamp': msg.get('timestamp'),
+                    'sender': msg.get('sender', ''),
+                }
+        return {'timestamp': None, 'sender': ''}
+
     def generate_comprehensive_report(self, 
                                      extracted_data: Dict,
                                      analysis_results: Dict,
@@ -256,7 +274,7 @@ class ForensicReporter:
                 for risk in risk_indicators:
                     if isinstance(risk, dict):
                         severity = str(risk.get('severity', 'unknown')).upper()
-                        indicator = risk.get('indicator', risk.get('description', ''))
+                        indicator = risk.get('indicator', risk.get('description', risk.get('detail', '')))
                         action = risk.get('recommended_action', '')
                         doc.add_paragraph(f'[{severity}] {indicator}')
                         if action:
@@ -268,13 +286,17 @@ class ForensicReporter:
             threat_assessment = ai_analysis.get('threat_assessment', {})
             if threat_assessment.get('found'):
                 doc.add_heading('AI-Detected Threats', 2)
+                ai_messages = extracted_data.get('messages', [])
                 for detail in threat_assessment.get('details', []):
                     if isinstance(detail, dict):
                         threat_type = detail.get('type', 'Unknown')
                         severity = str(detail.get('severity', 'unknown')).upper()
                         quote = detail.get('quote', '')
                         action = detail.get('recommended_action', '')
-                        doc.add_paragraph(f'[{severity}] {threat_type}')
+                        match = self._match_quote_to_message(quote, ai_messages)
+                        ts_str = f" [{match['timestamp']}]" if match['timestamp'] else ''
+                        sender_str = f" — {match['sender']}" if match['sender'] else ''
+                        doc.add_paragraph(f'[{severity}] {threat_type}{sender_str}{ts_str}')
                         if quote:
                             doc.add_paragraph(f'    "{quote}"')
                         if action:
@@ -364,8 +386,12 @@ class ForensicReporter:
             if high_priority:
                 doc.add_heading('High Priority Threats', 2)
                 for threat in high_priority:
-                    content = threat.get('content', '')[:100]
-                    doc.add_paragraph(f"• {content}...")
+                    content = threat.get('content', '')[:200]
+                    ts = threat.get('timestamp', '')
+                    sender = threat.get('sender', '')
+                    ts_display = f" [{ts}]" if ts else ''
+                    sender_display = f" — {sender}" if sender else ''
+                    doc.add_paragraph(f"• {content}{sender_display}{ts_display}")
         
         # Sentiment Analysis
         doc.add_heading('Sentiment Analysis', 1)
@@ -561,7 +587,7 @@ class ForensicReporter:
                 for risk in risk_indicators:
                     if isinstance(risk, dict):
                         severity = str(risk.get('severity', 'unknown')).upper()
-                        indicator = risk.get('indicator', risk.get('description', ''))
+                        indicator = risk.get('indicator', risk.get('description', risk.get('detail', '')))
                         action = risk.get('recommended_action', '')
                         elements.append(Paragraph(
                             f"<b>[{self._esc(severity)}]</b> {self._esc(indicator)}", styles['Normal']
@@ -578,14 +604,18 @@ class ForensicReporter:
             threat_assessment = ai_analysis.get('threat_assessment', {})
             if threat_assessment.get('found'):
                 elements.append(Paragraph("AI-Detected Threats", styles['Heading2']))
+                ai_messages = extracted_data.get('messages', [])
                 for detail in threat_assessment.get('details', []):
                     if isinstance(detail, dict):
                         threat_type = detail.get('type', 'Unknown')
                         severity = str(detail.get('severity', 'unknown')).upper()
                         quote = detail.get('quote', '')
                         action = detail.get('recommended_action', '')
+                        match = self._match_quote_to_message(quote, ai_messages)
+                        ts_str = f" [{self._esc(str(match['timestamp']))}]" if match['timestamp'] else ''
+                        sender_str = f" &mdash; {self._esc(match['sender'])}" if match['sender'] else ''
                         elements.append(Paragraph(
-                            f"<b>[{self._esc(severity)}]</b> {self._esc(threat_type)}", styles['Normal']
+                            f"<b>[{self._esc(severity)}]</b> {self._esc(threat_type)}{sender_str}{ts_str}", styles['Normal']
                         ))
                         if quote:
                             elements.append(Paragraph(
@@ -691,8 +721,15 @@ class ForensicReporter:
             if high_priority:
                 elements.append(Paragraph("High Priority Threats", styles['Heading2']))
                 for threat in high_priority:
-                    content = threat.get('content', '')[:100]
-                    elements.append(Paragraph(f"• {self._esc(content)}...", styles['Normal']))
+                    content = threat.get('content', '')[:200]
+                    ts = threat.get('timestamp', '')
+                    sender = threat.get('sender', '')
+                    ts_display = f" [{self._esc(str(ts))}]" if ts else ''
+                    sender_display = f" &mdash; {self._esc(sender)}" if sender else ''
+                    elements.append(Paragraph(
+                        f"&bull; {self._esc(content)}{sender_display}{ts_display}",
+                        styles['Normal']
+                    ))
                 elements.append(Spacer(1, 12))
         
         # Sentiment Analysis Section
@@ -924,7 +961,7 @@ class ForensicReporter:
         for ri in risk_indicators[:10]:
             if isinstance(ri, dict):
                 sev = ri.get('severity', 'unknown')
-                desc = ri.get('indicator', ri.get('description', ''))
+                desc = ri.get('indicator', ri.get('description', ri.get('detail', '')))
                 context += f"  [{sev}] {desc}\n"
             else:
                 context += f"  {ri}\n"
