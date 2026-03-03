@@ -27,6 +27,7 @@ from src.reporters.forensic_reporter import ForensicReporter
 from src.reporters.excel_reporter import ExcelReporter
 from src.reporters.html_reporter import HtmlReporter
 from src.reporters.json_reporter import JSONReporter
+from src.reporters.chat_reporter import ChatReporter
 from src.main import ForensicAnalyzer
 
 
@@ -1106,6 +1107,18 @@ class TestSystemIntegration:
         for fmt, path in html_paths.items():
             assert Path(path).exists(), f"HTML report file missing: {path}"
 
+        # Chat-bubble HTML report
+        chat_reporter = ChatReporter(forensic, config=config)
+        chat_base = temp_dir / f"report_{timestamp}"
+        chat_paths = chat_reporter.generate_report(
+            extracted_data, filtered_analysis, review_results,
+            chat_base
+        )
+        assert 'chat_html' in chat_paths, "ChatReporter should return 'chat_html' key"
+        chat_path = chat_paths['chat_html']
+        assert chat_path.exists(), "Chat HTML report was not created"
+        chat_content = chat_path.read_text(encoding='utf-8')
+
         # JSON report
         json_reporter = JSONReporter(forensic, config=config)
         json_path = temp_dir / f"report_{timestamp}.json"
@@ -1331,6 +1344,37 @@ class TestSystemIntegration:
         )
         assert html_date_match, (
             "HTML report 'Report Date' field should contain a rendered timestamp"
+        )
+
+        # ---------------------------------------------------------------
+        # 11b. Verify chat-bubble HTML report content
+        # ---------------------------------------------------------------
+        # Bubble CSS classes
+        assert '.msg.sent' in chat_content, (
+            "Chat report should contain sent bubble CSS"
+        )
+        assert '.msg.received' in chat_content, (
+            "Chat report should contain received bubble CSS"
+        )
+        # Person names should appear as section headers
+        assert config.person2_name in chat_content, (
+            f"Chat report should contain person2 name '{config.person2_name}'"
+        )
+        # Date separators
+        assert 'date-separator' in chat_content, (
+            "Chat report should contain date-separator elements"
+        )
+        # Source badges
+        assert 'source-badge' in chat_content, (
+            "Chat report should contain source badges"
+        )
+        # Threat highlighting
+        assert 'msg threat' in chat_content, (
+            "Chat report should highlight threat messages"
+        )
+        # Inline images (at least one base64 image)
+        assert 'data:image/' in chat_content, (
+            "Chat report should contain base64-embedded images"
         )
 
         # ---------------------------------------------------------------

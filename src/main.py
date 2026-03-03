@@ -814,6 +814,21 @@ class ForensicAnalyzer:
             import traceback
             traceback.print_exc()
 
+        # Generate chat-bubble HTML report
+        print("\n[*] Generating chat-bubble HTML report...")
+        try:
+            from src.reporters.chat_reporter import ChatReporter
+            chat_reporter = ChatReporter(self.forensic, config=self.config)
+            chat_base = Path(self.config.output_dir) / f"report_{timestamp}"
+            chat_paths = chat_reporter.generate_report(data, filtered_analysis, review, chat_base)
+            for fmt, path in chat_paths.items():
+                reports[fmt] = str(path)
+                print(f"    {fmt.upper()} report: {path.name}")
+        except Exception as e:
+            print(f"    Error generating chat report: {e}")
+            import traceback
+            traceback.print_exc()
+
         # Generate JSON report if needed
         if 'json' not in reports:
             print("\n[*] Generating JSON report...")
