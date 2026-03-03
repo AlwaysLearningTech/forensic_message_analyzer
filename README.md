@@ -28,6 +28,13 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
   - Maps contacts to configured person names
   - Includes sender and recipient tracking for conversation analysis
   - Filters tapbacks and system messages (associated_message_type 2000-3007)
+  - **Edit history recovery** (iOS 16+): Parses `message_summary_info` BLOB to extract original text and intermediate edits before the final version
+  - **Recently deleted message recovery** (iOS 16+): Queries `chat_recoverable_message_join` to recover messages deleted within ~30 days
+  - **URL previews / rich links**: Extracts link metadata (title, summary, URL, site name) from `payload_data` BLOB
+  - **Shared locations**: Detects and extracts shared location details (name, address, city, state) from rich link metadata
+  - **Per-chat properties**: Parses `chat.properties` BLOB for per-chat read receipt settings and SMS force flags
+  - **Time-until-read**: Computes human-readable delay between message sent and read timestamps
+  - **Forensic timestamps**: Extracts `date_read`, `date_delivered`, `date_edited`, `date_retracted` with Apple epoch nanosecond conversion
 - **WhatsApp**: Automatic ZIP extraction and import from exported chat files
   - Auto-extracts ZIP archives (e.g., WhatsApp_SourceFiles.zip)
   - Supports multiple timestamp formats (with/without seconds)
@@ -82,8 +89,8 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
   - Manual review breakdown
   - Chain of custody reference
 - **Forensic Export**: Unedited, unfiltered CSV and Excel export of all messages for court admissibility
-- **HTML/PDF Reports**: Inline base64 images, per-person message tables, conversation threads, risk indicators, legal compliance footer, legal appendices (Methodology, Completeness Validation, Limitations) (PDF via WeasyPrint)
-- **Chat-Bubble Reports**: iMessage-style chat-bubble HTML report with left/right aligned message bubbles, per-person sections, inline attachments, and threat/sentiment indicators
+- **HTML/PDF Reports**: Inline base64 images, per-person message tables, conversation threads, risk indicators, legal compliance footer, legal appendices (Methodology, Completeness Validation, Limitations), edit history display for edited messages, URL preview and shared location rendering, deleted message flags (PDF via WeasyPrint)
+- **Chat-Bubble Reports**: iMessage-style chat-bubble HTML report with left/right aligned message bubbles, per-person sections, inline attachments, threat/sentiment indicators, edit history display, URL preview and shared location blocks, deleted message badges
 - **Timeline Visualization**: Interactive HTML timelines with case chronology — combines flagged events (threats, patterns, SOS) with all email communications including third-party corroboration (counselors, attorneys, family)
 - **Manual Review**: Structured decision tracking
 - **Run Manifest**: Complete documentation of analysis process
@@ -494,8 +501,8 @@ forensic_message_analyzer/
   - `create_working_copy(source, dest)`: Create hashed working copy
 
 #### Extractors
-- **IMessageExtractor(db_path, forensic_recorder, forensic_integrity)**
-  - `extract_messages()`: Extract from iMessage database
+- **IMessageExtractor(db_path, forensic_recorder, forensic_integrity, config=None)**
+  - `extract_messages()`: Extract from iMessage database with full forensic column coverage, edit history, deleted messages, URL previews, shared locations, and per-chat properties
 
 - **WhatsAppExtractor(export_dir, forensic_recorder, forensic_integrity)**
   - `extract_all()`: Parse WhatsApp export files
@@ -654,6 +661,8 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
 - `chat_report_YYYYMMDD_HHMMSS.html` - iMessage-style chat-bubble report
   - Per-person conversation sections with left/right aligned message bubbles
   - Inline attachment images, threat/sentiment visual indicators, conversation threading
+  - Edit history display for edited messages (original text and intermediate edits)
+  - Deleted message badges, URL preview blocks, shared location blocks
 
 - `legal_team_summary_YYYYMMDD_HHMMSS.txt` - AI-generated narrative summary for attorneys
   - Explains key findings in plain language

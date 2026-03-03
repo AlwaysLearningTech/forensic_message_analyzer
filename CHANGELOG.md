@@ -5,6 +5,25 @@ All notable changes to the Forensic Message Analyzer will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.3.0] - 2026-03-02
+
+### Added
+- **iMessage edit history extraction**: Parses `message_summary_info` BLOB (iOS 16+ binary plist) to recover original text and intermediate edits before the final version. Each edit event includes timestamp and decoded content. Forensically critical for detecting post-hoc message editing (e.g., editing a threatening message to appear benign)
+- **Recently deleted message recovery**: Queries `chat_recoverable_message_join` table (iOS 16+) to identify and recover messages deleted within ~30 days. Flags messages already in the main extraction as `is_recently_deleted` and separately recovers orphaned deleted messages not in the primary query
+- **URL preview / rich link metadata**: Extracts `payload_data` BLOB from messages with `URLBalloonProvider` balloon type. Parses `richLinkMetadata` binary plist for URL, title, summary, site name, and original URL
+- **Shared location extraction**: Detects shared locations within rich link metadata via `specialization2.address` presence. Extracts location name, address, city, state, postal code, country, and street from `addressComponents`
+- **Per-chat properties BLOB parsing**: Parses `chat.properties` binary plist column for per-chat settings: `chat_read_receipts_enabled` (whether read receipts are on/off for this specific chat) and `chat_force_sms` (whether iMessage was disabled forcing SMS)
+- **Time-until-read computation**: Calculates human-readable delay between message sent and read timestamps ('2m 30s', '1h 15m', '2d 3h'). Enables forensic analysis of response latency patterns
+- **Edit history display in reports**: Chat-bubble and HTML reports render edit history below edited messages, showing "Original" text with timestamp and any intermediate edits. Excel report adds `edit_history_text` column
+- **Deleted message badge**: Red "Deleted" badge in chat-bubble and HTML reports for recently deleted messages
+- **URL preview rendering**: Blue-bordered URL preview blocks in chat-bubble and HTML reports showing title, site name, and URL
+- **Shared location rendering**: Green-bordered location blocks in chat-bubble and HTML reports showing location name and address
+
+### Changed
+- **IMessageExtractor constructor**: Now accepts optional `config` parameter (`config=None`) for access to contact mappings
+- **Forensic logging**: Extraction metadata now includes `edit_history_count`, `deleted_count`, and `sos_count` alongside existing `tapback_count`, `edited_count`, and `retracted_count`
+- **Schema-safe table discovery**: Extractor queries `sqlite_master` to check for `chat_recoverable_message_join` table existence before attempting deleted message recovery
+
 ## [4.2.0] - 2026-03-02
 
 ### Added

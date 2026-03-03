@@ -64,9 +64,16 @@
   - Method: `extract_all(start_date=None, end_date=None)` returns list of dicts with messages from all sources
   - Method: `validate_extraction(messages)` returns dict
   - Note: Internally creates ForensicIntegrity and initializes iMessage/WhatsApp/Email/Teams extractors with proper params
-- **IMessageExtractor(db_path, forensic_recorder, forensic_integrity)**: `src/extractors/imessage_extractor.py`
-  - Takes 3 parameters: db_path, forensic_recorder, forensic_integrity
+- **IMessageExtractor(db_path, forensic_recorder, forensic_integrity, config=None)**: `src/extractors/imessage_extractor.py`
+  - Takes 3-4 parameters: db_path, forensic_recorder, forensic_integrity, optional config
   - Methods: `extract_messages()`, `decode_attributed_body(blob)`, `extract_text_with_fallback(text, attributed_body)`
+  - Methods: `_parse_edit_history(blob_data)` — parses `message_summary_info` BLOB (iOS 16+ binary plist) to extract edit history as list of `{'timestamp': datetime, 'content': str}` dicts
+  - Methods: `_compute_time_until_read(sent_ts, read_ts)` — returns human-readable read latency string ('2m 30s', '1h 15m', '2d 3h')
+  - Methods: `_parse_chat_properties(cursor)` — parses per-chat `properties` BLOB for read receipt settings and SMS force flags
+  - Methods: `_parse_rich_link(blob_data)` — extracts URL previews and shared locations from `payload_data` BLOB
+  - Methods: `_get_recently_deleted_ids(cursor, placeholders, all_handles)` — queries `chat_recoverable_message_join` (iOS 16+) for deleted message ROWIDs
+  - Methods: `_recover_deleted_messages(cursor, message_ids, msg_cols, att_cols)` — constructs full message dicts for orphaned deleted messages
+  - Message dict fields include: `edit_history`, `time_until_read`, `date_edited`, `date_retracted`, `date_read`, `date_delivered`, `is_read`, `is_recently_deleted`, `chat_read_receipts_enabled`, `chat_force_sms`, `rich_link_url`, `rich_link_title`, `rich_link_summary`, `rich_link_site_name`, `rich_link_original_url`, `is_shared_location`, `location_name`, `location_address`, `location_city`, `location_state`, `location_postal_code`, `location_country`, `location_street`
   - Alias: iMessageExtractor (lowercase i) = IMessageExtractor
 - **WhatsAppExtractor(export_dir, forensic_recorder, forensic_integrity)**: `src/extractors/whatsapp_extractor.py`
   - Takes 3 parameters: export_dir, forensic_recorder, forensic_integrity
@@ -126,12 +133,17 @@
   - Method: `generate_report(extracted_data, analysis_results, review_decisions, output_path, pdf=True)` - Returns Dict[str, Path]
   - Includes: overview cards, per-person message tables, conversation threads, risk indicators, AI summary
   - Includes: Legal appendices (Appendix A: Methodology, Appendix B: Completeness Validation, Appendix C: Limitations)
-  - Inline base64 attachment images, forensic status indicators (SOS, Unsent, Edited, SMS, Tapback)
+  - Inline base64 attachment images, forensic status indicators (SOS, Unsent, Edited, Deleted, SMS, Tapback)
+  - Edit history display below edited messages (original text with timestamps)
+  - URL preview rendering (title, site name, URL) and shared location display (name, address)
   - PDF via WeasyPrint (degrades gracefully if WeasyPrint unavailable)
 - **ChatReporter(forensic_recorder, config=None)**: `src/reporters/chat_reporter.py` - iMessage-style chat-bubble HTML report
   - Method: `generate_report(extracted_data, analysis_results, review_decisions, output_path)` - Returns Dict[str, Path]
   - Per-person chat sections with left/right aligned message bubbles
   - Inline attachment images, threat/sentiment indicators, conversation threading
+  - Edit history rendering below message bubbles (original and intermediate edits with timestamps)
+  - Recently deleted message badge (red "Deleted" flag)
+  - URL preview display (blue border) and shared location display (green border)
 
 ## IMPORTANT: Verified Method Names and Signatures
 - ForensicAnalyzer takes **Config** (NOT ForensicRecorder!) - `ForensicAnalyzer(config=None)`
@@ -157,7 +169,7 @@
 - RunManifest only adds files that exist
 - DataExtractor has optional `third_party_registry` param, `extract_all()` has optional date filters
 - DataExtractor.extract_all() returns list of message dicts, not dict with source keys
-- IMessageExtractor requires (db_path, forensic_recorder, forensic_integrity) - 3 params!
+- IMessageExtractor requires (db_path, forensic_recorder, forensic_integrity, config=None) - 3-4 params!
 - WhatsAppExtractor requires (export_dir, forensic_recorder, forensic_integrity) - 3 params!
 - EmailExtractor requires (source_dir, forensic_recorder, forensic_integrity, third_party_registry=None) - 3-4 params
 - TeamsExtractor requires (source_dir, forensic_recorder, forensic_integrity, third_party_registry=None) - 3-4 params
@@ -250,7 +262,7 @@ Repository (code only)          Local Data Storage
 12. **CommunicationMetricsAnalyzer takes list**: analyze_messages() takes list of dicts, NOT DataFrame
 13. **TimelineGenerator needs df and path**: create_timeline(df, output_path) requires both parameters
 14. **DataExtractor needs config paths**: Extractors are None if config doesn't have paths set
-15. **Extractors need 3 params**: IMessageExtractor and WhatsAppExtractor need (path, forensic, integrity)
+15. **Extractors need 3+ params**: IMessageExtractor needs (path, forensic, integrity, config=None) and WhatsAppExtractor needs (path, forensic, integrity)
 16. **Anthropic base_url override**: Always pass `base_url="https://api.anthropic.com"` when creating Anthropic clients. VS Code injects `ANTHROPIC_BASE_URL=http://localhost:...` which hijacks the SDK and causes 401 errors.
 17. **Batch API timeout**: Batch polling has a 4-hour max wait. If a batch doesn't complete in time, it raises TimeoutError instead of blocking forever.
 18. **Sync fallback guard**: If batch API fails AFTER submission (timeout, partial failure), do NOT fall back to sync — that would re-process everything at full price.
