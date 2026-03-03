@@ -29,12 +29,21 @@ _HTML_IMG_MAX_DIM = 800
 _HTML_IMG_JPEG_QUALITY = 70
 
 
-def _b64_img(path_str: str) -> Optional[str]:
-    """Return a compressed data-URI for an image file, or None if unreadable.
+_MIME_MAP = {
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.png': 'image/png', '.gif': 'image/gif',
+    '.webp': 'image/webp', '.tiff': 'image/tiff',
+    '.bmp': 'image/bmp',
+}
 
-    Images are resized to fit within _HTML_IMG_MAX_DIM pixels and re-encoded
-    as JPEG to keep the HTML report at a manageable size.  Original files are
-    preserved unmodified in the attachments/ output directory.
+
+def _b64_img(path_str: str) -> Optional[str]:
+    """Return a resized data-URI for an image file, or None if unreadable.
+
+    Images are resized to fit within _HTML_IMG_MAX_DIM pixels and saved in
+    their original format (PNG stays PNG, JPEG stays JPEG).  JPEGs are
+    re-compressed at _HTML_IMG_JPEG_QUALITY.  Original files are preserved
+    unmodified in the attachments/ output directory.
     """
     p = Path(path_str)
     if not p.is_file():
@@ -42,28 +51,25 @@ def _b64_img(path_str: str) -> Optional[str]:
     suffix = p.suffix.lower()
     if suffix not in IMAGE_EXTENSIONS:
         return None
+    mime = _MIME_MAP.get(suffix, 'application/octet-stream')
     try:
         img = Image.open(p)
-        # Convert RGBA/palette to RGB for JPEG encoding
-        if img.mode in ('RGBA', 'P', 'LA'):
-            img = img.convert('RGB')
-        elif img.mode != 'RGB':
-            img = img.convert('RGB')
+        orig_format = img.format or 'PNG'  # PIL format name (JPEG, PNG, etc.)
         # Resize if larger than max dimension
         if max(img.size) > _HTML_IMG_MAX_DIM:
             img.thumbnail((_HTML_IMG_MAX_DIM, _HTML_IMG_MAX_DIM), Image.LANCZOS)
         buf = io.BytesIO()
-        img.save(buf, format='JPEG', quality=_HTML_IMG_JPEG_QUALITY, optimize=True)
+        if orig_format.upper() in ('JPEG', 'JPG'):
+            if img.mode not in ('RGB', 'L'):
+                img = img.convert('RGB')
+            img.save(buf, format='JPEG', quality=_HTML_IMG_JPEG_QUALITY, optimize=True)
+        else:
+            img.save(buf, format=orig_format, optimize=True)
         encoded = base64.b64encode(buf.getvalue()).decode('ascii')
-        return f"data:image/jpeg;base64,{encoded}"
+        return f"data:{mime};base64,{encoded}"
     except Exception:
         # Fallback: embed raw bytes if PIL can't handle the format
         try:
-            mime = {
-                '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-                '.png': 'image/png', '.gif': 'image/gif',
-                '.webp': 'image/webp',
-            }.get(suffix, 'application/octet-stream')
             data = p.read_bytes()
             encoded = base64.b64encode(data).decode('ascii')
             return f"data:{mime};base64,{encoded}"
