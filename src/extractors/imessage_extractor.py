@@ -333,6 +333,49 @@ class IMessageExtractor:
         except Exception:
             return ''
 
+    @staticmethod
+    def _parse_chat_properties(cursor) -> dict:
+        """Parse per-chat properties BLOBs from the chat table.
+
+        Returns dict mapping chat_identifier to extracted properties:
+        {
+            'chat_identifier': {
+                'chat_read_receipts_enabled': True/False/None,
+                'chat_force_sms': True/False,
+            },
+            ...
+        }
+        """
+        import plistlib
+
+        result = {}
+        try:
+            cursor.execute("SELECT chat_identifier, properties FROM chat WHERE properties IS NOT NULL")
+            for chat_id, blob in cursor.fetchall():
+                if not chat_id or not blob:
+                    continue
+                try:
+                    plist = plistlib.loads(blob)
+                except Exception:
+                    continue
+
+                props = {}
+                # Read receipt setting: True = enabled, False = disabled, None = default
+                rr = plist.get('EnableReadReceiptForChat')
+                if rr is not None:
+                    props['chat_read_receipts_enabled'] = bool(rr)
+
+                # Forced SMS (iMessage disabled for this chat)
+                force_sms = plist.get('shouldForceToSMS')
+                if force_sms is not None:
+                    props['chat_force_sms'] = bool(force_sms)
+
+                if props:
+                    result[chat_id] = props
+        except Exception:
+            pass
+        return result
+
     # ------------------------------------------------------------------
     # Attachment extraction
     # ------------------------------------------------------------------
@@ -424,6 +467,12 @@ class IMessageExtractor:
                 # Discover available tables for optional features
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
                 available_tables = {row[0] for row in cursor.fetchall()}
+
+                # Parse per-chat properties BLOB (read receipts, group photo, etc.)
+                chat_cols = self._discover_columns(cursor, 'chat')
+                chat_properties = {}
+                if 'properties' in chat_cols:
+                    chat_properties = self._parse_chat_properties(cursor)
 
                 # Get all participant handles from config
                 all_handles = []
@@ -579,6 +628,9 @@ class IMessageExtractor:
                         # Delivery metadata
                         'destination_caller_id': r.get('destination_caller_id'),
                         'was_downgraded': bool(r.get('was_downgraded')) if r.get('was_downgraded') else False,
+
+                        # Per-chat properties (from chat.properties BLOB)
+                        **chat_properties.get(chat_id or '', {}),
 
                         # Emergency and app extensions
                         'is_sos': bool(r.get('is_sos')) if r.get('is_sos') else False,
