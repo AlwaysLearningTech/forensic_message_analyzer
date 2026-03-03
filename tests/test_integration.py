@@ -1507,6 +1507,31 @@ class TestSystemIntegration:
             f"{len(preserved_files)}: {[f.name for f in preserved_files]}"
         )
 
+        # ---------------------------------------------------------------
+        # 13. Copy output to persistent sample directory for inspection
+        # ---------------------------------------------------------------
+        # Always write sample output so the developer can inspect reports
+        # before spending money on a real run.
+        sample_dir = Path(__file__).parent.parent / "sample_output"
+        if sample_dir.exists():
+            import shutil
+            shutil.rmtree(sample_dir)
+        sample_dir.mkdir(parents=True)
+
+        # Copy all generated report files
+        for f in temp_dir.rglob("*"):
+            if f.is_file():
+                rel = f.relative_to(temp_dir)
+                dest = sample_dir / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                import shutil
+                shutil.copy2(f, dest)
+
+        sample_files = [f.relative_to(sample_dir) for f in sample_dir.rglob("*") if f.is_file()]
+        print(f"\n    Sample output ({len(sample_files)} files) written to: {sample_dir}")
+        for sf in sorted(sample_files):
+            print(f"      {sf}")
+
     # ------------------------------------------------------------------
     # Attachment processor test
     # ------------------------------------------------------------------
