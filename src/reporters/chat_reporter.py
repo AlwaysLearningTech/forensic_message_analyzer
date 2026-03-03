@@ -128,6 +128,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .flag-badge.sos { background: #dc3545; color: #fff; }
 .flag-badge.edited { background: #0d6efd; color: #fff; }
 .flag-badge.unsent { background: #6c757d; color: #fff; }
+.flag-badge.deleted { background: #dc3545; color: #fff; }
 .flag-badge.sms-fallback { background: #fd7e14; color: #fff; }
 .tapbacks { margin-top: 2px; }
 .tapbacks span { font-size: 16px; margin-right: 2px; }
@@ -321,6 +322,8 @@ class ChatReporter:
         badges = []
         if msg.get('is_sos'):
             badges.append('<span class="flag-badge sos">SOS</span>')
+        if msg.get('is_recently_deleted'):
+            badges.append('<span class="flag-badge deleted">Deleted</span>')
         if msg.get('date_edited'):
             badges.append('<span class="flag-badge edited">Edited</span>')
         if msg.get('date_retracted'):

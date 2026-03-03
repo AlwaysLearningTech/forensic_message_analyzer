@@ -421,6 +421,10 @@ class IMessageExtractor:
                 msg_cols = self._discover_columns(cursor, 'message')
                 att_cols = self._discover_columns(cursor, 'attachment')
 
+                # Discover available tables for optional features
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                available_tables = {row[0] for row in cursor.fetchall()}
+
                 # Get all participant handles from config
                 all_handles = []
                 for person_mappings in self.config.contact_mappings.values():
@@ -610,6 +614,28 @@ class IMessageExtractor:
                 # --- Tapback linking pass ---
                 self._link_tapbacks(messages)
 
+                # --- Recently deleted messages (iOS 16+) ---
+                deleted_ids = set()
+                if 'chat_recoverable_message_join' in available_tables:
+                    deleted_ids = self._get_recently_deleted_ids(
+                        cursor, placeholders, all_handles
+                    )
+
+                # Build ROWID lookup and flag deleted messages
+                rowid_to_msg = {m['message_id']: m for m in messages}
+                for mid in deleted_ids:
+                    if mid in rowid_to_msg:
+                        rowid_to_msg[mid]['is_recently_deleted'] = True
+
+                # Also extract deleted messages NOT already in the main set
+                if deleted_ids:
+                    missing_ids = deleted_ids - set(rowid_to_msg.keys())
+                    if missing_ids:
+                        recovered = self._recover_deleted_messages(
+                            cursor, missing_ids, msg_cols, att_cols
+                        )
+                        messages.extend(recovered)
+
             finally:
                 conn.close()
 
@@ -618,13 +644,14 @@ class IMessageExtractor:
             edited_count = sum(1 for m in messages if m.get('date_edited'))
             edit_history_count = sum(1 for m in messages if m.get('edit_history'))
             retracted_count = sum(1 for m in messages if m.get('date_retracted'))
+            deleted_count = sum(1 for m in messages if m.get('is_recently_deleted'))
             sos_count = sum(1 for m in messages if m.get('is_sos'))
 
             self.forensic.record_action(
                 "imessage_extraction",
                 f"Extracted {len(messages)} messages ({tapback_count} tapbacks, "
                 f"{edited_count} edited ({edit_history_count} with recovered history), "
-                f"{retracted_count} retracted/unsent, "
+                f"{retracted_count} retracted/unsent, {deleted_count} recently deleted, "
                 f"{sos_count} SOS) from iMessage database",
                 {
                     "path": str(self.db_path),
@@ -633,6 +660,7 @@ class IMessageExtractor:
                     "edited_count": edited_count,
                     "edit_history_count": edit_history_count,
                     "retracted_count": retracted_count,
+                    "deleted_count": deleted_count,
                     "sos_count": sos_count,
                     "participants": list(self.config.contact_mappings.keys()),
                 }
@@ -708,6 +736,122 @@ class IMessageExtractor:
                     'timestamp': msg['timestamp'],
                     'message_id': msg['message_id'],
                 })
+
+    # ------------------------------------------------------------------
+    # Recently deleted message recovery
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _get_recently_deleted_ids(cursor, placeholders, all_handles) -> set:
+        """Return set of message ROWIDs from the recovery table.
+
+        The chat_recoverable_message_join table (iOS 16+) links recently
+        deleted messages to the chat they were deleted from.  Messages
+        remain recoverable for ~30 days.
+        """
+        try:
+            query = f"""
+            SELECT DISTINCT crj.message_id
+            FROM chat_recoverable_message_join crj
+            JOIN message m ON crj.message_id = m.ROWID
+            LEFT JOIN handle h ON m.handle_id = h.ROWID
+            LEFT JOIN chat c ON crj.chat_id = c.ROWID
+            WHERE (h.id IN ({placeholders})
+                   OR (m.is_from_me = 1 AND c.chat_identifier IN ({placeholders})))
+            """
+            cursor.execute(query, all_handles + all_handles)
+            return {row[0] for row in cursor.fetchall()}
+        except Exception:
+            return set()
+
+    def _recover_deleted_messages(self, cursor, message_ids, msg_cols, att_cols) -> list:
+        """Extract full message dicts for deleted messages not in the main set.
+
+        Uses the same column-discovery approach as the main extraction to
+        build message dicts for each recovered ROWID.
+        """
+        if not message_ids:
+            return []
+
+        id_placeholders = ','.join('?' * len(message_ids))
+        id_list = list(message_ids)
+
+        # Build the same dynamic SELECT as the main query
+        select_parts = [
+            'm.ROWID as message_id',
+            'm.guid',
+            'm.text',
+            'm.attributedBody',
+            'm.is_from_me',
+            'h.id as handle',
+            'c.chat_identifier',
+            "datetime(m.date/1000000000 + strftime('%s','2001-01-01'), 'unixepoch') as timestamp",
+            'm.service',
+            'm.associated_message_type',
+        ]
+        date_conv = "datetime(m.{col}/1000000000 + strftime('%s','2001-01-01'), 'unixepoch')"
+        for col in _DATE_COLUMNS:
+            if col in msg_cols:
+                select_parts.append(f"{date_conv.format(col=col)} as {col}")
+            else:
+                select_parts.append(f"NULL as {col}")
+
+        select_clause = ',\n                '.join(select_parts)
+        query = f"""
+        SELECT {select_clause}
+        FROM message m
+        LEFT JOIN handle h ON m.handle_id = h.ROWID
+        LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
+        LEFT JOIN chat c ON cmj.chat_id = c.ROWID
+        WHERE m.ROWID IN ({id_placeholders})
+        ORDER BY m.date ASC
+        """
+        try:
+            cursor.execute(query, id_list)
+        except Exception:
+            return []
+
+        col_names = [desc[0] for desc in cursor.description]
+        recovered = []
+        for row in cursor.fetchall():
+            r = dict(zip(col_names, row))
+            content = self.extract_text_with_fallback(r['text'], r['attributedBody'])
+
+            handle = r['handle']
+            chat_id = r['chat_identifier']
+            if r['is_from_me'] == 1:
+                sender = 'Me'
+                recipient_handle = handle or chat_id
+                recipient = recipient_handle
+                for person_name, person_handles in self.config.contact_mappings.items():
+                    if recipient_handle in person_handles:
+                        recipient = person_name
+                        break
+            else:
+                recipient = 'Me'
+                sender = handle
+                for person_name, person_handles in self.config.contact_mappings.items():
+                    if handle in person_handles:
+                        sender = person_name
+                        break
+
+            timestamp_dt = pd.to_datetime(r['timestamp'], utc=True) if r['timestamp'] else None
+            recovered.append({
+                'message_id': r['message_id'],
+                'guid': r['guid'],
+                'content': content or '',
+                'sender': sender,
+                'recipient': recipient,
+                'timestamp': timestamp_dt,
+                'service': r['service'],
+                'source': 'imessage',
+                'date_edited': pd.to_datetime(r['date_edited'], utc=True) if r.get('date_edited') else None,
+                'date_retracted': pd.to_datetime(r['date_retracted'], utc=True) if r.get('date_retracted') else None,
+                'is_recently_deleted': True,
+                'is_tapback': False,
+                'reactions': [],
+            })
+        return recovered
 
 
 # Maintain backward compatibility

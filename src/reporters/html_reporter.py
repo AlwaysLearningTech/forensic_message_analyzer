@@ -218,6 +218,7 @@ REPORT_TEMPLATE = """\
     <td>{{ m.threat_categories or '' }}</td>
     <td>
       {% if m.is_sos %}<span class="sos-flag">SOS</span> {% endif %}
+      {% if m.is_recently_deleted %}<span class="retracted-flag">Deleted</span> {% endif %}
       {% if m.date_retracted %}<span class="retracted-flag">Unsent</span> {% endif %}
       {% if m.date_edited %}<span class="edited-flag">Edited</span> {% endif %}
       {% if m.was_downgraded %}<span class="downgraded-flag">SMS</span> {% endif %}
@@ -578,6 +579,7 @@ class HtmlReporter:
                     'edit_history': m.get('edit_history', []),
                     'date_retracted': m.get('date_retracted'),
                     'is_sos': m.get('is_sos', False),
+                    'is_recently_deleted': m.get('is_recently_deleted', False),
                     'was_downgraded': m.get('was_downgraded', False),
                     'thread_originator_guid': m.get('thread_originator_guid'),
                     'reactions': reactions_display,
