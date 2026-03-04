@@ -13,6 +13,7 @@ from ..config import Config
 from ..forensic_utils import ForensicRecorder
 from ..utils.conversation_threading import ConversationThreader
 from ..utils.legal_compliance import LegalComplianceManager
+from .report_utils import match_quote_to_message
 
 logger = logging.getLogger(__name__)
 
@@ -269,21 +270,8 @@ class ExcelReporter:
 
     @staticmethod
     def _match_quote_to_message(quote: str, messages: list) -> dict:
-        """Match an AI-identified quote to its source message via substring matching.
-
-        Returns dict with 'timestamp' and 'sender' if found, empty values otherwise.
-        """
-        if not quote or not messages:
-            return {'timestamp': None, 'sender': ''}
-        quote_lower = quote.lower().strip()
-        for msg in messages:
-            content = msg.get('content', '')
-            if content and quote_lower in content.lower():
-                return {
-                    'timestamp': msg.get('timestamp'),
-                    'sender': msg.get('sender', ''),
-                }
-        return {'timestamp': None, 'sender': ''}
+        """Match an AI-identified quote to its source message via substring matching."""
+        return match_quote_to_message(quote, messages)
 
     def _write_overview_sheet(self, writer, extracted_data: Dict,
                             analysis_results: Dict, review_decisions: Dict):

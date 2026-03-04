@@ -5,8 +5,6 @@ Renders messages as chat bubbles with tapback reactions, inline images,
 source badges, threat highlighting, and per-person conversation sections.
 """
 
-import base64
-import io
 import logging
 import pytz
 from datetime import datetime
@@ -14,24 +12,12 @@ from html import escape
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from PIL import Image
-
 from ..config import Config
 from ..forensic_utils import ForensicRecorder
 from ..utils.legal_compliance import LegalComplianceManager
+from .report_utils import b64_img as _b64_img, IMAGE_EXTENSIONS
 
 logger = logging.getLogger(__name__)
-
-# Image handling constants (match html_reporter.py)
-IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.heic', '.webp', '.tiff', '.bmp'}
-_HTML_IMG_MAX_DIM = 800
-_HTML_IMG_JPEG_QUALITY = 70
-_MIME_MAP = {
-    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-    '.png': 'image/png', '.gif': 'image/gif',
-    '.webp': 'image/webp', '.tiff': 'image/tiff',
-    '.bmp': 'image/bmp', '.heic': 'image/heic',
-}
 
 # Tapback type codes from iMessage
 _TAPBACK_MAP = {
@@ -48,38 +34,6 @@ _TAPBACK_MAP = {
     3004: '',  # remove emphasis
     3005: '',  # remove question
 }
-
-
-def _b64_img(path_str: str) -> Optional[str]:
-    """Return a resized data-URI for an image file, or None if unreadable."""
-    p = Path(path_str)
-    if not p.is_file():
-        return None
-    suffix = p.suffix.lower()
-    if suffix not in IMAGE_EXTENSIONS:
-        return None
-    mime = _MIME_MAP.get(suffix, 'application/octet-stream')
-    try:
-        img = Image.open(p)
-        orig_format = img.format or 'PNG'
-        if max(img.size) > _HTML_IMG_MAX_DIM:
-            img.thumbnail((_HTML_IMG_MAX_DIM, _HTML_IMG_MAX_DIM), Image.LANCZOS)
-        buf = io.BytesIO()
-        if orig_format.upper() in ('JPEG', 'JPG'):
-            if img.mode not in ('RGB', 'L'):
-                img = img.convert('RGB')
-            img.save(buf, format='JPEG', quality=_HTML_IMG_JPEG_QUALITY, optimize=True)
-        else:
-            img.save(buf, format=orig_format, optimize=True)
-        encoded = base64.b64encode(buf.getvalue()).decode('ascii')
-        return f"data:{mime};base64,{encoded}"
-    except Exception:
-        try:
-            data = p.read_bytes()
-            encoded = base64.b64encode(data).decode('ascii')
-            return f"data:{mime};base64,{encoded}"
-        except Exception:
-            return None
 
 
 _CSS = """
