@@ -65,11 +65,18 @@ class WhatsAppExtractor:
         
         # Find all text files in export directory
         chat_files = list(self.export_dir.glob("*.txt"))
-        
-        # Also check subdirectories for extracted files
+
+        # Also check subdirectories in source directory (pre-existing extractions)
         for subdir in self.export_dir.iterdir():
             if subdir.is_dir():
                 chat_files.extend(subdir.glob("*.txt"))
+
+        # Check the extraction output directory for ZIP-extracted files
+        wa_extract_dir = getattr(self, '_wa_extract_dir', None)
+        if wa_extract_dir and wa_extract_dir.exists():
+            for subdir in wa_extract_dir.iterdir():
+                if subdir.is_dir():
+                    chat_files.extend(subdir.glob("*.txt"))
         
         for chat_file in chat_files:
             messages = self._extract_from_file(chat_file)
@@ -91,16 +98,25 @@ class WhatsAppExtractor:
     
     def _extract_zip_files(self):
         """
-        Extract any ZIP files in the export directory.
+        Extract any ZIP files to the output directory (not the source directory).
+        Preserves forensic integrity of source evidence by never writing to the source.
         """
         zip_files = list(self.export_dir.glob("*.zip"))
-        
+
+        if not zip_files:
+            return
+
+        # Extract to output directory, not source directory
+        wa_extract_base = Path(self.config.output_dir) / "whatsapp_extracted"
+        wa_extract_base.mkdir(parents=True, exist_ok=True)
+        self._wa_extract_dir = wa_extract_base
+
         for zip_file in zip_files:
             try:
-                # Create extraction directory
-                extract_dir = self.export_dir / zip_file.stem
+                # Create extraction directory in output, not source
+                extract_dir = wa_extract_base / zip_file.stem
                 extract_dir.mkdir(exist_ok=True)
-                
+
                 # Extract ZIP file
                 with zipfile.ZipFile(zip_file, 'r') as zip_ref:
                     zip_ref.extractall(extract_dir)
