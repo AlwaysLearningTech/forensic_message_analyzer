@@ -208,7 +208,10 @@ def main():
     print("\n[6/8] Cost estimate for full AI run...")
     try:
         from src.analyzers.ai_analyzer import AIAnalyzer
-        ai = AIAnalyzer(forensic_recorder=forensic)
+        ai = AIAnalyzer(forensic_recorder=forensic, config=config)
+
+        print(f"  Batch model:   {ai.batch_model}")
+        print(f"  Summary model: {ai.summary_model}")
 
         batch_size = getattr(config, 'batch_size', 50)
         num_batches = (len(mapped_messages) + batch_size - 1) // batch_size
@@ -238,9 +241,8 @@ def main():
         est_batch_cost = cache_creation_cost + cache_read_cost + message_input_cost + output_cost
 
         # Sync API calls (standard rates: $5/$25 per MTok)
-        # Executive summary: ~500 input + ~800 output tokens
-        # Legal team summary: ~1500 input + ~1500 output tokens
-        est_sync_cost = (2000 / 1_000_000) * 5.0 + (2300 / 1_000_000) * 25.0
+        # Executive summary: ~500 input + ~800 output tokens (single API call)
+        est_sync_cost = (500 / 1_000_000) * 5.0 + (800 / 1_000_000) * 25.0
         est_total = est_batch_cost + est_sync_cost
 
         print(f"  Messages to analyze: {len(mapped_messages):,}")
@@ -249,7 +251,7 @@ def main():
         print(f"  Estimated input tokens:  ~{est_input:,}  (${message_input_cost:.2f} message + ${cache_creation_cost:.4f} cache create + ${cache_read_cost:.4f} cache read)")
         print(f"  Estimated output tokens: ~{est_output:,}  (${output_cost:.2f})")
         print(f"  Estimated batch cost: ~${est_batch_cost:.2f}")
-        print(f"  Estimated sync summaries: ~${est_sync_cost:.4f} (executive + legal team)")
+        print(f"  Estimated sync summary: ~${est_sync_cost:.4f} (executive summary)")
         print(f"  Estimated total cost: ~${est_total:.2f}")
         print()
 

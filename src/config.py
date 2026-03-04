@@ -54,6 +54,8 @@ class Config:
         self.ai_endpoint = os.getenv('AI_ENDPOINT')
         self.ai_api_key = os.getenv('AI_API_KEY')
         self.ai_model = os.getenv('AI_MODEL')
+        self.ai_batch_model = os.getenv('AI_BATCH_MODEL')      # cheaper model for batch extraction
+        self.ai_summary_model = os.getenv('AI_SUMMARY_MODEL')  # model for executive summary
         
         # Contact mappings - flexible system that allows custom names
         # PERSON1_NAME defines the name used in reports (e.g., "John Doe")
