@@ -35,8 +35,14 @@ class TestVersionCentralization:
     def test_run_manifest_uses_init_version(self):
         from src import __version__
         from src.utils.run_manifest import RunManifest
-        manifest = RunManifest()
-        assert manifest.manifest_data["system_info"]["analyzer_version"] == __version__
+        from src.forensic_utils import ForensicRecorder
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as td:
+            recorder = ForensicRecorder(output_dir=Path(td))
+            manifest = RunManifest(forensic_recorder=recorder)
+            assert manifest.manifest_data["system_info"]["analyzer_version"] == __version__
 
     def test_legal_compliance_uses_init_version(self):
         from src import __version__
@@ -127,32 +133,40 @@ class TestReportUtils:
 class TestAIAnalyzerConfig:
     """Verify AIAnalyzer accepts and uses config parameter."""
 
-    def test_accepts_config(self, mock_config):
+    def test_accepts_config(self, mock_config, tmp_output_dir):
         from src.analyzers.ai_analyzer import AIAnalyzer
+        from src.forensic_utils import ForensicRecorder
         mock_config.ai_api_key = None
-        analyzer = AIAnalyzer(config=mock_config)
+        recorder = ForensicRecorder(output_dir=tmp_output_dir)
+        analyzer = AIAnalyzer(forensic_recorder=recorder, config=mock_config)
         assert analyzer.model == "claude-opus-4-6"
         assert analyzer.client is None  # No API key
 
-    def test_batch_model_default(self, mock_config):
+    def test_batch_model_default(self, mock_config, tmp_output_dir):
         from src.analyzers.ai_analyzer import AIAnalyzer
+        from src.forensic_utils import ForensicRecorder
         mock_config.ai_api_key = None
         mock_config.ai_batch_model = None
-        analyzer = AIAnalyzer(config=mock_config)
+        recorder = ForensicRecorder(output_dir=tmp_output_dir)
+        analyzer = AIAnalyzer(forensic_recorder=recorder, config=mock_config)
         assert analyzer.batch_model == analyzer.model
 
-    def test_batch_model_custom(self, mock_config):
+    def test_batch_model_custom(self, mock_config, tmp_output_dir):
         from src.analyzers.ai_analyzer import AIAnalyzer
+        from src.forensic_utils import ForensicRecorder
         mock_config.ai_api_key = None
         mock_config.ai_batch_model = "claude-haiku-4-20250506"
-        analyzer = AIAnalyzer(config=mock_config)
+        recorder = ForensicRecorder(output_dir=tmp_output_dir)
+        analyzer = AIAnalyzer(forensic_recorder=recorder, config=mock_config)
         assert analyzer.batch_model == "claude-haiku-4-20250506"
 
-    def test_summary_model_custom(self, mock_config):
+    def test_summary_model_custom(self, mock_config, tmp_output_dir):
         from src.analyzers.ai_analyzer import AIAnalyzer
+        from src.forensic_utils import ForensicRecorder
         mock_config.ai_api_key = None
         mock_config.ai_summary_model = "claude-sonnet-4-20250514"
-        analyzer = AIAnalyzer(config=mock_config)
+        recorder = ForensicRecorder(output_dir=tmp_output_dir)
+        analyzer = AIAnalyzer(forensic_recorder=recorder, config=mock_config)
         assert analyzer.summary_model == "claude-sonnet-4-20250514"
 
 

@@ -37,7 +37,11 @@ class ForensicRecorder:
             try:
                 from src.config import Config
                 cfg = Config()
-                self.output_dir = Path(cfg.output_dir)
+                # Use a session-specific subdirectory so forensic logs
+                # never land in the base output directory as orphan files.
+                base = Path(cfg.output_dir)
+                session_ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                self.output_dir = base / f"session_{session_ts}"
             except (ImportError, Exception):
                 # Fallback to current directory if config not available
                 self.output_dir = Path('./output')

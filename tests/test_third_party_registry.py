@@ -9,7 +9,6 @@ from unittest.mock import MagicMock
 from src.third_party_registry import ThirdPartyRegistry
 from src.analyzers.screenshot_analyzer import ScreenshotAnalyzer, _EMAIL_RE, _PHONE_RE, _NAME_LINE_RE
 from src.forensic_utils import ForensicRecorder
-from src.config import Config
 
 
 # ------------------------------------------------------------------
@@ -20,10 +19,13 @@ class TestThirdPartyRegistry:
     """Tests for the ThirdPartyRegistry class."""
 
     @pytest.fixture
-    def registry(self, tmp_path):
+    def registry(self, tmp_path, mock_config):
         recorder = ForensicRecorder(tmp_path)
-        config = Config()
-        return ThirdPartyRegistry(recorder, config)
+        mock_config.contact_mappings = {
+            "Person1": ["+15551110000", "person1@example.com"],
+            "Person2": ["+15552220000", "person2@example.com"],
+        }
+        return ThirdPartyRegistry(recorder, mock_config)
 
     def test_register_and_get_all(self, registry):
         """Register a contact and retrieve it."""
