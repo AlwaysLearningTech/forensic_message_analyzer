@@ -14,6 +14,8 @@ from typing import Dict, List, Optional, Any
 
 import pytz
 
+from src import __version__
+
 
 class ForensicRecorder:
     """
@@ -44,7 +46,7 @@ class ForensicRecorder:
         
         # Initialize action log for chain of custody
         self.actions: List[Dict] = []
-        self.start_time = datetime.now()
+        self.start_time = datetime.now(timezone.utc)
         self.session_id = self.start_time.strftime("%Y%m%d_%H%M%S")
         
         # Record initialization for audit trail
@@ -65,7 +67,7 @@ class ForensicRecorder:
             metadata: Optional additional metadata
         """
         action_record = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "action": action,
             "details": details,
             "metadata": metadata or {},
@@ -167,7 +169,7 @@ class ForensicRecorder:
         case_number = ""
         examiner_name = ""
         organization = ""
-        tz_name = "America/Chicago"
+        tz_name = "America/Los_Angeles"
         try:
             from src.config import Config
             cfg = Config()
@@ -192,14 +194,14 @@ class ForensicRecorder:
                 "organization": organization,
                 "start_time": self.start_time.isoformat(),
                 "end_time": now_aware.isoformat(),
-                "duration_seconds": (datetime.now() - self.start_time).total_seconds(),
+                "duration_seconds": (datetime.now(timezone.utc) - self.start_time).total_seconds(),
                 "total_actions": len(self.actions),
                 "actions": self.actions,
                 "system_info": {
                     "platform": platform.system(),
                     "platform_version": platform.version(),
                     "python_version": sys.version,
-                    "analyzer_version": "4.0.0"
+                    "analyzer_version": __version__
                 },
                 "standards_references": [
                     "FRE 901 - Authentication of Evidence",

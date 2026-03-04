@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Any
 import platform
 import sys
 
+from .. import __version__
 from ..forensic_utils import ForensicRecorder
 
 
@@ -57,7 +58,7 @@ class RunManifest:
             "python_version": sys.version,
             "python_implementation": platform.python_implementation(),
             "hostname": platform.node(),
-            "analyzer_version": "4.0.0"
+            "analyzer_version": __version__
         }
     
     def add_input_file(self, file_path: Path, file_type: str = "unknown"):

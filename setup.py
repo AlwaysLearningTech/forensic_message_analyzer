@@ -1,3 +1,4 @@
+import re
 from setuptools import setup, find_packages
 
 with open("README.md", "r", encoding="utf-8") as fh:
@@ -6,9 +7,13 @@ with open("README.md", "r", encoding="utf-8") as fh:
 with open("requirements.txt", "r", encoding="utf-8") as fh:
     requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
 
+# Read version from the single source of truth
+with open("src/__init__.py", "r") as fh:
+    _version = re.search(r'__version__\s*=\s*["\']([^"\']+)', fh.read()).group(1)
+
 setup(
     name="forensic-message-analyzer",
-    version="4.0.0",
+    version=_version,
     author="Forensic Analysis System",
     description="A legally-compliant forensic analysis tool for digital communications",
     long_description=long_description,

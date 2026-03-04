@@ -28,8 +28,7 @@ from ..forensic_utils import ForensicRecorder
 
 logger = logging.getLogger(__name__)
 
-# Analyzer version – kept in sync with src/__init__.py
-ANALYZER_VERSION = "4.0.0"
+from .. import __version__ as ANALYZER_VERSION
 
 # Standards referenced throughout the module
 APPLICABLE_STANDARDS = [
