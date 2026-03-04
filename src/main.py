@@ -195,7 +195,6 @@ class ForensicAnalyzer:
                 elif att_list_path.is_file():
                     copy_path = self.integrity.create_working_copy(att_list_path, dest_dir)
                     if copy_path:
-                        preserved[att_list_path_str] = copy_path
                         att['path'] = str(copy_path)
                         if att_list_path_str not in preserved:
                             preserved_count += 1
@@ -256,7 +255,7 @@ class ForensicAnalyzer:
         # Hash all source files BEFORE reading them (chain of custody)
         self._hash_source_files()
 
-        extractor = DataExtractor(self.forensic, third_party_registry=self.third_party_registry)
+        extractor = DataExtractor(self.forensic, third_party_registry=self.third_party_registry, config=self.config)
         
         # Extract all message data
         print("\n[*] Extracting message data from all sources...")
@@ -716,7 +715,7 @@ class ForensicAnalyzer:
 
         try:
             from src.analyzers.ai_analyzer import AIAnalyzer
-            ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic)
+            ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic, config=self.config)
             if not ai_analyzer.client:
                 print("    AI analysis skipped - not configured")
                 return ai_analyzer._empty_analysis()
@@ -1059,6 +1058,37 @@ class ForensicAnalyzer:
 
         self._extracted_data_path = Path(ext_path)
         self._analysis_results_path = Path(ana_path)
+
+        # Reconstruct enriched DataFrame for Phase 4 behavioral analysis.
+        # During the initial run, Phase 2 enriches a DataFrame with threat/sentiment/pattern
+        # columns and saves it as self._enriched_df. Since finalize runs in a new process,
+        # we must rebuild it from the saved analysis results.
+        import pandas as pd
+        messages = extracted_data.get('messages', [])
+        if messages:
+            enriched_df = pd.DataFrame(messages)
+            # Merge threat columns from analysis details
+            threat_details = analysis_results.get('threats', {}).get('details', [])
+            if threat_details and len(threat_details) == len(enriched_df):
+                threat_df = pd.DataFrame(threat_details)
+                for col in ['threat_detected', 'threat_categories', 'threat_confidence', 'harmful_content']:
+                    if col in threat_df.columns and col not in enriched_df.columns:
+                        enriched_df[col] = threat_df[col].values
+            # Merge sentiment columns
+            sentiment_data = analysis_results.get('sentiment', [])
+            if sentiment_data and len(sentiment_data) == len(enriched_df):
+                sentiment_df = pd.DataFrame(sentiment_data)
+                for col in ['sentiment_score', 'sentiment_polarity', 'sentiment_subjectivity']:
+                    if col in sentiment_df.columns and col not in enriched_df.columns:
+                        enriched_df[col] = sentiment_df[col].values
+            # Merge pattern columns
+            pattern_data = analysis_results.get('patterns', [])
+            if pattern_data and len(pattern_data) == len(enriched_df):
+                pattern_df = pd.DataFrame(pattern_data)
+                for col in ['patterns_detected', 'pattern_score']:
+                    if col in pattern_df.columns and col not in enriched_df.columns:
+                        enriched_df[col] = pattern_df[col].values
+            self._enriched_df = enriched_df
 
         self.forensic.record_action(
             "finalize_started",

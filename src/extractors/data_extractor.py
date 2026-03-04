@@ -17,16 +17,17 @@ from ..forensic_utils import ForensicIntegrity
 class DataExtractor:
     """Coordinates data extraction from all sources."""
 
-    def __init__(self, forensic, third_party_registry=None):
+    def __init__(self, forensic, third_party_registry=None, config=None):
         """Initialize data extractor with forensic tracking.
 
         Args:
             forensic: ForensicRecorder instance.
             third_party_registry: Optional ThirdPartyRegistry for unmapped contacts.
+            config: Optional Config instance. If None, creates a new one.
         """
         self.forensic = forensic
         self.logger = logging.getLogger(__name__)
-        self.config = Config()
+        self.config = config if config is not None else Config()
 
         # Create forensic integrity instance
         self.integrity = ForensicIntegrity(forensic)

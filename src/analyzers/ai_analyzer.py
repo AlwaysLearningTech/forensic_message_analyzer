@@ -29,9 +29,6 @@ except ImportError:
 from ..config import Config
 from ..forensic_utils import ForensicRecorder
 
-# Initialize config
-config = Config()
-
 logger = logging.getLogger(__name__)
 
 
@@ -87,19 +84,22 @@ class AIAnalyzer:
     - Synchronous: Processes requests one at a time with rate limiting.
     """
 
-    def __init__(self, forensic_recorder: Optional[ForensicRecorder] = None):
+    def __init__(self, forensic_recorder: Optional[ForensicRecorder] = None, config: Optional[Config] = None):
         self.forensic = forensic_recorder or ForensicRecorder()
 
-        # Get configuration from config instance
-        self.api_key = config.ai_api_key
-        self.endpoint = config.ai_endpoint
-        self.model = config.ai_model or 'claude-opus-4-6'
+        # Get configuration from provided or fresh config instance
+        _config = config if config is not None else Config()
+        self.api_key = _config.ai_api_key
+        self.endpoint = _config.ai_endpoint
+        self.model = _config.ai_model or 'claude-opus-4-6'
+        self.batch_model = getattr(_config, 'ai_batch_model', None) or self.model
+        self.summary_model = getattr(_config, 'ai_summary_model', None) or self.model
 
         # Token limits from config
-        self.max_tokens_per_request = getattr(config, 'max_tokens_per_request', 4096)
-        self.max_tokens_per_minute = getattr(config, 'tokens_per_minute', 25000)
-        self.max_requests_per_minute = getattr(config, 'max_requests_per_minute', 40)
-        self.use_batch_api = getattr(config, 'use_batch_api', True)
+        self.max_tokens_per_request = getattr(_config, 'max_tokens_per_request', 4096)
+        self.max_tokens_per_minute = getattr(_config, 'tokens_per_minute', 25000)
+        self.max_requests_per_minute = getattr(_config, 'max_requests_per_minute', 40)
+        self.use_batch_api = getattr(_config, 'use_batch_api', True)
 
         # Initialize Anthropic client if credentials available
         self.client = None
@@ -127,9 +127,11 @@ class AIAnalyzer:
 
                 self.forensic.record_action(
                     "ai_analyzer_initialized",
-                    f"Anthropic Claude analyzer initialized with {self.model}",
+                    f"Anthropic Claude analyzer initialized (batch={self.batch_model}, summary={self.summary_model})",
                     {
                         "model": self.model,
+                        "batch_model": self.batch_model,
+                        "summary_model": self.summary_model,
                         "endpoint": self.endpoint or "api.anthropic.com",
                         "batch_api": self.use_batch_api,
                     },
@@ -295,7 +297,7 @@ class AIAnalyzer:
             batch_requests.append({
                 "custom_id": f"analysis_{i // batch_size}",
                 "params": {
-                    "model": self.model,
+                    "model": self.batch_model,
                     "system": self._cached_system_prompt(),
                     "messages": [{"role": "user", "content": batch_text}],
                     "temperature": 0.3,
@@ -820,7 +822,7 @@ class AIAnalyzer:
             self.rate_limiter.wait_if_needed(token_count)
 
             response = self.client.messages.create(
-                model=self.model,
+                model=self.summary_model,
                 system=[{
                     "type": "text",
                     "text": (
