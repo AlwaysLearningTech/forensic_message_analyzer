@@ -132,7 +132,7 @@ class Config:
         self.max_requests_per_minute = int(os.getenv('MAX_REQUESTS_PER_MINUTE', '40'))
         self.tokens_per_minute = int(os.getenv('TOKENS_PER_MINUTE', '25000'))
         self.request_delay_ms = int(os.getenv('REQUEST_DELAY_MS', '1500'))
-        self.max_tokens_per_request = int(os.getenv('MAX_TOKENS_PER_REQUEST', '2048'))
+        self.max_tokens_per_request = int(os.getenv('MAX_TOKENS_PER_REQUEST', '4096'))
         
         # Output settings
         self.output_dir = self._expand_path(
