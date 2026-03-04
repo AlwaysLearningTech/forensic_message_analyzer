@@ -229,20 +229,43 @@ def main():
         # (previous estimate of 385 was from billing aggregates that didn't match per-request data)
         est_output = num_batches * 1600
 
-        # Batch API rates for Opus 4.6:
-        # Cache creation: $3.125/MTok (first request system prompt)
-        # Cache reads: $0.25/MTok (subsequent request system prompts)
-        # Standard batch input: $2.50/MTok (message content)
-        # Batch output: $12.50/MTok
-        cache_creation_cost = (system_prompt_tokens / 1_000_000) * 3.125
-        cache_read_cost = (system_prompt_tokens * max(0, num_batches - 1) / 1_000_000) * 0.25
-        message_input_cost = (message_tokens / 1_000_000) * 2.50
-        output_cost = (est_output / 1_000_000) * 12.50
+        # ---- Model-specific pricing (Batch API = 50% of standard) ----
+        # Rates per MTok (million tokens).  Batch API halves both input and output.
+        #
+        #                   Standard input  Standard output  Cache write  Cache read
+        # Opus 4.6          $15.00          $75.00           $18.75       $1.50
+        # Sonnet 4          $ 3.00          $15.00           $ 3.75       $0.30
+        # Haiku 4           $ 0.80          $ 4.00           $ 1.00       $0.08
+        #
+        # Batch API = standard / 2 for input and output; cache rates stay the same.
+        _PRICING = {
+            'opus':   {'batch_input': 7.50,  'batch_output': 37.50, 'cache_write': 18.75, 'cache_read': 1.50,
+                       'sync_input': 15.00, 'sync_output': 75.00},
+            'sonnet': {'batch_input': 1.50,  'batch_output':  7.50, 'cache_write':  3.75, 'cache_read': 0.30,
+                       'sync_input':  3.00, 'sync_output': 15.00},
+            'haiku':  {'batch_input': 0.40,  'batch_output':  2.00, 'cache_write':  1.00, 'cache_read': 0.08,
+                       'sync_input':  0.80, 'sync_output':  4.00},
+        }
+
+        def _tier(model_name: str) -> str:
+            m = model_name.lower()
+            if 'haiku' in m:
+                return 'haiku'
+            if 'sonnet' in m:
+                return 'sonnet'
+            return 'opus'
+
+        bp = _PRICING[_tier(ai.batch_model)]
+        sp = _PRICING[_tier(ai.summary_model)]
+
+        cache_creation_cost = (system_prompt_tokens / 1_000_000) * bp['cache_write']
+        cache_read_cost = (system_prompt_tokens * max(0, num_batches - 1) / 1_000_000) * bp['cache_read']
+        message_input_cost = (message_tokens / 1_000_000) * bp['batch_input']
+        output_cost = (est_output / 1_000_000) * bp['batch_output']
         est_batch_cost = cache_creation_cost + cache_read_cost + message_input_cost + output_cost
 
-        # Sync API calls (standard rates: $5/$25 per MTok)
-        # Executive summary: ~500 input + ~800 output tokens (single API call)
-        est_sync_cost = (500 / 1_000_000) * 5.0 + (800 / 1_000_000) * 25.0
+        # Executive summary: ~500 input + ~800 output tokens (single sync API call)
+        est_sync_cost = (500 / 1_000_000) * sp['sync_input'] + (800 / 1_000_000) * sp['sync_output']
         est_total = est_batch_cost + est_sync_cost
 
         print(f"  Messages to analyze: {len(mapped_messages):,}")
