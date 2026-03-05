@@ -7,6 +7,9 @@ Coordinates extraction, analysis, review, and reporting phases.
 import sys
 import json
 import copy
+import shutil
+import zipfile
+import re
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -136,6 +139,116 @@ class ForensicAnalyzer:
         print(f"    Hashed {hashed} source files")
 
     # ------------------------------------------------------------------
+    # Source file preservation (forensic archive)
+    # ------------------------------------------------------------------
+
+    def _preserve_source_files(self):
+        """Create a zipped archive of all source evidence files.
+
+        Copies every configured source file into a temporary
+        ``preserved_sources/`` tree inside the run folder, computes
+        SHA-256 hashes (cross-validated against the hashes already
+        recorded by ``_hash_source_files``), zips the tree into
+        ``preserved_sources.zip``, and removes the temporary tree.
+
+        The originals are **never** modified or deleted.
+        """
+        run_dir = Path(self.config.output_dir)
+        staging = run_dir / "preserved_sources"
+        staging.mkdir(parents=True, exist_ok=True)
+        preserved_count = 0
+
+        print("\n[*] Preserving source evidence files...")
+
+        def _copy_and_hash(src: Path, dest: Path, label: str):
+            """Copy a single file and record its hash."""
+            nonlocal preserved_count
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            h = self.forensic.compute_hash(dest)
+            self.forensic.record_action(
+                "source_preserved",
+                f"Preserved {label}: {src.name}",
+                {"original": str(src), "preserved": str(dest), "hash": h},
+            )
+            preserved_count += 1
+
+        # --- iMessage database files ---
+        for attr in ("messages_db_path", "messages_db_wal", "messages_db_shm"):
+            val = getattr(self.config, attr, None)
+            if val:
+                p = Path(val).expanduser()
+                if p.is_file():
+                    _copy_and_hash(p, staging / "imessage" / p.name, "iMessage DB")
+
+        # --- WhatsApp: only .zip files (not extracted dirs/media) ---
+        wa_dir = self.config.whatsapp_source_dir
+        if wa_dir:
+            wa_path = Path(wa_dir).expanduser()
+            if wa_path.is_dir():
+                for f in sorted(wa_path.glob("*.zip")):
+                    if f.is_file():
+                        _copy_and_hash(f, staging / "whatsapp" / f.name, "WhatsApp ZIP")
+
+        # --- Email ---
+        email_dir = self.config.email_source_dir
+        if email_dir:
+            email_path = Path(email_dir).expanduser()
+            if email_path.is_dir():
+                for f in sorted(email_path.rglob("*")):
+                    if f.is_file():
+                        rel = f.relative_to(email_path)
+                        _copy_and_hash(f, staging / "email" / rel, "email")
+
+        # --- Microsoft Teams ---
+        teams_dir = self.config.teams_source_dir
+        if teams_dir:
+            teams_path = Path(teams_dir).expanduser()
+            if teams_path.is_dir():
+                for f in sorted(teams_path.rglob("*")):
+                    if f.is_file():
+                        rel = f.relative_to(teams_path)
+                        _copy_and_hash(f, staging / "teams" / rel, "Teams")
+
+        # --- Screenshots ---
+        ss_dir = self.config.screenshot_source_dir
+        if ss_dir:
+            ss_path = Path(ss_dir).expanduser()
+            if ss_path.is_dir():
+                for f in sorted(ss_path.iterdir()):
+                    if f.is_file():
+                        _copy_and_hash(f, staging / "screenshots" / f.name, "screenshot")
+
+        if preserved_count == 0:
+            print("    No source files found to preserve")
+            # Clean up empty staging dir
+            if staging.exists():
+                shutil.rmtree(staging)
+            return
+
+        # --- Zip the staging tree ---
+        zip_path = run_dir / "preserved_sources.zip"
+        print(f"    Archiving {preserved_count} source files...")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in sorted(staging.rglob("*")):
+                if f.is_file():
+                    zf.write(f, f.relative_to(staging))
+
+        # Hash the archive itself
+        archive_hash = self.forensic.compute_hash(zip_path)
+        self.forensic.record_action(
+            "source_archive_created",
+            f"Created source evidence archive with {preserved_count} files",
+            {"archive": str(zip_path), "hash": archive_hash, "file_count": preserved_count},
+        )
+        self.manifest.add_output_file(zip_path)
+
+        # Remove unzipped staging tree (originals are untouched)
+        shutil.rmtree(staging)
+
+        print(f"    Preserved {preserved_count} source files → {zip_path.name}")
+
+    # ------------------------------------------------------------------
     # Attachment preservation (FRE 1002 — Best Evidence Rule)
     # ------------------------------------------------------------------
 
@@ -254,8 +367,19 @@ class ForensicAnalyzer:
         print("PHASE 1: DATA EXTRACTION")
         print("="*60)
 
+        # Verify we are writing into a run subfolder
+        output_dir = Path(self.config.output_dir)
+        if not re.search(r'run_\d{8}_\d{6}', output_dir.name):
+            msg = (f"output_dir does not look like a run subfolder: {output_dir}. "
+                   f"Extraction outputs may be misplaced.")
+            print(f"    WARNING: {msg}")
+            self.forensic.record_error("output_dir_warning", msg, {"output_dir": str(output_dir)})
+
         # Hash all source files BEFORE reading them (chain of custody)
         self._hash_source_files()
+
+        # Archive source evidence into the run folder (before extraction)
+        self._preserve_source_files()
 
         extractor = DataExtractor(self.forensic, third_party_registry=self.third_party_registry, config=self.config)
         
