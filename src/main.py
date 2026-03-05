@@ -217,12 +217,14 @@ class ForensicAnalyzer:
 
     def _save_pipeline_state(self, review_session_id: str = None,
                              review_results_path: str = None,
+                             ai_batch_results_path: str = None,
                              review_complete: bool = False):
         """Save pipeline state so a crashed run can resume or finalize later."""
         state = {
             "timestamp": datetime.now().isoformat(),
             "extracted_data_path": str(self._extracted_data_path) if self._extracted_data_path else None,
             "analysis_results_path": str(self._analysis_results_path) if self._analysis_results_path else None,
+            "ai_batch_results_path": ai_batch_results_path,
             "review_results_path": review_results_path,
             "review_session_id": review_session_id,
             "review_complete": review_complete,
@@ -389,8 +391,8 @@ class ForensicAnalyzer:
         # At this point combined_df has threat, sentiment, and pattern columns.
         self._enriched_df = combined_df.copy()
 
-        # AI analysis runs post-review (Phase 5) so it can incorporate
-        # human-verified findings into its summary and risk assessment.
+        # AI batch analysis runs in Phase 3 (after this phase).
+        # Placeholder here; populated by run_ai_batch_phase().
         results['ai_analysis'] = {}
 
         # Save analysis results
@@ -407,11 +409,83 @@ class ForensicAnalyzer:
         print(f"\n[✓] Analysis complete. Results saved to {output_file}")
 
         return results
-    
+
+    def run_ai_batch_phase(self, extracted_data: Dict) -> Dict:
+        """Run AI batch processing on messages (Phase 3, pre-review).
+
+        Sends mapped-contact messages to Claude for classification:
+        threats, coercive control, behavioral patterns, sentiment.
+        Does NOT generate the executive summary — that runs post-review
+        in finalize so it can incorporate review decisions.
+
+        Args:
+            extracted_data: Raw extraction data with all messages.
+
+        Returns:
+            AI batch results dict (without summary), or empty dict on skip/error.
+        """
+        print("\n" + "="*60)
+        print("PHASE 3: AI BATCH ANALYSIS (PRE-REVIEW)")
+        print("="*60)
+
+        try:
+            from src.analyzers.ai_analyzer import AIAnalyzer
+            ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic, config=self.config)
+            if not ai_analyzer.client:
+                print("    AI analysis skipped - not configured")
+                return ai_analyzer._empty_analysis()
+
+            messages = extracted_data.get('messages', [])
+            ai_contacts = self.config.ai_contacts
+            ai_specified = self.config.ai_contacts_specified
+            mapped_messages = [
+                m for m in messages
+                if m.get('sender') in ai_contacts
+                and m.get('recipient') in ai_contacts
+                and (ai_specified is None
+                     or m.get('sender') in ai_specified
+                     or m.get('recipient') in ai_specified)
+            ]
+            skipped = len(messages) - len(mapped_messages)
+            if skipped:
+                print(f"    Filtered to {len(mapped_messages)} mapped-contact "
+                      f"messages (skipped {skipped} unmapped)")
+
+            # generate_summary=False — summary runs post-review in finalize
+            ai_results = ai_analyzer.analyze_messages(
+                mapped_messages, batch_size=self.config.batch_size,
+                generate_summary=False,
+            )
+            threat_count = len(ai_results.get('threat_assessment', {}).get('details', []))
+            cc_count = len(ai_results.get('coercive_control', {}).get('patterns', []))
+            print(f"    AI batch complete - {threat_count} threats, "
+                  f"{cc_count} coercive control patterns found")
+
+            self.manifest.add_operation("ai_batch_analysis", "success",
+                                        {"message_count": len(mapped_messages),
+                                         "threats": threat_count,
+                                         "coercive_control_patterns": cc_count})
+
+            # Save AI results to disk so finalize can load them
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            ai_output_file = Path(self.config.output_dir) / f"ai_batch_results_{timestamp}.json"
+            with open(ai_output_file, 'w') as f:
+                json.dump(ai_results, f, indent=2, default=str)
+            self._ai_batch_results_path = ai_output_file
+            print(f"    AI batch results saved to {ai_output_file.name}")
+
+            return ai_results
+
+        except Exception as e:
+            print(f"    AI batch analysis error: {e}")
+            import traceback
+            traceback.print_exc()
+            return {}
+
     def run_review_phase(self, analysis_results: Dict, extracted_data: Dict, resume_session_id: str = None) -> Dict:
         """Run the interactive manual review phase on flagged items."""
         print("\n" + "="*60)
-        print("PHASE 3: INTERACTIVE MANUAL REVIEW")
+        print("PHASE 4: INTERACTIVE MANUAL REVIEW")
         print("="*60)
 
         manager = ManualReviewManager(session_id=resume_session_id, config=self.config,
@@ -437,7 +511,7 @@ class ForensicAnalyzer:
                     return False
             return True
 
-        # Add threats from mapped contacts for review
+        # Add threats from local analyzers (Phase 2) for review
         if 'threats' in analysis_results:
             threat_details = analysis_results['threats'].get('details', [])
             # threat_details is a list of dicts, not a DataFrame
@@ -453,8 +527,35 @@ class ForensicAnalyzer:
                             'message_id': item.get('message_id', ''),
                         })
 
-        # AI analysis runs post-review (Phase 5), so AI-detected threats
-        # and notable quotes are no longer added to the review queue.
+        # Add AI-detected threats (Phase 3) for review
+        ai_analysis = analysis_results.get('ai_analysis', {})
+        ai_threats = ai_analysis.get('threat_assessment', {})
+        if ai_threats.get('found'):
+            for i, detail in enumerate(ai_threats.get('details', [])):
+                if isinstance(detail, dict):
+                    items_for_review.append({
+                        'id': f"ai_threat_{i}",
+                        'type': 'ai_threat',
+                        'content': detail.get('quote', ''),
+                        'categories': f"{detail.get('type', '')} — {detail.get('target', '')}",
+                        'confidence': detail.get('severity', ''),
+                        'message_id': '',
+                        'rcw_relevance': detail.get('rcw_relevance', ''),
+                    })
+
+        # Add AI-detected coercive control patterns for review
+        ai_cc = ai_analysis.get('coercive_control', {})
+        if ai_cc.get('detected'):
+            for i, pattern in enumerate(ai_cc.get('patterns', [])):
+                if isinstance(pattern, dict):
+                    items_for_review.append({
+                        'id': f"ai_coercive_{i}",
+                        'type': 'ai_coercive_control',
+                        'content': pattern.get('quote', ''),
+                        'categories': f"Coercive control: {pattern.get('type', '')}",
+                        'confidence': pattern.get('severity', ''),
+                        'message_id': '',
+                    })
 
         # Add ALL email messages for review — emails are low-volume and each
         # is purposeful.  Third-party emails (counselors, attorneys, family)
@@ -482,7 +583,7 @@ class ForensicAnalyzer:
                 'subject': subject,
             })
 
-        print(f"\n[*] {len(items_for_review)} items flagged for review (threats + emails)")
+        print(f"\n[*] {len(items_for_review)} items flagged for review (local threats + AI threats + AI coercive control + emails)")
 
         # Filter out already-reviewed items (resume support)
         if already_reviewed:
@@ -567,7 +668,7 @@ class ForensicAnalyzer:
         analysis only considers confirmed threats.
         """
         print("\n" + "="*60)
-        print("PHASE 4: BEHAVIORAL ANALYSIS (POST-REVIEW)")
+        print("PHASE 5: BEHAVIORAL ANALYSIS (POST-REVIEW)")
         print("="*60)
 
         import pandas as pd
@@ -693,70 +794,11 @@ class ForensicAnalyzer:
 
         return filtered
 
-    def run_ai_analysis_phase(self, extracted_data: Dict,
-                              filtered_analysis: Dict) -> Dict:
-        """Run AI analysis on post-review data (Phase 5).
-
-        AI analysis runs after manual review so it can incorporate
-        human-verified findings into its summary and risk assessment.
-        The AI sees all mapped-contact messages for full conversation
-        context, but the filtered_analysis provides confirmed findings.
-
-        Args:
-            extracted_data: Raw extraction data with all messages.
-            filtered_analysis: Analysis results filtered by review decisions.
-
-        Returns:
-            AI analysis results dict (or empty dict on error/skip).
-        """
-        print("\n" + "="*60)
-        print("PHASE 5: AI ANALYSIS (POST-REVIEW)")
-        print("="*60)
-
-        try:
-            from src.analyzers.ai_analyzer import AIAnalyzer
-            ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic, config=self.config)
-            if not ai_analyzer.client:
-                print("    AI analysis skipped - not configured")
-                return ai_analyzer._empty_analysis()
-
-            messages = extracted_data.get('messages', [])
-            ai_contacts = self.config.ai_contacts
-            ai_specified = self.config.ai_contacts_specified
-            mapped_messages = [
-                m for m in messages
-                if m.get('sender') in ai_contacts
-                and m.get('recipient') in ai_contacts
-                and (ai_specified is None
-                     or m.get('sender') in ai_specified
-                     or m.get('recipient') in ai_specified)
-            ]
-            skipped = len(messages) - len(mapped_messages)
-            if skipped:
-                print(f"    Filtered to {len(mapped_messages)} mapped-contact "
-                      f"messages (skipped {skipped} unmapped)")
-
-            ai_results = ai_analyzer.analyze_messages(
-                mapped_messages, batch_size=self.config.batch_size
-            )
-            risk_count = len(ai_results.get('risk_indicators', []))
-            print(f"    AI analysis complete - {risk_count} risk indicators found")
-
-            self.manifest.add_operation("ai_analysis", "success",
-                                        {"message_count": len(mapped_messages),
-                                         "risk_indicators": risk_count})
-            return ai_results
-
-        except Exception as e:
-            print(f"    AI analysis error: {e}")
-            import traceback
-            traceback.print_exc()
-            return {}
 
     def run_reporting_phase(self, data: Dict, analysis: Dict, review: Dict) -> Dict:
         """Generate reports in multiple formats."""
         print("\n" + "="*60)
-        print("PHASE 6: REPORT GENERATION")
+        print("PHASE 7: REPORT GENERATION")
         print("="*60)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -850,7 +892,7 @@ class ForensicAnalyzer:
     def run_documentation_phase(self, data: Dict, analysis_results: Dict = None) -> Dict:
         """Generate final documentation and chain of custody."""
         print("\n" + "="*60)
-        print("PHASE 7: DOCUMENTATION")
+        print("PHASE 8: DOCUMENTATION")
         print("="*60)
         
         # Generate chain of custody
@@ -919,19 +961,19 @@ class ForensicAnalyzer:
         return result
     
     def run_full_analysis(self, resume: bool = False):
-        """Run extraction, analysis, and review phases (1-3), then stop.
+        """Run extraction, analysis, AI batch, and review phases (1-4), then stop.
 
         After review completes, pipeline state is saved and the process
         exits.  Run ``run_finalize()`` (via ``python3 run.py --finalize``)
-        to continue with behavioral analysis, AI analysis, reporting, and
-        documentation (Phases 4-7).
+        to continue with behavioral analysis, AI summary, reporting, and
+        documentation (Phases 5-8).
 
         Args:
             resume: If True, skip extraction and analysis by loading
                     saved state from a previous run. Resumes at the review phase.
         """
         print("\n" + "="*80)
-        print(" FORENSIC MESSAGE ANALYZER — PHASES 1-3 ")
+        print(" FORENSIC MESSAGE ANALYZER — PHASES 1-4 ")
         print("="*80)
         print(f"Session started: {datetime.now()}")
         print(f"Output directory: {self.config.output_dir}")
@@ -960,7 +1002,7 @@ class ForensicAnalyzer:
                     self._extracted_data_path = Path(ext_path)
                     self._analysis_results_path = Path(ana_path)
 
-                    print("\n    Skipping Phase 1 (extraction) and Phase 2 (analysis) — already completed.")
+                    print("\n    Skipping Phases 1-3 (extraction, analysis, AI batch) — already completed.")
                 else:
                     print("\n[!] State file found but data files missing. Starting fresh.")
                     resume = False
@@ -973,19 +1015,30 @@ class ForensicAnalyzer:
                 # Phase 1: Extraction
                 extracted_data = self.run_extraction_phase()
 
-                # Phase 2: Analysis
+                # Phase 2: Local Analysis (threat, sentiment, pattern — no AI)
                 analysis_results = self.run_analysis_phase(extracted_data)
+
+                # Phase 3: AI Batch Analysis (pre-review, no summary)
+                ai_batch_results = self.run_ai_batch_phase(extracted_data)
+                analysis_results['ai_analysis'] = ai_batch_results
+
+                # Re-save analysis results now that AI batch data is included,
+                # so finalize can load the complete analysis from disk.
+                if self._analysis_results_path:
+                    with open(self._analysis_results_path, 'w') as f:
+                        json.dump(analysis_results, f, indent=2, default=str)
 
                 # Save state so review can be resumed if process dies
                 self._save_pipeline_state()
 
-            # Phase 3: Review
+            # Phase 4: Manual Review (reviews local + AI findings)
             review_results = self.run_review_phase(analysis_results, extracted_data, resume_session_id=resume_session_id)
 
             # Save complete state with review results for finalize
             self._save_pipeline_state(
                 review_session_id=getattr(self, '_review_session_id', None),
                 review_results_path=str(self._review_results_path) if getattr(self, '_review_results_path', None) else None,
+                ai_batch_results_path=str(self._ai_batch_results_path) if getattr(self, '_ai_batch_results_path', None) else None,
                 review_complete=True,
             )
 
@@ -1005,11 +1058,11 @@ class ForensicAnalyzer:
             raise
 
     def run_finalize(self):
-        """Run post-review phases (4-7) using saved pipeline state.
+        """Run post-review phases (5-8) using saved pipeline state.
 
-        Loads extraction data, analysis results, and review decisions
-        from disk, then runs behavioral analysis, AI analysis, reporting,
-        and documentation.
+        Loads extraction data, analysis results (including AI batch results),
+        and review decisions from disk. Runs behavioral analysis, AI executive
+        summary, reporting, and documentation.
         """
         print("\n" + "="*80)
         print(" FORENSIC MESSAGE ANALYZER — FINALIZE (POST-REVIEW) ")
@@ -1021,7 +1074,7 @@ class ForensicAnalyzer:
         if not state:
             raise RuntimeError(
                 "No pipeline state found. Run the full pipeline first "
-                "(python3 run.py) to complete Phases 1-3."
+                "(python3 run.py) to complete Phases 1-4."
             )
         if not state.get("review_complete"):
             raise RuntimeError(
@@ -1097,7 +1150,7 @@ class ForensicAnalyzer:
         )
 
         try:
-            # Phase 4: Behavioral Analysis (post-review)
+            # Phase 5: Behavioral Analysis (post-review)
             try:
                 behavioral_results = self.run_behavioral_phase(extracted_data, analysis_results, review_results)
                 analysis_results['behavioral'] = behavioral_results
@@ -1113,15 +1166,33 @@ class ForensicAnalyzer:
                 for src, count in tp_summary['by_source'].items():
                     print(f"    {src}: {count}")
 
-            # Phase 5: AI Analysis (post-review)
-            filtered_for_ai = self._filter_analysis_by_review(analysis_results, review_results)
-            ai_results = self.run_ai_analysis_phase(extracted_data, filtered_for_ai)
-            analysis_results['ai_analysis'] = ai_results
+            # Phase 6: AI Executive Summary (post-review)
+            # Batch results already exist from Phase 3 (pre-review).
+            # Now generate summary, risks, and recommendations using the
+            # summary model, incorporating review decisions.
+            ai_results = analysis_results.get('ai_analysis', {})
+            if ai_results and ai_results.get('total_messages', 0) > 0:
+                print("\n" + "="*60)
+                print("PHASE 6: AI EXECUTIVE SUMMARY (POST-REVIEW)")
+                print("="*60)
+                try:
+                    from src.analyzers.ai_analyzer import AIAnalyzer
+                    ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic, config=self.config)
+                    if ai_analyzer.client:
+                        ai_results = ai_analyzer.generate_post_review_summary(ai_results)
+                        analysis_results['ai_analysis'] = ai_results
+                        print(f"    Executive summary generated")
+                    else:
+                        print("    AI summary skipped — not configured")
+                except Exception as e:
+                    print(f"    AI summary error (non-fatal): {e}")
+            else:
+                print("\n[*] No AI batch results found — skipping executive summary")
 
-            # Phase 6: Reporting
+            # Phase 7: Reporting
             reports = self.run_reporting_phase(extracted_data, analysis_results, review_results)
 
-            # Phase 7: Documentation (pass analysis_results for enriched timeline)
+            # Phase 8: Documentation (pass analysis_results for enriched timeline)
             documentation = self.run_documentation_phase(extracted_data, analysis_results)
 
             print("\n" + "="*80)
@@ -1145,7 +1216,7 @@ class ForensicAnalyzer:
 
 
 def main(config: Config = None, resume: bool = False):
-    """Main entry point for the forensic analyzer (Phases 1-3).
+    """Main entry point for the forensic analyzer (Phases 1-4).
 
     Runs extraction, local analysis, and manual review, then stops.
     Use ``finalize()`` to run the remaining phases.

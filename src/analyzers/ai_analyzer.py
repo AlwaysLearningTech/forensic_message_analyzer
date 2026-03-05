@@ -160,50 +160,110 @@ class AIAnalyzer:
 
     _SYSTEM_PROMPT = (
         "You are a forensic analyst specializing in digital communications "
-        "for family law proceedings (divorce, custody, domestic relations).\n\n"
+        "for family law proceedings (divorce, custody, domestic relations) "
+        "under Washington State law (RCW Title 26).\n\n"
+
+        "LEGAL FRAMEWORK\n"
+        "Your analysis must map findings to factors courts consider:\n"
+        "- RCW 26.09.187: Best interests of the child — emotional ties, "
+        "parental capacity, history of abuse, stability, cooperation in co-parenting.\n"
+        "- RCW 26.09.191: Limitations on residential time — domestic violence, "
+        "sexual abuse, neglect, substance abuse, withholding the child.\n"
+        "- RCW 26.50 (DVPA): Domestic violence includes physical harm, bodily injury, "
+        "assault, stalking, and also fear of imminent physical harm.\n\n"
+
+        "COERCIVE CONTROL FRAMEWORK\n"
+        "Analyze messages for patterns of coercive control (Evan Stark model), "
+        "which courts increasingly recognize as abuse even without physical violence:\n"
+        "- **Intimidation and threats**: Direct or veiled threats to safety, custody, "
+        "finances, reputation, or immigration status.\n"
+        "- **Isolation**: Restricting contact with family, friends, or support services; "
+        "monitoring movements; controlling access to transportation or communication.\n"
+        "- **Microregulation**: Dictating daily routines, appearance, parenting, "
+        "spending, or social interactions to an unreasonable degree.\n"
+        "- **Degradation**: Name-calling, humiliation, disparagement (especially "
+        "in front of children), weaponizing insecurities.\n"
+        "- **Economic abuse**: Controlling finances, withholding support, "
+        "sabotaging employment, creating financial dependence.\n"
+        "- **Gaslighting**: Denying documented events, rewriting history, "
+        "questioning the other party's memory or sanity.\n"
+        "- **Using children as instruments of control**: Parental alienation, "
+        "undermining the other parent's authority, using custody or visitation "
+        "as leverage, interrogating children about the other parent.\n\n"
+
+        "BEHAVIORAL ANALYSIS\n"
         "Analyze the provided conversation with specific focus on:\n"
-        "1. **Sentiment and emotional escalation**: Track emotional intensity changes. "
-        "Note shifts from calm to hostile, or patterns of manipulation "
-        "(gaslighting, guilt-tripping, love-bombing).\n"
-        "2. **Threats and concerning behavior**: Identify direct or veiled threats "
-        "to physical safety, threats regarding children/custody, financial coercion, "
-        "harassment, stalking behavior, and parental alienation language.\n"
-        "3. **Behavioral patterns**: Detect controlling behavior, isolation tactics, "
-        "substance abuse references, violation of court orders, disparagement of "
-        "the other parent in front of children.\n"
-        "4. **Key topics**: Child welfare, custody arrangements, financial matters, "
-        "co-parenting communication, protective order compliance.\n"
-        "5. **Risk indicators**: Escalation patterns, safety concerns for children "
-        "or adults, evidence of parental unfitness.\n\n"
-        "IMPORTANT GUIDELINES:\n"
+        "1. **Sentiment and emotional escalation**: Track emotional intensity over the batch. "
+        "Note shifts from calm to hostile. Measure on 0-10 scale (0=calm, 10=crisis-level).\n"
+        "2. **Threats and concerning behavior**: Direct or veiled threats to physical safety, "
+        "threats regarding children/custody, financial coercion, harassment, stalking, "
+        "parental alienation language. Classify each as direct, veiled, or conditional.\n"
+        "3. **Temporal patterns**: Note timing indicators — late-night/early-morning "
+        "message barrages, rapid-fire messaging demanding immediate responses, "
+        "silence followed by escalation. Report if the batch suggests these.\n"
+        "4. **Reactive vs. initiating behavior**: When someone responds aggressively, "
+        "note whether they appear to be reacting to sustained provocation. "
+        "Do NOT score victim responses symmetrically with initiating abuse. "
+        "Flag the pattern as 'reactive' and note the provoking context.\n"
+        "5. **Key topics**: Child welfare, custody arrangements, financial matters, "
+        "co-parenting, protective order compliance, substance references.\n"
+        "6. **Risk indicators**: Escalation trajectories, safety concerns for children "
+        "or adults, evidence of parental unfitness per RCW 26.09.191.\n\n"
+
+        "ANALYSIS GUIDELINES\n"
         "- Provide objective, fact-based analysis suitable for court proceedings.\n"
+        "- Use clinically precise language. Say 'verbal aggression' not 'disagreement'; "
+        "'controlling demand' not 'request'; 'threat' not 'strong statement'.\n"
         "- Clearly distinguish direct observations from interpretations.\n"
-        "- Note exact quotes that support findings.\n"
-        "- Assess severity of each finding: critical, high, medium, low.\n"
-        "- Consider the family law context: best interests of children, "
-        "safety of parties.\n\n"
-        "Format your response as valid JSON (no markdown fences) with this structure:\n"
+        "- Include exact quotes that support each finding.\n"
+        "- Assess severity: critical, high, medium, low.\n"
+        "- For each threat, specify: direct/veiled/conditional, and the target "
+        "(physical safety, custody, financial, emotional).\n"
+        "- Consider the family law context: best interests of children, safety of parties.\n\n"
+
+        "FORMAT\n"
+        "Respond with valid JSON (no markdown fences) using this structure:\n"
         "{\n"
         '    "sentiment": {\n'
         '        "overall": "positive/neutral/negative",\n'
-        '        "shifts": [{"from": "...", "to": "...", "approximate_position": "..."}],\n'
+        '        "shifts": [{"from": "...", "to": "...", "trigger_quote": "..."}],\n'
         '        "intensity": 0-10,\n'
-        '        "escalation_detected": false\n'
+        '        "escalation_detected": true/false\n'
         "    },\n"
         '    "threats": {\n'
-        '        "found": false,\n'
+        '        "found": true/false,\n'
         '        "severity": "none/low/medium/high/critical",\n'
-        '        "details": [{"type": "...", "quote": "...", "severity": "...", '
-        '"recommended_action": "..."}]\n'
+        '        "details": [{\n'
+        '            "type": "direct/veiled/conditional",\n'
+        '            "target": "physical_safety/custody/financial/emotional/reputation",\n'
+        '            "quote": "exact message text",\n'
+        '            "sender": "who said it",\n'
+        '            "severity": "low/medium/high/critical",\n'
+        '            "rcw_relevance": "e.g. RCW 26.09.191(2)(a)(iii) — history of domestic violence",\n'
+        '            "recommended_action": "..."\n'
+        '        }]\n'
+        "    },\n"
+        '    "coercive_control": {\n'
+        '        "detected": true/false,\n'
+        '        "patterns": [{\n'
+        '            "type": "intimidation/isolation/microregulation/degradation/economic_abuse/gaslighting/using_children",\n'
+        '            "quote": "exact message text",\n'
+        '            "sender": "who said it",\n'
+        '            "description": "clinical description of the pattern",\n'
+        '            "severity": "low/medium/high/critical"\n'
+        '        }]\n'
         "    },\n"
         '    "behavioral_patterns": {\n'
-        '        "patterns": [{"type": "...", "description": "...", "severity": "..."}],\n'
-        '        "anomalies": [{"description": "...", "concern_level": "..."}]\n'
+        '        "patterns": [{"type": "...", "description": "...", "severity": "...", '
+        '"is_reactive": false}],\n'
+        '        "anomalies": [{"description": "...", "concern_level": "...", '
+        '"timestamp_context": "..."}]\n'
         "    },\n"
         '    "key_topics": [],\n'
         '    "risk_indicators": [{"indicator": "...", "severity": "...", '
-        '"recommended_action": "..."}],\n'
-        '    "notable_quotes": [{"quote": "...", "significance": "..."}]\n'
+        '"rcw_relevance": "...", "recommended_action": "..."}],\n'
+        '    "notable_quotes": [{"quote": "...", "sender": "...", "significance": "...", '
+        '"forensic_relevance": "why this matters legally"}]\n'
         "}"
     )
 
@@ -224,9 +284,10 @@ class AIAnalyzer:
     # Main entry point
     # ------------------------------------------------------------------
 
-    def analyze_messages(self, messages: List[Dict], batch_size: int = 50) -> Dict[str, Any]:
+    def analyze_messages(self, messages: List[Dict], batch_size: int = 50,
+                         generate_summary: bool = True) -> Dict[str, Any]:
         """
-        Analyze messages using Claude Opus for advanced insights.
+        Analyze messages using Claude for advanced insights.
 
         Uses the Batch API by default (50% cost discount + prompt caching).
         Falls back to synchronous processing if batch API is disabled or fails.
@@ -235,6 +296,9 @@ class AIAnalyzer:
             messages: List of message dictionaries
             batch_size: Number of messages per analysis request (default 50).
                         Larger values reduce system prompt overhead and cost.
+            generate_summary: If True, generate executive summary after batch
+                              processing. Set False for pre-review batch runs
+                              where summary will be generated later.
 
         Returns:
             Dictionary containing AI analysis results
@@ -248,7 +312,8 @@ class AIAnalyzer:
 
         if self.use_batch_api:
             try:
-                return self._analyze_messages_batch(messages, batch_size)
+                return self._analyze_messages_batch(messages, batch_size,
+                                                    generate_summary=generate_summary)
             except Exception as e:
                 # If the batch was already submitted to Anthropic, do NOT
                 # fall back to sync (that would re-process everything at 2x cost).
@@ -268,13 +333,15 @@ class AIAnalyzer:
                     {"error": str(e)},
                 )
 
-        return self._analyze_messages_sync(messages, batch_size)
+        return self._analyze_messages_sync(messages, batch_size,
+                                            generate_summary=generate_summary)
 
     # ------------------------------------------------------------------
     # Batch API path (50% cost discount)
     # ------------------------------------------------------------------
 
-    def _analyze_messages_batch(self, messages: List[Dict], batch_size: int) -> Dict[str, Any]:
+    def _analyze_messages_batch(self, messages: List[Dict], batch_size: int,
+                                generate_summary: bool = True) -> Dict[str, Any]:
         """
         Submit all analysis requests via the Anthropic Message Batches API.
 
@@ -456,10 +523,12 @@ class AIAnalyzer:
             + f"\n    Batch cost: ${estimated_cost:.2f}"
         )
 
-        # Generate summary, risks, recommendations (synchronous - only 2 API calls)
-        analysis_results["conversation_summary"] = self._generate_summary(analysis_results)
-        analysis_results["risk_indicators"] = self._identify_risks(analysis_results)
-        analysis_results["recommendations"] = self._generate_recommendations(analysis_results)
+        # Generate summary, risks, recommendations (synchronous API calls)
+        # Skipped during pre-review batch runs; generated later in finalize.
+        if generate_summary:
+            analysis_results["conversation_summary"] = self._generate_summary(analysis_results)
+            analysis_results["risk_indicators"] = self._identify_risks(analysis_results)
+            analysis_results["recommendations"] = self._generate_recommendations(analysis_results)
 
         # Compute overall sentiment from accumulated per-batch directions
         scores = analysis_results.get("sentiment_analysis", {}).get("scores", [])
@@ -517,7 +586,8 @@ class AIAnalyzer:
     # Synchronous path (fallback / development)
     # ------------------------------------------------------------------
 
-    def _analyze_messages_sync(self, messages: List[Dict], batch_size: int) -> Dict[str, Any]:
+    def _analyze_messages_sync(self, messages: List[Dict], batch_size: int,
+                               generate_summary: bool = True) -> Dict[str, Any]:
         """
         Analyze messages synchronously (one API call per batch).
         Used as fallback when Batch API is unavailable or disabled.
@@ -565,9 +635,10 @@ class AIAnalyzer:
                     },
                 )
 
-            analysis_results["conversation_summary"] = self._generate_summary(analysis_results)
-            analysis_results["risk_indicators"] = self._identify_risks(analysis_results)
-            analysis_results["recommendations"] = self._generate_recommendations(analysis_results)
+            if generate_summary:
+                analysis_results["conversation_summary"] = self._generate_summary(analysis_results)
+                analysis_results["risk_indicators"] = self._identify_risks(analysis_results)
+                analysis_results["recommendations"] = self._generate_recommendations(analysis_results)
 
             # Compute overall sentiment from accumulated per-batch directions
             scores = analysis_results.get("sentiment_analysis", {}).get("scores", [])
@@ -666,8 +737,10 @@ class AIAnalyzer:
             timestamp = msg.get("timestamp", "Unknown time")
             sender = msg.get("sender", "Unknown")
             content = msg.get("content", "")
+            source = msg.get("source", "")
+            source_tag = f" ({source})" if source else ""
 
-            batch_text += f"[{timestamp}] {sender}: {content}\n"
+            batch_text += f"[{timestamp}] {sender}{source_tag}: {content}\n"
 
         return batch_text
 
@@ -768,6 +841,17 @@ class AIAnalyzer:
                 batch_analysis["behavioral_patterns"].get("anomalies", [])
             )
 
+        # Merge coercive control findings
+        if "coercive_control" in batch_analysis:
+            if "coercive_control" not in results:
+                results["coercive_control"] = {"detected": False, "patterns": []}
+
+            if batch_analysis["coercive_control"].get("detected"):
+                results["coercive_control"]["detected"] = True
+                results["coercive_control"]["patterns"].extend(
+                    batch_analysis["coercive_control"].get("patterns", [])
+                )
+
         # Merge key topics
         if "key_topics" in batch_analysis:
             results["key_topics"].extend(batch_analysis["key_topics"])
@@ -781,6 +865,25 @@ class AIAnalyzer:
             results.setdefault("notable_quotes", []).extend(
                 batch_analysis["notable_quotes"]
             )
+
+    def generate_post_review_summary(self, ai_results: Dict) -> Dict:
+        """Generate executive summary, risks, and recommendations for existing batch results.
+
+        Called during finalize (post-review) to add the narrative summary
+        to AI batch results that were collected before manual review.
+
+        Args:
+            ai_results: AI analysis results from a previous batch run
+                        (already stored in analysis_results['ai_analysis']).
+
+        Returns:
+            The same dict with conversation_summary, risk_indicators,
+            and recommendations populated.
+        """
+        ai_results["conversation_summary"] = self._generate_summary(ai_results)
+        ai_results["risk_indicators"] = self._identify_risks(ai_results)
+        ai_results["recommendations"] = self._generate_recommendations(ai_results)
+        return ai_results
 
     def _generate_summary(self, analysis: Dict) -> str:
         """
