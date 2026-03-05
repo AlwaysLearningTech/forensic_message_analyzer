@@ -16,7 +16,7 @@ class TestVersionCentralization:
 
     def test_init_version(self):
         from src import __version__
-        assert __version__ == "4.3.0"
+        assert __version__ == "4.3.1"
 
     def test_forensic_utils_uses_init_version(self):
         from src import __version__

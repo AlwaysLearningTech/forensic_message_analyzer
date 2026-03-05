@@ -253,12 +253,12 @@ The script runs 8 checks:
 
 ### Full Analysis Pipeline
 
-Run the complete forensic analysis:
+The analysis runs in two steps. First, extract, analyze, and review:
 ```bash
 python3 run.py
 ```
 
-This executes six phases:
+This executes Phases 1-4 (extraction through review):
 1. **Data Extraction**: Collects messages from all sources (iMessage, WhatsApp, email, Teams, screenshots)
    - Automatically extracts ZIP files (e.g., WhatsApp_SourceFiles.zip) and TAR archives (Teams exports)
    - Decodes modern iMessage binary format (attributedBody)
@@ -267,14 +267,18 @@ This executes six phases:
    - Maps all participants to configured person names
    - Adds sender and recipient fields to all messages
    - Detects and tracks third-party contacts not in person mappings
-2. **Automated Analysis**: Runs all configured analyzers
+2. **Local Analysis**: Runs all configured non-AI analyzers
    - Threat detection with pattern matching
    - Sentiment analysis (polarity and subjectivity)
-   - Behavioral pattern analysis
+   - YAML-based pattern analysis
    - Communication metrics
-3. **Manual Review**: Flags items for human review
-4. **Behavioral Analysis**: Post-review behavioral pattern analysis
-5. **Report Generation**: Creates comprehensive reports
+3. **AI Batch Analysis**: Submits messages to Claude for classification (pre-review)
+4. **Manual Review**: Flags items from local and AI analysis for human review
+
+Then run `python3 run.py --finalize` for Phases 5-8 (post-review):
+5. **Behavioral Analysis**: Post-review behavioral pattern analysis
+6. **AI Executive Summary**: Generates narrative summary incorporating review decisions
+7. **Report Generation**: Creates comprehensive reports
    - Excel: Separate tabs per person with integrated threat/sentiment data, plus Findings Summary, Timeline, AI Analysis, Conversation Threads, and Third Party Contacts sheets
    - Word: Complete analysis with all sections
    - PDF: Matches Word content for legal distribution
@@ -282,7 +286,21 @@ This executes six phases:
    - HTML/PDF: Per-person message tables, inline images, legal appendices (Methodology, Completeness Validation, Limitations)
    - Chat-bubble HTML: iMessage-style conversation view with aligned message bubbles
    - Timeline: Interactive HTML visualization with case chronology (flagged events + email communications)
-6. **Documentation**: Generates chain of custody and manifest
+8. **Documentation**: Generates chain of custody and manifest
+
+After completing manual review, generate reports and documentation:
+```bash
+# Auto-detect the latest run directory
+python3 run.py --finalize
+
+# Or specify a run directory explicitly
+python3 run.py --finalize ~/workspace/output/forensic_message_analyzer/run_20260304_120000
+```
+
+To resume an interrupted review session:
+```bash
+python3 run.py --resume
+```
 
 ### Expected Output
 
@@ -664,7 +682,7 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
   - Edit history display for edited messages (original text and intermediate edits)
   - Deleted message badges, URL preview blocks, shared location blocks
 
-- `legal_team_summary_YYYYMMDD_HHMMSS.txt` - AI-generated narrative summary for attorneys
+- `legal_team_summary_YYYYMMDD_HHMMSS.docx` - AI-generated narrative summary for attorneys
   - Explains key findings in plain language
   - Describes how to use each output file
   - Includes recommended next steps for the legal team
@@ -702,7 +720,7 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
 ├── forensic_analysis_20251006_011543.pdf
 ├── chat_report_20251006_011543.html
 ├── timeline_20251006_011545.html
-├── legal_team_summary_20251006_011545.txt
+├── legal_team_summary_20251006_011545.docx
 ├── all_messages_20251006_011545.csv
 ├── all_messages_20251006_011545.xlsx
 ├── chain_of_custody_20251006_011530.json

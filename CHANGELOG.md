@@ -5,6 +5,12 @@ All notable changes to the Forensic Message Analyzer will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.3.1] - 2026-03-04
+
+### Changed
+- **Legal team summary output format**: Upgraded from plain `.txt` to formatted `.docx` Word document with case header, Calibri 11pt body, and compliance footer. More professional for attorney distribution.
+- **README phase descriptions**: Updated to accurately reflect the 8-phase pipeline (Phases 1-4 in `run.py`, Phases 5-8 in `run.py --finalize`), added `--finalize` and `--resume` usage examples.
+
 ## [4.3.0] - 2026-03-02
 
 ### Added

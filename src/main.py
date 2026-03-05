@@ -1016,6 +1016,26 @@ class ForensicAnalyzer:
             except Exception as e:
                 print(f"    Error generating JSON report: {e}")
 
+        # Generate legal team summary docx (after all reports so file table is complete)
+        legal_text = getattr(forensic_reporter, '_legal_summary_text', None)
+        if legal_text:
+            print("\n[*] Generating legal team summary document...")
+            try:
+                summary_path = Path(self.config.output_dir) / f"legal_team_summary_{timestamp}.docx"
+                forensic_reporter._generate_legal_summary_docx(legal_text, summary_path, reports)
+                reports['legal_summary'] = str(summary_path)
+                file_hash = self.forensic.compute_hash(summary_path)
+                self.forensic.record_action(
+                    "legal_summary_generated",
+                    f"Generated legal team summary with hash {file_hash}",
+                    {"path": str(summary_path), "hash": file_hash}
+                )
+                print(f"    Saved to {summary_path.name}")
+            except Exception as e:
+                print(f"    Error generating legal team summary: {e}")
+                import traceback
+                traceback.print_exc()
+
         print("\n[✓] Report generation complete")
 
         self.manifest.add_operation("reporting", "success",

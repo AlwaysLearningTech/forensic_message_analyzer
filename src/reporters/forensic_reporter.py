@@ -6,7 +6,7 @@ import logging
 import json
 import html as html_module
 from docx import Document
-from docx.shared import Inches, Pt
+from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -151,22 +151,8 @@ class ForensicReporter:
                 f"JSON report generation failed: {str(e)}"
             )
 
-        # Save legal team summary as standalone text file
-        if legal_summary:
-            try:
-                summary_path = self.output_dir / f"legal_team_summary_{timestamp}.txt"
-                with open(summary_path, 'w') as f:
-                    f.write(legal_summary)
-                reports['legal_summary'] = summary_path
-                file_hash = self.forensic.compute_hash(summary_path)
-                self.forensic.record_action(
-                    "legal_summary_generated",
-                    f"Generated legal team summary with hash {file_hash}",
-                    {"path": str(summary_path), "hash": file_hash}
-                )
-                logger.info(f"Generated legal team summary: {summary_path}")
-            except Exception as e:
-                logger.error(f"Failed to save legal team summary: {e}")
+        # Store legal summary text for deferred docx generation (after all reports exist)
+        self._legal_summary_text = legal_summary
 
         # Record report generation
         self.forensic.record_action(
@@ -866,8 +852,195 @@ class ForensicReporter:
             f"Generated JSON report with hash {file_hash}",
             {"path": str(output_path), "hash": file_hash}
         )
-        
+
         return output_path
+
+    def _generate_legal_summary_docx(self, legal_summary: str, output_path: Path,
+                                      reports: Dict[str, Any] = None):
+        """Generate a formatted Word document from the legal team summary text.
+
+        Parses the AI-generated narrative and produces a professional document
+        with case header, formatted paragraphs, an output file reference table,
+        and a compliance footer.
+
+        Args:
+            legal_summary: Plain text narrative from Claude.
+            output_path: Path for the output .docx file.
+            reports: Dict mapping report type keys to file paths. Used to build
+                     the output file reference table with actual filenames.
+        """
+        doc = Document()
+
+        # Default font
+        style = doc.styles['Normal']
+        font = style.font
+        font.name = 'Calibri'
+        font.size = Pt(11)
+
+        # Title
+        title = doc.add_heading('Legal Team Summary', 0)
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        # Case header
+        header = self.compliance.generate_report_header()
+        doc.add_paragraph(f"Case Number: {header['case_number']}")
+        doc.add_paragraph(f"Case Name: {header['case_name']}")
+        doc.add_paragraph(f"Generated: {header['date_of_examination']}")
+        if header['examiner_name'] != 'Not specified':
+            doc.add_paragraph(f"Examiner: {header['examiner_name']}")
+        doc.add_paragraph('')  # spacer
+
+        # Body -- split on double newlines for paragraph breaks,
+        # preserving single newlines within paragraphs.
+        for block in legal_summary.split('\n\n'):
+            text = block.strip()
+            if not text:
+                continue
+            doc.add_paragraph(text)
+
+        # Output file reference table
+        if reports:
+            doc.add_paragraph('')
+            doc.add_heading('Output File Reference', level=1)
+            doc.add_paragraph(
+                'The following files were generated alongside this summary. '
+                'All files are in the same output directory.'
+            )
+
+            # Define descriptions and guidance for each report type
+            file_info = {
+                'excel': (
+                    'Excel Report',
+                    'Start here. Contains per-person tabs with messages, integrated '
+                    'threat/sentiment columns, a Findings Summary sheet, Timeline, '
+                    'AI Analysis, Conversation Threads, and Third Party Contacts. '
+                    'Use filters and search to locate specific conversations.'
+                ),
+                'word': (
+                    'Word Report',
+                    'Comprehensive narrative report with case information, methodology, '
+                    'legal compliance statements, findings summary, threat analysis, '
+                    'and chain of custody reference. Suitable for court filing.'
+                ),
+                'pdf': (
+                    'PDF Report',
+                    'Same content as the Word report, formatted for distribution '
+                    'and printing. Use this for court submission or sharing with '
+                    'opposing counsel.'
+                ),
+                'html': (
+                    'HTML Report',
+                    'Interactive report with per-person message tables, inline images, '
+                    'conversation threads, risk indicators, and legal appendices '
+                    '(Methodology, Completeness Validation, Limitations). Open in any '
+                    'web browser.'
+                ),
+                'html_pdf': (
+                    'HTML Report (PDF)',
+                    'PDF conversion of the HTML report for printing or court submission.'
+                ),
+                'chat_html': (
+                    'Chat Bubble Report',
+                    'iMessage-style conversation view with left/right aligned message '
+                    'bubbles, inline attachments, edit history, deleted message badges, '
+                    'and URL previews. Best for reviewing conversations in context.'
+                ),
+                'json': (
+                    'JSON Report',
+                    'Machine-readable output with all analysis data. Intended for '
+                    'technical review or import into other forensic tools.'
+                ),
+                'forensic_json': (
+                    'Forensic JSON Report',
+                    'Complete forensic data export with metadata and chain of custody.'
+                ),
+                'timeline': (
+                    'Interactive Timeline',
+                    'Chronological visualization of flagged events (threats, SOS, '
+                    'patterns) alongside all email communications. Open in any web '
+                    'browser. Use this to see the full chronology of events.'
+                ),
+                'chain_of_custody': (
+                    'Chain of Custody',
+                    'Complete forensic audit trail with SHA-256 hashes, timestamps, '
+                    'and all operations performed. Required for FRE 901 authentication.'
+                ),
+                'manifest': (
+                    'Run Manifest',
+                    'Documentation of all inputs processed, outputs generated, and '
+                    'processing steps taken. Supports FRE 803(6) business records.'
+                ),
+            }
+
+            table = doc.add_table(rows=1, cols=3)
+            table.style = 'Light Grid Accent 1'
+
+            # Header row
+            hdr = table.rows[0].cells
+            for i, text in enumerate(['File', 'Type', 'How to Use']):
+                hdr[i].text = text
+                for paragraph in hdr[i].paragraphs:
+                    for run in paragraph.runs:
+                        run.bold = True
+                        run.font.size = Pt(10)
+
+            for key, path_val in reports.items():
+                path = Path(str(path_val))
+                filename = path.name
+
+                if key in file_info:
+                    label, guidance = file_info[key]
+                else:
+                    label = key.replace('_', ' ').title()
+                    guidance = ''
+
+                row = table.add_row().cells
+                # Filename in bold blue
+                fn_para = row[0].paragraphs[0]
+                fn_run = fn_para.add_run(filename)
+                fn_run.bold = True
+                fn_run.font.size = Pt(9)
+                fn_run.font.color.rgb = RGBColor(0x1F, 0x4E, 0x79)
+
+                # Type label
+                type_para = row[1].paragraphs[0]
+                type_run = type_para.add_run(label)
+                type_run.font.size = Pt(10)
+
+                # Guidance
+                guide_para = row[2].paragraphs[0]
+                guide_run = guide_para.add_run(guidance)
+                guide_run.font.size = Pt(10)
+
+            # Set column widths
+            for row in table.rows:
+                row.cells[0].width = Inches(2.5)
+                row.cells[1].width = Inches(1.3)
+                row.cells[2].width = Inches(3.7)
+
+            # Note about files generated after this summary
+            note_para = doc.add_paragraph()
+            note_run = note_para.add_run(
+                'Note: The interactive timeline, chain of custody, and run manifest '
+                'are generated after this summary and will also be present in the '
+                'output directory.'
+            )
+            note_run.font.size = Pt(9)
+            note_run.font.italic = True
+
+        # Compliance footer
+        doc.add_paragraph('')
+        footer_para = doc.add_paragraph()
+        footer_run = footer_para.add_run(
+            'This summary was generated by the Forensic Message Analyzer '
+            f"v{header['tools_used'].split('v')[-1] if 'v' in header['tools_used'] else 'N/A'} "
+            'using AI-assisted analysis. Findings are supplementary and should be '
+            'validated against the underlying evidence and accompanying forensic reports.'
+        )
+        footer_run.font.size = Pt(9)
+        footer_run.font.italic = True
+
+        doc.save(str(output_path))
 
     def _generate_legal_team_summary(self, extracted_data: Dict,
                                      analysis_results: Dict,
@@ -972,13 +1145,22 @@ class ForensicReporter:
         context += (
             f"\nOUTPUT FILES GENERATED:\n"
             f"- Excel report (.xlsx): Contains per-person tabs with filtered messages, "
-            f"threat indicators, and sentiment data for each configured party\n"
+            f"threat indicators, and sentiment data for each configured party. "
+            f"Start here for exploring specific conversations.\n"
             f"- Word report (.docx): Narrative analysis with findings summary, "
             f"risk indicators, threat details, and chain of custody\n"
             f"- PDF report (.pdf): Same content as Word, formatted for court submission\n"
-            f"- Timeline (.html): Interactive chronological visualization of all messages\n"
+            f"- HTML report (.html): Interactive report with per-person message tables, "
+            f"inline images, conversation threads, and legal appendices\n"
+            f"- Chat-bubble report (_chat.html): iMessage-style conversation view with "
+            f"message bubbles, edit history, deleted message badges, and URL previews. "
+            f"Best for reading conversations in context.\n"
+            f"- Timeline (.html): Interactive chronological visualization of all messages "
+            f"and flagged events\n"
             f"- Chain of custody (.json): Complete forensic audit trail\n"
             f"- Run manifest (.json): Documentation of all inputs, outputs, and processing steps\n"
+            f"\nA detailed file reference table with exact filenames and usage guidance "
+            f"will be appended to the legal team summary document after this narrative.\n"
         )
 
         system_prompt = (

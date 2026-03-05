@@ -56,10 +56,10 @@
   - Note: Does NOT have SOURCE_DIR attribute
 - **ForensicAnalyzer(config=None)**: `src/main.py` - Main workflow orchestrator, takes **Config** (NOT ForensicRecorder!)
   - Creates internally: `self.forensic`, `self.integrity`, `self.manifest`, `self.third_party_registry`
-  - Methods: `run_full_analysis()`, `run_extraction_phase()`, `run_analysis_phase(data)`, `run_review_phase(analysis, data)`, `run_behavioral_phase(data, analysis, review)`, `run_reporting_phase(data, analysis, review)`, `run_documentation_phase(data, analysis)`
+  - Methods: `run_full_analysis()`, `run_finalize()`, `run_extraction_phase()`, `run_analysis_phase(data)`, `run_ai_batch_phase(data)`, `run_review_phase(analysis, data)`, `run_behavioral_phase(data, analysis, review)`, `run_reporting_phase(data, analysis, review)`, `run_documentation_phase(data, analysis)`
   - Reporting phase calls: ForensicReporter, ExcelReporter, HtmlReporter, ChatReporter, JSONReporter
   - Documentation phase generates: chain of custody, timeline (with email events), run manifest
-- **ThirdPartyRegistry(forensic_recorder, config=None)**: `src/third_party_registry.py` - Tracks third-party tools for forensic provenance
+- **ThirdPartyRegistry(forensic_recorder, config=None)**: `src/third_party_registry.py` - Tracks unmapped contacts discovered in messages
 - **DataExtractor(forensic, third_party_registry=None)**: `src/extractors/data_extractor.py` - Takes ForensicRecorder
   - Method: `extract_all(start_date=None, end_date=None)` returns list of dicts with messages from all sources
   - Method: `validate_extraction(messages)` returns dict
@@ -178,7 +178,9 @@
 - NEVER GUESS - if unsure, read the actual file!
 
 ## Developer Workflows
-- **Run full analysis:** `python3 run.py`
+- **Run extraction + analysis + review (Phases 1-4):** `python3 run.py`
+- **Run finalize (Phases 5-8, post-review):** `python3 run.py --finalize`
+- **Resume interrupted review:** `python3 run.py --resume`
 - **Pre-run validation:** `python3 validate_before_run.py` (runs 8 checks including end-to-end pipeline test; prompts before cleaning temp output)
 - **Validate without AI spend:** `python3 validate_before_run.py --no-ai` or `python3 validate_before_run.py --estimate`
 - **Run all tests:** `python3 -m pytest tests/ -v`
