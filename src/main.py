@@ -367,13 +367,25 @@ class ForensicAnalyzer:
         print("PHASE 1: DATA EXTRACTION")
         print("="*60)
 
-        # Verify we are writing into a run subfolder
+        # Ensure we are writing into a run subfolder.  If the caller
+        # (e.g. direct ForensicAnalyzer usage without run.py) didn't
+        # create one, do it now so nothing lands in the base output dir.
         output_dir = Path(self.config.output_dir)
         if not re.search(r'run_\d{8}_\d{6}', output_dir.name):
-            msg = (f"output_dir does not look like a run subfolder: {output_dir}. "
-                   f"Extraction outputs may be misplaced.")
-            print(f"    WARNING: {msg}")
-            self.forensic.record_error("output_dir_warning", msg, {"output_dir": str(output_dir)})
+            run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            run_dir = output_dir / f"run_{run_ts}"
+            run_dir.mkdir(parents=True, exist_ok=True)
+            print(f"    [!] output_dir was not a run subfolder — created {run_dir.name}")
+            self.forensic.record_action(
+                "run_folder_created",
+                f"Auto-created run subfolder (caller did not set one)",
+                {"original_output_dir": str(output_dir), "run_dir": str(run_dir)},
+            )
+            self.config.output_dir = str(run_dir)
+            # Re-point forensic recorder at the new directory
+            self.forensic = ForensicRecorder(run_dir)
+            self.integrity = ForensicIntegrity(self.forensic)
+            self.manifest = RunManifest(self.forensic)
 
         # Hash all source files BEFORE reading them (chain of custody)
         self._hash_source_files()
