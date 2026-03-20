@@ -46,6 +46,8 @@ def mock_config(tmp_output_dir):
     config.email_source_dir = None
     config.teams_source_dir = None
     config.screenshot_source_dir = None
+    config.counseling_source_dir = None
+    config.counseling_correlation_window_hours = 48
     config.start_date = None
     config.end_date = None
     config.review_dir = str(tmp_output_dir / "review")

@@ -40,6 +40,9 @@ pytz>=2023.3
 # iMessage attributedBody binary format parsing
 pytypedstream>=0.1.0
 
+# PDF text extraction for counseling records
+pdfplumber>=0.9.0
+
 # Additional forensic utilities
 python-dateutil>=2.8.2  # Date parsing
 

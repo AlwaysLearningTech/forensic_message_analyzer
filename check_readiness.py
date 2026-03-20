@@ -27,6 +27,7 @@ def check_imports():
         ('pytesseract', 'OCR capabilities', 'pytesseract'),
         ('openpyxl', 'Excel reports', 'openpyxl'),
         ('python-docx', 'Word reports', 'docx'),
+        ('pdfplumber', 'PDF text extraction', 'pdfplumber'),
     ]
     
     results = []
@@ -102,7 +103,11 @@ def check_directories():
     if hasattr(config, 'messages_db_path') and config.messages_db_path:
         messages_path = Path(config.messages_db_path).expanduser()
         checks.append((f'iMessage database: {messages_path}', messages_path.exists()))
-    
+
+    if hasattr(config, 'counseling_source_dir') and config.counseling_source_dir:
+        counseling_path = Path(config.counseling_source_dir).expanduser()
+        checks.append((f'Counseling source: {counseling_path}', counseling_path.exists()))
+
     return checks
 
 def main():

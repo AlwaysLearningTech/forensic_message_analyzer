@@ -11,6 +11,7 @@ from .imessage_extractor import iMessageExtractor
 from .whatsapp_extractor import WhatsAppExtractor
 from .email_extractor import EmailExtractor
 from .teams_extractor import TeamsExtractor
+from .counseling_extractor import CounselingExtractor
 from ..config import Config
 from ..forensic_utils import ForensicIntegrity
 
@@ -67,6 +68,14 @@ class DataExtractor:
             third_party_registry=third_party_registry,
             config=self.config,
         ) if self.config.teams_source_dir else None
+
+        # Counseling records extractor
+        self.counseling = CounselingExtractor(
+            self.config.counseling_source_dir,
+            forensic,
+            self.integrity,
+            config=self.config,
+        ) if self.config.counseling_source_dir else None
 
         self.forensic.record_action(
             "DATA_EXTRACTOR_INIT",
@@ -140,6 +149,21 @@ class DataExtractor:
                 self.forensic.record_action(
                     "TEAMS_EXTRACTION_FAILED",
                     f"Teams extraction failed: {str(e)}"
+                )
+
+        # Extract counseling records
+        if self.counseling:
+            try:
+                self.logger.info("Extracting counseling records...")
+                counseling_records = self.counseling.extract_all() or []
+                if counseling_records:
+                    all_messages.extend(counseling_records)
+                    self.logger.info(f"Extracted {len(counseling_records)} counseling records")
+            except Exception as e:
+                self.logger.error(f"Failed to extract counseling records: {e}")
+                self.forensic.record_action(
+                    "COUNSELING_EXTRACTION_FAILED",
+                    f"Counseling extraction failed: {str(e)}"
                 )
 
         # Normalize 'Me' → PERSON1_NAME so the entire downstream pipeline uses

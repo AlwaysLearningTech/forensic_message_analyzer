@@ -520,9 +520,9 @@ class ExcelReporter:
                         continue
                     if not item.get('threat_detected'):
                         continue
-                    # Skip email-source threats; emails are added in the
-                    # email communications section below to avoid duplicates.
-                    if item.get('source') == 'email':
+                    # Skip email and counseling source threats; they are added
+                    # in dedicated sections below to avoid duplicates.
+                    if item.get('source') in ('email', 'counseling'):
                         continue
                     events.append({
                         'Timestamp': self._format_local_timestamp(item.get('timestamp')),
@@ -604,6 +604,23 @@ class ExcelReporter:
                     'Content': content_preview,
                     'Source': 'email',
                     'Details': f'Subject: {subject}' if subject else '',
+                    '_sort_ts': msg.get('timestamp', ''),
+                })
+
+            # --- Counseling session events ---
+            for msg in messages:
+                if msg.get('source') != 'counseling':
+                    continue
+                topic = msg.get('topic', '')
+                provider = msg.get('provider', '') or msg.get('sender', 'Counselor')
+                notes_preview = (msg.get('content', '') or '')[:200]
+                events.append({
+                    'Timestamp': self._format_local_timestamp(msg.get('timestamp')),
+                    'Event Type': 'Counseling Session',
+                    'Sender': provider,
+                    'Content': notes_preview,
+                    'Source': 'counseling',
+                    'Details': f'Topic: {topic}' if topic else '',
                     '_sort_ts': msg.get('timestamp', ''),
                 })
 

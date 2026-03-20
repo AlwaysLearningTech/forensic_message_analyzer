@@ -7,7 +7,7 @@ Includes conversation context around flagged messages.
 import logging
 import html as html_module
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 import pytz
 
@@ -90,9 +90,9 @@ class TimelineGenerator:
         significant_df = df[filter_mask]
 
         for _, row in significant_df.iterrows():
-            # Skip email-source messages here; they are added in the
-            # email communications section below to avoid duplicates.
-            if row.get('source') == 'email':
+            # Skip email and counseling source messages here; they are added
+            # in dedicated sections below to avoid duplicates.
+            if row.get('source') in ('email', 'counseling'):
                 continue
             # Build conversation context for this flagged message
             context_html = ""
@@ -137,6 +137,34 @@ class TimelineGenerator:
                     'subject': subject,
                 })
 
+        # --- Counseling session events (with correlated message context) ---
+        # Counseling sessions are included as standalone events with
+        # surrounding communication context to show what was happening
+        # in the time window around each session.
+        if extracted_data:
+            window_hours = getattr(self.config, 'counseling_correlation_window_hours', 48)
+            for msg in extracted_data.get('messages', []):
+                if msg.get('source') != 'counseling':
+                    continue
+                # Build correlation context
+                correlated = self._get_correlated_messages(
+                    msg.get('timestamp'), raw_messages, window_hours=window_hours
+                )
+                correlation_html = self._render_correlation_html(correlated, window_hours)
+
+                topic = msg.get('topic', '')
+                provider = msg.get('provider', '') or msg.get('sender', 'Counselor')
+                notes_preview = (msg.get('content', '') or '')[:200]
+
+                events.append({
+                    'date': self._format_local_ts(msg.get('timestamp')),
+                    'content': notes_preview,
+                    'type': 'counseling',
+                    'sender': provider,
+                    'context_html': correlation_html,
+                    'subject': f'Counseling: {topic}' if topic else 'Counseling Session',
+                })
+
         # Sort by date
         events.sort(key=lambda x: x['date'])
 
@@ -154,6 +182,7 @@ class TimelineGenerator:
                 .sentiment {{ border-color: #17a2b8; background: #d1ecf1; }}
                 .email {{ border-color: #6f42c1; background: #f3e8ff; }}
                 .third-party-email {{ border-color: #e83e8c; background: #fce4ec; }}
+                .counseling {{ border-color: #28a745; background: #d4edda; }}
                 .date {{ font-weight: bold; color: #666; }}
                 .content {{ margin-top: 5px; }}
                 .sender {{ font-style: italic; color: #999; }}
@@ -276,6 +305,85 @@ class TimelineGenerator:
 
         lines.append('</div>')
         return "\n".join(lines)
+
+    def _get_correlated_messages(self, session_timestamp, raw_messages: list,
+                                  window_hours: int = 48) -> list:
+        """Find messages within a time window around a counseling session.
+
+        Args:
+            session_timestamp: The counseling session timestamp.
+            raw_messages: Full list of message dicts.
+            window_hours: Hours before and after the session to search.
+
+        Returns:
+            List of message dicts within the window, sorted chronologically.
+        """
+        session_dt = self._parse_ts(session_timestamp)
+        if session_dt is None:
+            return []
+
+        window = timedelta(hours=window_hours)
+        start = session_dt - window
+        end = session_dt + window
+
+        correlated = []
+        for msg in raw_messages:
+            if msg.get('source') == 'counseling':
+                continue
+            msg_dt = self._parse_ts(msg.get('timestamp'))
+            if msg_dt and start <= msg_dt <= end:
+                correlated.append(msg)
+
+        correlated.sort(key=lambda m: self._parse_ts(m.get('timestamp')) or session_dt)
+        return correlated
+
+    def _render_correlation_html(self, correlated_messages: list,
+                                  window_hours: int) -> str:
+        """Render correlated messages as an HTML context block.
+
+        Args:
+            correlated_messages: Messages within the correlation window.
+            window_hours: The window size used (for display).
+
+        Returns:
+            HTML string for embedding in the timeline event.
+        """
+        if not correlated_messages:
+            return ''
+
+        lines = ['<div class="context-block">']
+        lines.append(
+            f'<div class="ctx-header">Communications within &plusmn;{window_hours}h window '
+            f'({len(correlated_messages)} messages):</div>'
+        )
+        for msg in correlated_messages[:10]:
+            sender = html_module.escape(str(msg.get('sender', '?')))
+            content = html_module.escape(str(msg.get('content', ''))[:120])
+            ts = html_module.escape(self._format_local_ts(msg.get('timestamp', '')))
+            source = html_module.escape(str(msg.get('source', '')))
+            lines.append(
+                f'<div class="ctx-msg">'
+                f'<span class="ctx-sender">[{ts}] {sender} ({source}):</span> {content}'
+                f'</div>'
+            )
+        if len(correlated_messages) > 10:
+            lines.append(
+                f'<div class="ctx-msg">... and {len(correlated_messages) - 10} more</div>'
+            )
+        lines.append('</div>')
+        return '\n'.join(lines)
+
+    def _parse_ts(self, ts):
+        """Parse a timestamp to a UTC-aware datetime, returning None on failure."""
+        if ts is None or (isinstance(ts, str) and not ts.strip()):
+            return None
+        try:
+            parsed = pd.to_datetime(ts, utc=True)
+            if pd.isna(parsed):
+                return None
+            return parsed
+        except Exception:
+            return None
 
     def _format_local_ts(self, ts) -> str:
         """Convert a UTC timestamp to local timezone string for display."""

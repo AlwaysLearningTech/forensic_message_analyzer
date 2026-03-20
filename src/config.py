@@ -118,6 +118,8 @@ class Config:
         self.screenshot_source_dir = self._expand_path(os.getenv('SCREENSHOT_SOURCE_DIR'))
         self.email_source_dir = self._expand_path(os.getenv('EMAIL_SOURCE_DIR'))
         self.teams_source_dir = self._expand_path(os.getenv('TEAMS_SOURCE_DIR'))
+        self.counseling_source_dir = self._expand_path(os.getenv('COUNSELING_SOURCE_DIR'))
+        self.counseling_correlation_window_hours = int(os.getenv('COUNSELING_CORRELATION_WINDOW_HOURS', '48'))
         self.messages_db_path = self._expand_path(os.getenv('MESSAGES_DB_PATH'))
         self.messages_db_wal = self._expand_path(os.getenv('MESSAGES_DB_WAL'))
         self.messages_db_shm = self._expand_path(os.getenv('MESSAGES_DB_SHM'))
@@ -305,8 +307,8 @@ class Config:
             errors.append("OUTPUT_DIR not configured")
         
         # Check for at least one data source
-        if not any([self.messages_db_path, self.whatsapp_source_dir, self.screenshot_source_dir, self.email_source_dir, self.teams_source_dir]):
-            errors.append("No data sources configured (need iMessage, WhatsApp, email, Teams, or screenshots)")
+        if not any([self.messages_db_path, self.whatsapp_source_dir, self.screenshot_source_dir, self.email_source_dir, self.teams_source_dir, self.counseling_source_dir]):
+            errors.append("No data sources configured (need iMessage, WhatsApp, email, Teams, screenshots, or counseling)")
         
         # Check AI configuration if analysis is expected
         if self.ai_endpoint and not self.ai_api_key:
@@ -333,5 +335,7 @@ class Config:
             sources['Email'] = self.email_source_dir
         if self.teams_source_dir:
             sources['Teams'] = self.teams_source_dir
-            
+        if self.counseling_source_dir:
+            sources['Counseling'] = self.counseling_source_dir
+
         return sources

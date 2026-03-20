@@ -136,6 +136,20 @@ class ForensicAnalyzer:
                         )
                         hashed += 1
 
+        # Counseling source files (YAML + PDFs)
+        counseling_dir = self.config.counseling_source_dir
+        if counseling_dir:
+            counseling_path = Path(counseling_dir).expanduser()
+            if counseling_path.is_dir():
+                for f in sorted(counseling_path.rglob("*")):
+                    if f.is_file():
+                        h = self.forensic.compute_hash(f)
+                        self.forensic.record_action(
+                            "source_file_hashed", f"Pre-extraction hash of counseling file",
+                            {"file": str(f), "hash": h}
+                        )
+                        hashed += 1
+
         print(f"    Hashed {hashed} source files")
 
     # ------------------------------------------------------------------
@@ -218,6 +232,16 @@ class ForensicAnalyzer:
                 for f in sorted(ss_path.iterdir()):
                     if f.is_file():
                         _copy_and_hash(f, staging / "screenshots" / f.name, "screenshot")
+
+        # --- Counseling records ---
+        counseling_dir = self.config.counseling_source_dir
+        if counseling_dir:
+            counseling_path = Path(counseling_dir).expanduser()
+            if counseling_path.is_dir():
+                for f in sorted(counseling_path.rglob("*")):
+                    if f.is_file():
+                        rel = f.relative_to(counseling_path)
+                        _copy_and_hash(f, staging / "counseling" / rel, "counseling")
 
         if preserved_count == 0:
             print("    No source files found to preserve")
@@ -576,7 +600,8 @@ class ForensicAnalyzer:
             ai_specified = self.config.ai_contacts_specified
             mapped_messages = [
                 m for m in messages
-                if m.get('sender') in ai_contacts
+                if m.get('source') != 'counseling'
+                and m.get('sender') in ai_contacts
                 and m.get('recipient') in ai_contacts
                 and (ai_specified is None
                      or m.get('sender') in ai_specified
