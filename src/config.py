@@ -13,6 +13,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 
 class Config:
     """
@@ -24,11 +26,8 @@ class Config:
         """Initialize configuration by loading environment variables."""
         # Try multiple locations for .env file
         env_locations = [
-            # Primary location: data directory
-            Path.home() / 'workspace/data/forensic_message_analyzer/.env',
-            # Check if specified via environment variable
+            _PROJECT_ROOT / '.env',
             Path(os.environ.get('DOTENV_PATH', '')),
-            # Fallback: local .env
             Path('.env'),
         ]
         
@@ -130,7 +129,7 @@ class Config:
         
         # Review directory
         self.review_dir = self._expand_path(
-            os.getenv('REVIEW_DIR', '~/workspace/data/forensic_message_analyzer/review')
+            os.getenv('REVIEW_DIR', str(_PROJECT_ROOT / 'review'))
         )
         
         # AI processing mode
@@ -144,7 +143,7 @@ class Config:
         
         # Output settings
         self.output_dir = self._expand_path(
-            os.getenv('OUTPUT_DIR', '~/workspace/output/forensic_message_analyzer')
+            os.getenv('OUTPUT_DIR', str(_PROJECT_ROOT / 'output'))
         )
         
         # Legal compliance / case identification
