@@ -257,3 +257,32 @@ def get_pricing(model: str, batch: bool = False) -> dict:
         "cache_write": rates.get("cache_write_5m", rates.get("input", 3.0) * 1.25),
         "cache_read": rates.get("cache_read", rates.get("input", 3.0) * 0.1),
     }
+
+
+# Models known to use a new tokenizer that produces more tokens for the same
+# text.  Anthropic documents up to 35% more tokens vs previous models.
+# Source: https://platform.claude.com/docs/en/about-claude/pricing (model notes)
+_TOKENIZER_OVERHEAD: Dict[str, float] = {
+    "claude-opus-4-7": 1.35,
+}
+
+
+def get_token_overhead(model: str) -> float:
+    """Return the estimated token-count multiplier for a model.
+
+    Most models use the standard tokenizer (multiplier 1.0).  Claude Opus 4.7
+    uses a new tokenizer that Anthropic documents as producing up to 35% more
+    tokens for the same text — so cost estimates should multiply raw character-
+    based token counts by 1.35 when this model is used.
+
+    Args:
+        model: Anthropic model ID (e.g. 'claude-opus-4-7', 'claude-sonnet-4-6')
+
+    Returns:
+        Float multiplier to apply to estimated token counts (1.0 = no overhead).
+    """
+    model_lower = model.lower()
+    for key, multiplier in _TOKENIZER_OVERHEAD.items():
+        if key in model_lower:
+            return multiplier
+    return 1.0

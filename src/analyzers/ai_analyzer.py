@@ -28,7 +28,7 @@ except ImportError:
 
 from ..config import Config
 from ..forensic_utils import ForensicRecorder
-from ..utils.pricing import get_pricing
+from ..utils.pricing import get_pricing, get_token_overhead
 
 logger = logging.getLogger(__name__)
 
@@ -447,9 +447,12 @@ class AIAnalyzer:
 
         total_requests = len(batch_requests)
 
-        # Pre-submission cost estimate based on token estimation
-        system_prompt_tokens = self._estimate_tokens(self._SYSTEM_PROMPT)
-        est_input_tokens = sum(self._estimate_tokens(r["params"]["messages"][0]["content"]) for r in batch_requests)
+        # Pre-submission cost estimate based on token estimation.
+        # Apply tokenizer overhead multiplier for models (e.g. Opus 4.7) that
+        # use a new tokenizer producing more tokens for the same text.
+        batch_overhead = get_token_overhead(self.batch_model)
+        system_prompt_tokens = int(self._estimate_tokens(self._SYSTEM_PROMPT) * batch_overhead)
+        est_input_tokens = int(sum(self._estimate_tokens(r["params"]["messages"][0]["content"]) for r in batch_requests) * batch_overhead)
         est_input_tokens += system_prompt_tokens * total_requests
         # Based on actual run data: avg ~1,600 output tokens per batch
         # (previous estimate of 385 was from billing aggregates that didn't match per-request data)
@@ -466,8 +469,9 @@ class AIAnalyzer:
 
         # Estimated summary call — scales with message volume. Assume ~60% of
         # messages will be confirmed in review; actual cost shown at finalize.
+        summary_overhead = get_token_overhead(self.summary_model)
         sp = get_pricing(self.summary_model)
-        est_confirmed_tokens = int(message_input_tokens * 0.60) + 500  # preamble
+        est_confirmed_tokens = int(message_input_tokens * 0.60 * summary_overhead) + 500  # preamble
         est_summary_output = 4096
         est_sync_cost = (
             (est_confirmed_tokens / 1_000_000) * sp['input']

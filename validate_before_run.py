@@ -217,22 +217,23 @@ def main():
         batch_size = getattr(config, 'batch_size', 50)
         num_batches = (len(mapped_messages) + batch_size - 1) // batch_size
 
-        # Estimate input tokens: system prompt per batch + message content
-        system_tokens = ai._estimate_tokens(ai._SYSTEM_PROMPT) * num_batches
-        system_prompt_tokens = ai._estimate_tokens(ai._SYSTEM_PROMPT)
+        # Estimate input tokens: system prompt per batch + message content.
+        # Apply tokenizer overhead for models with a new tokenizer (e.g. Opus 4.7).
+        from src.utils.pricing import get_pricing, get_token_overhead
+        batch_overhead = get_token_overhead(ai.batch_model)
+        system_tokens = int(ai._estimate_tokens(ai._SYSTEM_PROMPT) * batch_overhead) * num_batches
+        system_prompt_tokens = int(ai._estimate_tokens(ai._SYSTEM_PROMPT) * batch_overhead)
         message_tokens = 0
         for i in range(0, len(mapped_messages), batch_size):
             batch = mapped_messages[i:i + batch_size]
             batch_text = ai._prepare_batch(batch)
-            message_tokens += ai._estimate_tokens(batch_text)
+            message_tokens += int(ai._estimate_tokens(batch_text) * batch_overhead)
         est_input = system_tokens + message_tokens
         # Based on actual run data: avg ~1,600 output tokens per batch
         # (previous estimate of 385 was from billing aggregates that didn't match per-request data)
         est_output = num_batches * 1600
 
         # ---- Model-specific pricing (fetched from Anthropic pricing page) ----
-        from src.utils.pricing import get_pricing
-
         bp = get_pricing(ai.batch_model, batch=True)
         sp = get_pricing(ai.summary_model)
 
@@ -244,12 +245,13 @@ def main():
 
         # Executive summary: scales with confirmed messages. Assume 60% will be
         # confirmed in review; actual cost is shown at finalize.
+        summary_overhead = get_token_overhead(ai.summary_model)
         ASSUMED_CONFIRM_RATE = 0.60
         est_confirmed = int(len(mapped_messages) * ASSUMED_CONFIRM_RATE)
         confirmed_text_tokens = 0
         for msg in mapped_messages[:est_confirmed]:
             text = msg.get('content', msg.get('text', ''))
-            confirmed_text_tokens += max(1, len(text) // 4)
+            confirmed_text_tokens += int(max(1, len(text) // 4) * summary_overhead)
         est_summary_input = confirmed_text_tokens + 500  # preamble/instructions
         est_summary_output = 4096
         est_sync_cost = (
@@ -307,23 +309,36 @@ def main():
             ordered_names = sorted(all_models.keys())
             for name in ordered_names:
                 rates = all_models[name]
-                # Batch role cost: same token volume as our selection above,
-                # but priced at this model's batch rate.
+                # Derive a model-id-like string from display name for overhead lookup
+                # e.g. "Claude Opus 4.7" → "claude-opus-4-7"
+                import re as _re
+                name_id = _re.sub(r'\s+', '-', name.lower())
+                row_batch_overhead = get_token_overhead(name_id)
+                row_summary_overhead = get_token_overhead(name_id)
+
+                # Batch role cost: re-scale base (no-overhead) tokens for this model's
+                # tokenizer, then price at its batch rate.
+                base_sys = ai._estimate_tokens(ai._SYSTEM_PROMPT)
+                base_msg = int(message_tokens / batch_overhead) if batch_overhead else message_tokens
+                row_sys_tokens = int(base_sys * row_batch_overhead)
+                row_msg_tokens = int(base_msg * row_batch_overhead)
                 b_in = rates.get('batch_input', rates.get('input', 0) * 0.5)
                 b_out = rates.get('batch_output', rates.get('output', 0) * 0.5)
                 b_cw = rates.get('cache_write_5m', rates.get('input', 0) * 1.25)
                 b_cr = rates.get('cache_read', rates.get('input', 0) * 0.1)
-                cw_cost = (system_prompt_tokens / 1_000_000) * b_cw
-                cr_cost = (system_prompt_tokens * max(0, num_batches - 1) / 1_000_000) * b_cr
-                msg_cost = (message_tokens / 1_000_000) * b_in
+                cw_cost = (row_sys_tokens / 1_000_000) * b_cw
+                cr_cost = (row_sys_tokens * max(0, num_batches - 1) / 1_000_000) * b_cr
+                msg_cost = (row_msg_tokens / 1_000_000) * b_in
                 out_cost = (est_output / 1_000_000) * b_out
                 batch_role_cost = cw_cost + cr_cost + msg_cost + out_cost
 
-                # Summary role cost: uses same estimated summary tokens.
+                # Summary role cost: re-scale confirmed tokens for this model's tokenizer.
+                base_confirmed = int(confirmed_text_tokens / summary_overhead) if summary_overhead else confirmed_text_tokens
+                row_summary_input = int(base_confirmed * row_summary_overhead) + 500
                 s_in = rates.get('input', 0)
                 s_out = rates.get('output', 0)
                 summary_role_cost = (
-                    (est_summary_input / 1_000_000) * s_in
+                    (row_summary_input / 1_000_000) * s_in
                     + (est_summary_output / 1_000_000) * s_out
                 )
 

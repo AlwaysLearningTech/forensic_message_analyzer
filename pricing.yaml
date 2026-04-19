@@ -12,6 +12,9 @@ fetched: '2026-04-19T00:00:00+00:00'
 source: https://platform.claude.com/docs/en/about-claude/pricing
 models:
   Claude Opus 4.7:
+    # NOTE: Uses a new tokenizer that produces up to 35% more tokens for the
+    # same text vs previous models. The $/MTok rate is identical to Opus 4.6,
+    # but effective cost is ~35% higher. See get_token_overhead() in pricing.py.
     input: 5.0
     output: 25.0
     cache_write_5m: 6.25
