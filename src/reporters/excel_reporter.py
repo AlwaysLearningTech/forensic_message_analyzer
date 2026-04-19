@@ -367,7 +367,7 @@ class ExcelReporter:
         try:
             rows = []
 
-            # --- Confirmed threats (from threat analyzer) ---
+            # --- Threats flagged for review (from pattern analyzer) ---
             threat_details = analysis_results.get('threats', {}).get('details', [])
             if isinstance(threat_details, list):
                 for idx, item in enumerate(threat_details):
@@ -377,7 +377,7 @@ class ExcelReporter:
                         continue
                     review_id = f"threat_{idx}"
                     rows.append({
-                        'Section': 'Confirmed Threat',
+                        'Section': 'Threat',
                         'Timestamp': self._format_local_timestamp(item.get('timestamp')),
                         'Sender': item.get('sender', ''),
                         'Content': item.get('content', ''),
@@ -386,7 +386,11 @@ class ExcelReporter:
                         'Review Decision': self._lookup_review_decision(review_id, review_decisions),
                     })
 
-            # --- AI-identified threats ---
+            # --- Additional threats flagged by AI analysis ---
+            # Source labelling is intentionally consistent ("Threat") — all
+            # flagged items go through the same manual review process and
+            # the report addresses the review findings, not the source of
+            # the initial flag.
             ai_analysis = analysis_results.get('ai_analysis', {})
             threat_assessment = ai_analysis.get('threat_assessment', {})
             if threat_assessment.get('found'):
@@ -396,7 +400,7 @@ class ExcelReporter:
                         quote = detail.get('quote', '')
                         match = self._match_quote_to_message(quote, messages or [])
                         rows.append({
-                            'Section': 'AI-Identified Threat',
+                            'Section': 'Threat',
                             'Timestamp': self._format_local_timestamp(match['timestamp']),
                             'Sender': match['sender'],
                             'Content': quote,
@@ -406,7 +410,7 @@ class ExcelReporter:
                         })
                     else:
                         rows.append({
-                            'Section': 'AI-Identified Threat',
+                            'Section': 'Threat',
                             'Timestamp': '',
                             'Sender': '',
                             'Content': str(detail),

@@ -139,7 +139,9 @@ class TestAIAnalyzerConfig:
         mock_config.ai_api_key = None
         recorder = ForensicRecorder(output_dir=tmp_output_dir)
         analyzer = AIAnalyzer(forensic_recorder=recorder, config=mock_config)
-        assert analyzer.model == "claude-opus-4-6"
+        # AI_MODEL env var was removed in 4.4.0; analyzer.model now resolves
+        # to the summary model (preferred) or batch model.
+        assert analyzer.model == mock_config.ai_summary_model
         assert analyzer.client is None  # No API key
 
     def test_batch_model_default(self, mock_config, tmp_output_dir):
@@ -149,7 +151,8 @@ class TestAIAnalyzerConfig:
         mock_config.ai_batch_model = None
         recorder = ForensicRecorder(output_dir=tmp_output_dir)
         analyzer = AIAnalyzer(forensic_recorder=recorder, config=mock_config)
-        assert analyzer.batch_model == analyzer.model
+        # When batch model is not set, falls back to summary model
+        assert analyzer.batch_model == mock_config.ai_summary_model
 
     def test_batch_model_custom(self, mock_config, tmp_output_dir):
         from src.analyzers.ai_analyzer import AIAnalyzer

@@ -1,5 +1,11 @@
-# Auto-fetched from Anthropic pricing page — do not edit by hand
-# Last updated: 2026-04-19T00:00:00+00:00
+# Anthropic model pricing cache (auto-fetched when network is available).
+#
+# MANUAL EDITS ARE WELCOME when the live fetch is unavailable
+# (corporate proxy, expired CA bundle, network outage, etc). Update
+# the rates below to match the official pricing page and the
+# analyzer will use them as the source of truth until the next
+# successful fetch overwrites the file.
+# Last auto-fetch: 2026-04-19T00:00:00+00:00
 # Source: https://platform.claude.com/docs/en/about-claude/pricing
 
 fetched: '2026-04-19T00:00:00+00:00'

@@ -37,6 +37,10 @@ textblob>=0.17.1  # Sentiment analysis
 # Timezone support
 pytz>=2023.3
 
+# Trusted CA bundle for SSL verification (used by pricing.py rate lookup;
+# falls back to system trust store if missing).
+certifi>=2023.7.22
+
 # iMessage attributedBody binary format parsing
 pytypedstream>=0.1.0
 

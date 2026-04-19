@@ -48,9 +48,10 @@
   - Methods: `verify_read_only(file_path)`, `create_working_copy(source_path, dest_dir=None)`, `validate_extraction(source_path, extracted_data)`
 - **EvidenceValidator**: `src/forensic_utils.py` - Evidence validation utilities
 - **Config**: `src/config.py` - Configuration singleton
-  - Attributes: `output_dir`, `review_dir`, `contact_mappings`, `ai_api_key`, `ai_model`, `ai_endpoint`
+  - Attributes: `output_dir`, `review_dir`, `contact_mappings`, `ai_api_key`, `ai_endpoint`
+  - Attributes: `ai_batch_model`, `ai_summary_model` (the legacy `ai_model` was removed in 4.4.0)
   - Attributes: `email_source_dir`, `teams_source_dir`, `messages_db_path`, `whatsapp_source_dir`, `screenshot_source_dir`
-  - Attributes: `case_number`, `case_name`, `examiner_name`, `organization`, `timezone`
+  - Attributes: `case_number` (newline-joined string), `case_numbers` (list), `case_name`, `examiner_name`, `organization`, `timezone`
   - Attributes: `use_batch_api`, `tokens_per_minute`, `request_delay_ms`, `max_tokens_per_request`
   - Attributes: `ai_contacts` (expanded set including Me/PERSON1), `ai_contacts_specified` (raw AI_CONTACTS set or None)
   - Note: Does NOT have SOURCE_DIR attribute

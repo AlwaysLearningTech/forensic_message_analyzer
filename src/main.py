@@ -1061,6 +1061,19 @@ class ForensicAnalyzer:
                 import traceback
                 traceback.print_exc()
 
+        # Generate the READ ME FIRST cover sheet last so it can point at
+        # every other file by actual filename. This is the document the
+        # legal team should open first.
+        print("\n[*] Generating READ ME FIRST cover sheet...")
+        try:
+            cover_path = forensic_reporter.generate_cover_sheet(reports, timestamp)
+            reports['cover_sheet'] = str(cover_path)
+            print(f"    Saved to {cover_path.name}")
+        except Exception as e:
+            print(f"    Error generating cover sheet: {e}")
+            import traceback
+            traceback.print_exc()
+
         print("\n[✓] Report generation complete")
 
         self.manifest.add_operation("reporting", "success",

@@ -25,12 +25,25 @@ _pricing_cache: Optional[Dict] = None
 
 
 def _fetch_pricing_page() -> str:
-    """Fetch the Anthropic pricing page as text. Returns raw content."""
+    """Fetch the Anthropic pricing page as text. Returns raw content.
+
+    Uses certifi-backed SSL context to avoid macOS / corporate-CA SSL errors
+    that appear when Python falls back to the system trust store.
+    """
+    import ssl
     import urllib.request
     import urllib.error
 
+    # Build an SSL context backed by certifi when available (handles the
+    # common 'CERTIFICATE_VERIFY_FAILED' that bites macOS Python installs).
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+
     req = urllib.request.Request(_PRICING_URL, headers={"User-Agent": "forensic-message-analyzer/1.0"})
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
         return resp.read().decode("utf-8")
 
 
@@ -96,8 +109,14 @@ def _save_yaml(models: Dict[str, dict]) -> None:
         "models": models,
     }
     with open(_YAML_PATH, "w") as f:
-        f.write("# Auto-fetched from Anthropic pricing page — do not edit by hand\n")
-        f.write(f"# Last updated: {data['fetched']}\n")
+        f.write("# Anthropic model pricing cache (auto-fetched when network is available).\n")
+        f.write("#\n")
+        f.write("# MANUAL EDITS ARE WELCOME when the live fetch is unavailable\n")
+        f.write("# (corporate proxy, expired CA bundle, network outage, etc). Update\n")
+        f.write("# the rates below to match the official pricing page and the\n")
+        f.write("# analyzer will use them as the source of truth until the next\n")
+        f.write("# successful fetch overwrites the file.\n")
+        f.write(f"# Last auto-fetch: {data['fetched']}\n")
         f.write(f"# Source: {data['source']}\n\n")
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
@@ -113,10 +132,11 @@ def _load_yaml() -> Optional[Dict[str, dict]]:
 
     fetched = data.get("fetched", "unknown date")
     print(
-        f"  WARNING: Using cached pricing from {fetched}.\n"
-        f"  Verify rates at {_PRICING_URL} and re-run with network access to refresh."
+        f"  Using cached pricing from {fetched}. Live fetch unavailable.\n"
+        f"  Verify rates at {_PRICING_URL}; you can edit pricing.yaml directly\n"
+        f"  to override stale rates without waiting for the next successful fetch."
     )
-    logger.warning("Using cached pricing from %s (fetch failed)", fetched)
+    logger.info("Using cached pricing from %s (live fetch unavailable)", fetched)
     return data["models"]
 
 
@@ -130,12 +150,17 @@ def _load_pricing() -> Dict[str, dict]:
         html = _fetch_pricing_page()
         models = _parse_model_table(html)
         if models:
-            _save_yaml(models)
-            logger.info("Pricing fetched and cached: %d models", len(models))
+            try:
+                _save_yaml(models)
+            except OSError as e:
+                logger.info("Could not refresh pricing.yaml cache: %s", e)
+            logger.info("Pricing fetched: %d models", len(models))
             return models
-        logger.warning("Pricing page fetched but no models parsed — falling back to cache")
+        logger.info("Pricing page fetched but no models parsed — using cache")
     except Exception as e:
-        logger.warning("Failed to fetch pricing page: %s — falling back to cache", e)
+        # SSL errors, network failures, parse errors — all non-fatal as long
+        # as the YAML cache exists. Log at info to avoid alarming tracebacks.
+        logger.info("Live pricing fetch unavailable (%s) — using cached pricing.yaml", e)
 
     # Fall back to YAML cache
     cached = _load_yaml()
@@ -143,8 +168,9 @@ def _load_pricing() -> Dict[str, dict]:
         return cached
 
     raise RuntimeError(
-        "Cannot determine model pricing: fetch failed and no pricing.yaml cache exists. "
-        f"Visit {_PRICING_URL} and create pricing.yaml manually, or restore network access."
+        "Cannot determine model pricing: live fetch failed and no pricing.yaml cache exists. "
+        f"Visit {_PRICING_URL} and create or edit pricing.yaml manually, "
+        "or restore network access."
     )
 
 

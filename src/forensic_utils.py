@@ -171,6 +171,7 @@ class ForensicRecorder:
 
         # Load case identification from config (best-effort; avoid hard failure)
         case_number = ""
+        case_numbers: list = []
         examiner_name = ""
         organization = ""
         tz_name = "America/Los_Angeles"
@@ -178,6 +179,7 @@ class ForensicRecorder:
             from src.config import Config
             cfg = Config()
             case_number = cfg.case_number
+            case_numbers = list(getattr(cfg, 'case_numbers', []) or [])
             examiner_name = cfg.examiner_name
             organization = cfg.organization
             tz_name = cfg.timezone
@@ -194,6 +196,7 @@ class ForensicRecorder:
                 "timezone": tz_name,
                 "session_id": self.session_id,
                 "case_number": case_number,
+                "case_numbers": case_numbers,
                 "examiner_name": examiner_name,
                 "organization": organization,
                 "start_time": self.start_time.isoformat(),
