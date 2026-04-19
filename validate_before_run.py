@@ -270,13 +270,12 @@ def main():
             """Loose match between an API model id and a pricing display name."""
             api = api_id.lower()
             disp = display_name.lower()
-            if 'opus' in api and 'opus' in disp:
-                pass
-            elif 'sonnet' in api and 'sonnet' in disp:
-                pass
-            elif 'haiku' in api and 'haiku' in disp:
-                pass
-            else:
+            family_match = (
+                ('opus' in api and 'opus' in disp)
+                or ('sonnet' in api and 'sonnet' in disp)
+                or ('haiku' in api and 'haiku' in disp)
+            )
+            if not family_match:
                 return False
             import re as _re
             v_api = _re.search(r'(\d+)[-.](\d+)', api)

@@ -208,9 +208,13 @@ class Config:
                     parsed = json.loads(raw)
                     if isinstance(parsed, list):
                         candidates.extend(str(x).strip() for x in parsed if str(x).strip())
-                        continue
                 except json.JSONDecodeError:
-                    logger.warning(f"Could not parse case numbers as JSON: {raw}")
+                    logger.warning(
+                        f"Could not parse case numbers as JSON; ignoring malformed value: {raw}"
+                    )
+                # JSON-array-shaped values never fall through to single-string treatment;
+                # otherwise a malformed '[...' would be appended verbatim as a "case number".
+                continue
             # Single string form
             candidates.append(raw)
 

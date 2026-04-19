@@ -5,6 +5,30 @@ All notable changes to the Forensic Message Analyzer will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.4.0] - 2026-04-19
+
+### Added
+- **Multi-case-number support**: `CASE_NUMBER` accepts a single value OR a JSON array of strings; `CASE_NUMBERS` (plural) is also accepted as a JSON array. Each case number renders on its own line in Word, PDF, HTML, Excel, JSON, chain-of-custody, and the methodology document. New `Config.case_numbers` (list) and `Config.case_number` (newline-joined string) attributes.
+- **Standalone Methodology document** (`methodology_<timestamp>.docx`): The eight-phase pipeline now emits a separate methodology document so the legal team can review the methodology in isolation. Lay-friendly, judge-readable, with a point-by-point map of how each FRE / Daubert factor is satisfied.
+- **Empirical citations in `analysis_patterns.yaml`**: Comprehensive header citing the academic literature behind every pattern family (Stark 2007, Johnson 2008, Sweet 2019, Campbell 2003, Logan & Walker 2017, Woodlock 2017, Hardesty 2015, Strutzenberg 2017) plus a `citation` field on each individual threat / behavioural pattern. Patterns are now defensible as drawn from peer-reviewed sources rather than ad-hoc.
+- **Cost-estimate model comparison table**: `validate_before_run.py` now prints a side-by-side table of every model in `pricing.yaml` (batch role $, summary role $, combined $) so you can compare alternatives without re-running the validator. Current selections are starred.
+- **`--no-ai` flag for `validate_before_run.py`**: Skips the live AI sample test (the cost-estimate comparison table still runs). Previously referenced in instructions but not actually implemented.
+- **`certifi` dependency** for SSL verification on the pricing rate lookup.
+- **`DEVELOPER.md`**: New file holding the public Python API reference (every class, method, signature, usage example) that previously lived as code samples in `README.md`.
+
+### Changed
+- **`AI_MODEL` env var removed**: The two-model setup (`AI_BATCH_MODEL` + `AI_SUMMARY_MODEL`) replaces it. `Config.ai_model` attribute is gone; downstream code reads `ai_summary_model` (preferred) or `ai_batch_model`. **Action required:** remove `AI_MODEL` from your `.env` and confirm both `AI_BATCH_MODEL` and `AI_SUMMARY_MODEL` are set.
+- **Methodology statement greatly expanded**: `LegalComplianceManager.generate_methodology_statement()` now produces a ~9 KB plain-language walkthrough of all eight phases plus an explicit "how each FRE / Daubert factor is satisfied" section, scope limitations, and reproducibility statement. Previously was ~1 KB of generic text.
+- **Standards-compliance statement rewritten** in plain language with concrete "how each standard was satisfied" explanations.
+- **Forensic-report timestamps are now human-readable**: Word/PDF "High Priority Threats" entries and the Chain-of-Custody session-start use `compliance.convert_to_local()` (timezone-aware, no raw ISO/`isoformat()`).
+- **AI-Detected Threats subsection removed from forensic report**: Word and PDF no longer carve out a separate "AI-Detected Threats" block; the dedicated section heading and the "AI-assisted findings are supplementary" preamble are gone. All flagged items go through the same manual-review process; the report addresses review findings, not the source of the flag. Excel "AI-Identified Threat" rows are now plain "Threat" rows.
+- **`pricing.yaml` is editable by hand**: The auto-generated header now explicitly says manual edits ARE the intended fallback when the live fetch is unavailable, instead of the previous "do not edit by hand" warning. Also applies to the existing cached file.
+- **README slimmed**: API code samples and individual-component reference moved to [`DEVELOPER.md`](DEVELOPER.md); `README.md` now points there.
+
+### Fixed
+- **SSL errors on macOS pricing rate lookup**: `_fetch_pricing_page` now uses a `certifi`-backed SSL context, fixing `CERTIFICATE_VERIFY_FAILED` errors on macOS Python installs and corporate proxies. Failures are logged at info level (no scary traceback in normal output).
+- **Tests**: `test_bugfixes.test_accepts_config` and `test_batch_model_default` updated to reflect the new model-resolution rules (no more `AI_MODEL` fallback). All tests in `test_bugfixes.py`, `test_forensic_utils.py`, `test_core_functionality.py`, `test_teams_extractor.py`, and `test_third_party_registry.py` pass.
+
 ## [4.3.1] - 2026-03-04
 
 ### Changed

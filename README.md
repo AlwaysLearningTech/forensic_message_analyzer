@@ -150,7 +150,15 @@ cp .env.example ~/workspace/data/forensic_message_analyzer/.env
 ```bash
 # Anthropic Claude API key (required for AI analysis)
 AI_API_KEY=your-api-key
-AI_MODEL=claude-opus-4-6
+# Two-model setup (the legacy single AI_MODEL was removed in v4.4.0):
+AI_BATCH_MODEL=claude-haiku-4-20250506      # cheap; per-message classification
+AI_SUMMARY_MODEL=claude-sonnet-4-20250514   # higher quality; executive summary
+
+# Case identification — single value OR JSON array for consolidated runs.
+# CASE_NUMBERS (plural) is also accepted as a JSON array.
+CASE_NUMBER='["2024-FL-12345","2024-FL-67890"]'
+EXAMINER_NAME="Jane Doe"
+CASE_NAME="Smith v. Smith"
 
 # Contact Mapping - Define names for reports and their identifiers
 PERSON1_NAME="First Last"
@@ -247,7 +255,7 @@ The script runs 8 checks:
 3. **Data extraction** - Extracts from all sources (free, local-only)
 4. **Mapped-contact filter** - Shows how many messages will be sent to AI vs skipped
 5. **Non-AI analysis** - Runs threat, sentiment, behavioral, and pattern analyzers
-6. **Cost estimate** - Calculates expected Batch API cost based on token estimation
+6. **Cost estimate** - Calculates expected Batch API cost for your configured models AND prints a comparison table for every model in `pricing.yaml` so you can see what swapping models would cost without re-running the validator
 7. **AI test** - Sends a small sample to Claude to verify token counting works
 8. **End-to-end pipeline** - Runs auto-review, filtering, and report generation with temp data; prompts before cleanup so you can inspect output
 
@@ -334,71 +342,13 @@ Each person tab includes:
 - Threat information (threat_detected, threat_categories, threat_confidence)
 - Sentiment data (sentiment_score, sentiment_polarity, sentiment_subjectivity)
 
-### Individual Components
+### Embedding the analyzer in your own code
 
-```python
-from src.forensic_utils import ForensicRecorder, ForensicIntegrity
-from src.extractors.imessage_extractor import IMessageExtractor
-from src.extractors.whatsapp_extractor import WhatsAppExtractor
-from src.analyzers.threat_analyzer import ThreatAnalyzer
-from src.analyzers.sentiment_analyzer import SentimentAnalyzer
-from src.analyzers.behavioral_analyzer import BehavioralAnalyzer
-from src.reporters.forensic_reporter import ForensicReporter
-from src.config import Config
-from pathlib import Path
-import pandas as pd
+Public Python API documentation — every class, method, and signature
+with usage examples — lives in [`DEVELOPER.md`](DEVELOPER.md). It is
+intended for developers integrating the analyzer into another tool or
+writing custom extractors / reporters; end-users do not need it.
 
-# Initialize configuration and forensic tracking
-config = Config()
-recorder = ForensicRecorder(Path(config.output_dir))
-integrity = ForensicIntegrity(recorder)
-
-# Extract iMessages
-# Note: IMessageExtractor requires (db_path, forensic_recorder, forensic_integrity)
-# Returns: list of message dicts with sender, recipient, content, timestamp, source
-db_path = config.messages_db_path
-imessage_extractor = IMessageExtractor(db_path, recorder, integrity)
-imessages = imessage_extractor.extract_messages()  # Returns list, not DataFrame
-
-# Extract WhatsApp
-# Note: WhatsAppExtractor requires (export_dir, forensic_recorder, forensic_integrity)
-# Automatically extracts ZIP files in the directory
-# Returns: list of message dicts
-export_dir = config.whatsapp_source_dir
-whatsapp_extractor = WhatsAppExtractor(export_dir, recorder, integrity)
-whatsapp_messages = whatsapp_extractor.extract_all()  # Returns list, not DataFrame
-
-# Combine messages into DataFrame
-all_messages = imessages + whatsapp_messages
-combined_df = pd.DataFrame(all_messages)
-
-# Analyze for threats
-# Note: detect_threats() adds columns to DataFrame, returns same DataFrame
-# Note: generate_threat_summary() takes DataFrame, returns dict
-threat_analyzer = ThreatAnalyzer(recorder)
-threats_df = threat_analyzer.detect_threats(combined_df)
-threat_summary = threat_analyzer.generate_threat_summary(threats_df)
-
-# Analyze sentiment
-# Note: analyze_sentiment() adds sentiment_* columns to DataFrame
-# Requires forensic_recorder parameter in __init__
-sentiment_analyzer = SentimentAnalyzer(recorder)
-sentiment_df = sentiment_analyzer.analyze_sentiment(threats_df)
-
-# Analyze behavioral patterns
-# Note: analyze_patterns() returns dict, NOT DataFrame
-behavioral_analyzer = BehavioralAnalyzer(recorder)
-behavior_results = behavioral_analyzer.analyze_patterns(sentiment_df)
-
-# Generate reports
-# Note: Reports are filtered to only show configured persons from .env
-reporter = ForensicReporter(recorder)
-reports = reporter.generate_comprehensive_report(
-    extracted_data={'messages': all_messages, 'screenshots': []},
-    analysis_results={'threats': threat_summary, 'sentiment': sentiment_df.to_dict('records')},
-    review_decisions={}
-)
-```
 
 ## Legal Defensibility
 
@@ -506,87 +456,6 @@ forensic_message_analyzer/
 └── .env.example                 # Configuration template
 ```
 
-### Core Classes and Their Methods
-
-#### Forensic Utilities
-- **ForensicRecorder()**: Records all actions with timestamps and hashes
-  - `record_action(action, details, metadata=None)`: Log forensic action
-  - `compute_hash(file_path)`: SHA-256 hash of file (takes Path object)
-  - `generate_chain_of_custody()`: Create chain of custody JSON
-
-- **ForensicIntegrity(recorder)**: Ensures evidence integrity
-  - `verify_read_only()`: Verify source is read-only
-  - `create_working_copy(source, dest)`: Create hashed working copy
-
-#### Extractors
-- **IMessageExtractor(db_path, forensic_recorder, forensic_integrity, config=None)**
-  - `extract_messages()`: Extract from iMessage database with full forensic column coverage, edit history, deleted messages, URL previews, shared locations, and per-chat properties
-
-- **WhatsAppExtractor(export_dir, forensic_recorder, forensic_integrity)**
-  - `extract_all()`: Parse WhatsApp export files
-
-- **EmailExtractor(source_dir, forensic_recorder, forensic_integrity, third_party_registry=None)**
-  - `extract_all()`: Parse .eml and .mbox email files
-
-- **TeamsExtractor(source_dir, forensic_recorder, forensic_integrity, third_party_registry=None)**
-  - `extract_all()`: Parse Microsoft Teams personal export TAR archives
-
-- **DataExtractor(forensic_recorder, third_party_registry=None)**: Coordinates all extraction
-  - `extract_all()`: Returns list of message dicts from all sources
-
-#### Analyzers
-- **ThreatAnalyzer(forensic_recorder)**
-  - `detect_threats(df)`: Returns DataFrame with threat_detected column
-  - `generate_threat_summary(df)`: Returns threat summary dict
-
-- **SentimentAnalyzer(forensic_recorder)**
-  - `analyze_sentiment(df)`: Returns DataFrame with sentiment_polarity, sentiment_subjectivity
-
-- **BehavioralAnalyzer(forensic_recorder)**
-  - `analyze_patterns(df)`: Returns dict with behavioral analysis
-
-- **YamlPatternAnalyzer(forensic_recorder, patterns_file=None)**
-  - `analyze_patterns(df)`: Returns DataFrame with patterns_detected, pattern_score
-
-- **CommunicationMetricsAnalyzer(forensic_recorder=None)**
-  - `analyze_messages(messages)`: Takes list of dicts, returns metrics dict
-
-- **AIAnalyzer(forensic_recorder)**
-  - `analyze_messages(messages, batch_size=50)`: Batch or sync AI analysis
-  - `analyze_single_message(message)`: Real-time single-message threat assessment
-  - `generate_analysis_report(analysis, output_path=None)`: Write AI report JSON
-
-#### Utilities
-- **TimelineGenerator(forensic_recorder)**
-  - `create_timeline(df, output_path, raw_messages=None, extracted_data=None)`: Create HTML timeline with case chronology
-  - When `extracted_data` is provided, all email messages are included alongside flagged events
-  - Email events classified as "email" (mapped persons) or "third-party-email" (counselors, attorneys, etc.)
-
-- **ManualReviewManager()**
-  - `add_review(item_id, item_type, decision, notes)`: Add review decision
-  - `get_reviews_by_decision(decision)`: Retrieve reviews by decision type
-
-- **HtmlReporter(forensic_recorder)**
-  - `generate_report(extracted_data, analysis_results, review_decisions, output_path, pdf=True)`: Generate HTML/PDF report with inline images
-  - Includes legal appendices (Methodology, Completeness Validation, Limitations)
-
-- **ChatReporter(forensic_recorder)**
-  - `generate_report(extracted_data, analysis_results, review_decisions, output_path)`: Generate iMessage-style chat-bubble HTML report
-
-- **ExcelReporter(forensic_recorder)**
-  - `generate_report(extracted_data, analysis_results, review_decisions, output_path)`: Generate multi-sheet Excel report
-  - Sheets: Overview, Findings Summary, AI Analysis, Timeline, per-person chat, Conversation Threads, Manual Review, Third Party Contacts
-
-- **ThirdPartyRegistry(forensic_recorder, config)**
-  - `register(identifier, display_name, source, context)`: Register unmapped contact
-  - `get_all()`: Return all registered third-party contacts
-  - `summary()`: Return statistics grouped by source
-
-- **RunManifest(forensic_recorder)**
-  - `add_input_file(path)`: Add input file to manifest
-  - `add_output_file(path)`: Add output file to manifest
-  - `generate_manifest()`: Returns Path to manifest JSON
-
 ### Data Flow
 ```
 Source Data → Extraction → Analysis → Review → Reporting → Documentation
@@ -661,6 +530,14 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
 - `forensic_report_YYYYMMDD_HHMMSS.pdf` - PDF report for court submission
   - Contains same content as Word document
   - Formatted for legal distribution and printing
+
+- `methodology_YYYYMMDD_HHMMSS.docx` - **Standalone Methodology Statement**
+  - Plain-language, judge-readable walkthrough of every analysis phase
+  - Explicitly maps each FRE / Daubert factor to how it was satisfied
+  - Empirical citations for every threat / behavioural pattern matched
+  - Included as a separate document so the legal team can review the
+    methodology without wading through case-specific findings; this is
+    the document to read first if the methodology is ever challenged
 
 - `forensic_analysis_YYYYMMDD_HHMMSS.html` - HTML report with inline images
   - Overview cards, per-person message tables, conversation threads
