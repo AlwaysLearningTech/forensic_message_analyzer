@@ -168,6 +168,65 @@ class AIAnalyzer:
         """Rough token count (~4 characters per token for English)."""
         return max(1, len(text) // 4)
 
+    @staticmethod
+    def _format_messages_for_summary(
+        messages: List[Dict], max_tokens: int = 150_000
+    ) -> Tuple[str, int, bool]:
+        """Format messages chronologically for the executive summary prompt.
+
+        Sorts by timestamp and formats each message as a single line.
+        If the total exceeds *max_tokens* (estimated), applies middle-truncation:
+        keeps the earliest and latest messages (split evenly) and inserts a
+        marker noting how many were omitted.
+
+        Returns:
+            (formatted_text, message_count_included, was_truncated)
+        """
+        if not messages:
+            return "", 0, False
+
+        sorted_msgs = sorted(messages, key=lambda m: m.get('timestamp', ''))
+
+        def _fmt(m: Dict) -> str:
+            ts = m.get('timestamp', 'unknown')
+            sender = m.get('sender_name', m.get('sender', 'Unknown'))
+            source = m.get('source', 'unknown')
+            content = m.get('content', m.get('text', ''))
+            return f"[{ts}] {sender} ({source}): {content}"
+
+        lines = [_fmt(m) for m in sorted_msgs]
+        full_text = "\n".join(lines)
+
+        est_tokens = max(1, len(full_text) // 4)
+        if est_tokens <= max_tokens:
+            return full_text, len(lines), False
+
+        # Middle-truncation: keep first N and last N that fit within budget
+        half_budget = max_tokens // 2
+        head_lines: list[str] = []
+        head_tokens = 0
+        for line in lines:
+            t = max(1, len(line) // 4)
+            if head_tokens + t > half_budget:
+                break
+            head_lines.append(line)
+            head_tokens += t
+
+        tail_lines: list[str] = []
+        tail_tokens = 0
+        for line in reversed(lines):
+            t = max(1, len(line) // 4)
+            if tail_tokens + t > half_budget:
+                break
+            tail_lines.insert(0, line)
+            tail_tokens += t
+
+        omitted = len(lines) - len(head_lines) - len(tail_lines)
+        marker = f"\n[... {omitted:,} messages omitted for context window limits ...]\n"
+        truncated_text = "\n".join(head_lines) + marker + "\n".join(tail_lines)
+        included = len(head_lines) + len(tail_lines)
+        return truncated_text, included, True
+
     # ------------------------------------------------------------------
     # System prompt (shared across all analysis calls)
     # ------------------------------------------------------------------
@@ -405,16 +464,22 @@ class AIAnalyzer:
         output_cost = (est_output_tokens / 1_000_000) * bp['output']
         est_cost = cache_creation_cost + cache_read_cost + message_cost + output_cost
 
-        # Add estimated sync summary call (~500 input, ~800 output at summary model rates)
+        # Estimated summary call — scales with message volume. Assume ~60% of
+        # messages will be confirmed in review; actual cost shown at finalize.
         sp = get_pricing(self.summary_model)
-        est_sync_cost = (500 / 1_000_000) * sp['input'] + (800 / 1_000_000) * sp['output']
+        est_confirmed_tokens = int(message_input_tokens * 0.60) + 500  # preamble
+        est_summary_output = 4096
+        est_sync_cost = (
+            (est_confirmed_tokens / 1_000_000) * sp['input']
+            + (est_summary_output / 1_000_000) * sp['output']
+        )
         est_total = est_cost + est_sync_cost
 
         print(
             f"    Submitting {total_requests} requests via Batch API (50% cost discount)...\n"
             f"    Estimated tokens: ~{est_input_tokens:,} input + ~{est_output_tokens:,} output\n"
             f"    Estimated batch cost: ~${est_cost:.2f} (with prompt caching)\n"
-            f"    Estimated sync summary: ~${est_sync_cost:.4f}\n"
+            f"    Estimated sync summary: ~${est_sync_cost:.4f} (assumes ~60% confirmed; actual cost shown at finalize)\n"
             f"    Estimated total: ~${est_total:.2f}"
         )
 
@@ -878,7 +943,9 @@ class AIAnalyzer:
                 batch_analysis["notable_quotes"]
             )
 
-    def generate_post_review_summary(self, ai_results: Dict) -> Dict:
+    def generate_post_review_summary(
+        self, ai_results: Dict, messages: List[Dict] = None
+    ) -> Dict:
         """Generate executive summary, risks, and recommendations for existing batch results.
 
         Called during finalize (post-review) to add the narrative summary
@@ -887,50 +954,103 @@ class AIAnalyzer:
         Args:
             ai_results: AI analysis results from a previous batch run
                         (already stored in analysis_results['ai_analysis']).
+            messages:   Optional list of message dicts to include in the
+                        summary prompt. When provided, the AI receives the
+                        actual conversation text for evidence-based narrative.
 
         Returns:
             The same dict with conversation_summary, risk_indicators,
             and recommendations populated.
         """
-        ai_results["conversation_summary"] = self._generate_summary(ai_results)
+        ai_results["conversation_summary"] = self._generate_summary(
+            ai_results, messages=messages
+        )
         ai_results["risk_indicators"] = self._identify_risks(ai_results)
         ai_results["recommendations"] = self._generate_recommendations(ai_results)
         return ai_results
 
-    def _generate_summary(self, analysis: Dict) -> str:
-        """
-        Generate an overall summary of the AI analysis.
+    def _generate_summary(self, analysis: Dict, messages: List[Dict] = None) -> str:
+        """Generate an executive summary of the AI analysis.
+
+        When *messages* is provided the full conversation text is included in the
+        prompt so the AI can write an evidence-based narrative with quoted
+        excerpts and a timeline.  When omitted, falls back to the legacy
+        aggregate-statistics-only prompt for backward compatibility.
 
         Args:
-            analysis: Complete analysis results
+            analysis: Complete analysis results dict.
+            messages: Optional list of message dicts (with timestamp, sender_name,
+                      source, content keys) to embed in the prompt.
 
         Returns:
-            Summary text for legal review
+            Summary text for legal review.
         """
         if not self.client or not analysis.get("sentiment_analysis"):
             return "AI analysis not available."
 
         try:
-            prompt = (
-                "Based on the following forensic analysis of digital communications "
-                "in a family law matter, provide a concise executive summary suitable "
-                "for review by the legal team (attorneys and paralegals, not technicians).\n\n"
-                "Focus on:\n"
-                "- Safety concerns for any party or children\n"
-                "- Evidence of threatening, controlling, or harassing behavior\n"
-                "- Custody-relevant behavioral patterns\n"
-                "- Recommended immediate actions\n\n"
+            # --- Build the statistics preamble (always included) ---
+            stats_block = (
                 f"Analysis Results:\n"
                 f"- Total messages analyzed: {analysis['total_messages']}\n"
                 f"- Threats found: {analysis.get('threat_assessment', {}).get('found', False)}\n"
                 f"- Threat severity: {analysis.get('threat_assessment', {}).get('severity', 'none')}\n"
                 f"- Risk indicators: {len(analysis.get('risk_indicators', []))}\n"
                 f"- Key topics: {', '.join(str(t) for t in analysis.get('key_topics', [])[:5])}\n"
-                f"- Behavioral anomalies: {len(analysis.get('behavioral_patterns', {}).get('anomalies', []))}\n\n"
-                "Write 2-3 paragraphs for attorneys. Lead with the most critical findings. "
-                "Use plain language, avoid technical jargon. Reference specific message "
-                "content where possible."
+                f"- Behavioral anomalies: {len(analysis.get('behavioral_patterns', {}).get('anomalies', []))}\n"
             )
+
+            # --- Evidence block (when messages are available) ---
+            if messages:
+                messages_text, msg_count, was_truncated = (
+                    self._format_messages_for_summary(messages)
+                )
+                truncation_note = ""
+                if was_truncated:
+                    truncation_note = (
+                        "\nNOTE: The message log was truncated to fit context limits. "
+                        "The earliest and most recent messages are included; some "
+                        "middle messages were omitted.\n"
+                    )
+
+                prompt = (
+                    "Based on the following forensic analysis of digital communications "
+                    "in a family law matter, provide an executive summary suitable "
+                    "for review by the legal team (attorneys and paralegals, not technicians).\n\n"
+                    f"{stats_block}"
+                    f"- Messages included in this summary: {msg_count}\n\n"
+                    f"{truncation_note}"
+                    "The following messages were analyzed and confirmed as relevant to the case. "
+                    "They are presented in chronological order.\n\n"
+                    "--- BEGIN MESSAGES ---\n"
+                    f"{messages_text}\n"
+                    "--- END MESSAGES ---\n\n"
+                    "Write 3-5 paragraphs for attorneys. Structure as:\n"
+                    "1. Critical safety findings — quote specific messages by timestamp\n"
+                    "2. Timeline of escalation or behavioral patterns\n"
+                    "3. Custody-relevant observations\n"
+                    "4. Recommended immediate actions\n\n"
+                    "Use plain language, avoid technical jargon. Reference specific messages "
+                    "by quoting relevant excerpts with their timestamps."
+                )
+            else:
+                # Legacy aggregate-only prompt (no message text available)
+                prompt = (
+                    "Based on the following forensic analysis of digital communications "
+                    "in a family law matter, provide a concise executive summary suitable "
+                    "for review by the legal team (attorneys and paralegals, not technicians).\n\n"
+                    "Focus on:\n"
+                    "- Safety concerns for any party or children\n"
+                    "- Evidence of threatening, controlling, or harassing behavior\n"
+                    "- Custody-relevant behavioral patterns\n"
+                    "- Recommended immediate actions\n\n"
+                    f"{stats_block}\n"
+                    "Write 2-3 paragraphs for attorneys. Lead with the most critical findings. "
+                    "Use plain language, avoid technical jargon. Reference specific message "
+                    "content where possible."
+                )
+                msg_count = 0
+                was_truncated = False
 
             # Respect rate limits (sync call)
             token_count = self._estimate_tokens(prompt)
@@ -949,7 +1069,7 @@ class AIAnalyzer:
                 }],
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
-                max_tokens=1024,
+                max_tokens=4096,
             )
 
             # Track tokens from this sync API call (standard rates, not batch)
@@ -969,6 +1089,20 @@ class AIAnalyzer:
             )
 
             print(f"    Summary: {summary_input:,} input + {summary_output:,} output tokens (~${sync_cost:.4f})")
+
+            if self.forensic:
+                self.forensic.record_action(
+                    "summary_generated",
+                    f"Executive summary generated from {msg_count} messages",
+                    {
+                        "messages_included": msg_count,
+                        "truncated": was_truncated,
+                        "input_tokens": summary_input,
+                        "output_tokens": summary_output,
+                        "cost_usd": round(sync_cost, 4),
+                        "model": self.summary_model,
+                    },
+                )
 
             return response.content[0].text
 
