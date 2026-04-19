@@ -1363,7 +1363,7 @@ class ForensicAnalyzer:
             # Phase 6: AI Executive Summary (post-review)
             # Batch results already exist from Phase 3 (pre-review).
             # Now generate summary, risks, and recommendations using the
-            # summary model, incorporating review decisions.
+            # summary model, incorporating the actual conversation messages.
             ai_results = analysis_results.get('ai_analysis', {})
             if ai_results and ai_results.get('total_messages', 0) > 0:
                 print("\n" + "="*60)
@@ -1371,11 +1371,64 @@ class ForensicAnalyzer:
                 print("="*60)
                 try:
                     from src.analyzers.ai_analyzer import AIAnalyzer
+                    from src.utils.pricing import get_pricing
                     ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic, config=self.config)
                     if ai_analyzer.client:
-                        ai_results = ai_analyzer.generate_post_review_summary(ai_results)
-                        analysis_results['ai_analysis'] = ai_results
-                        print(f"    Executive summary generated")
+                        # Build message list for the summary using the same
+                        # contact filter as Phase 3 (AI batch analysis).
+                        ai_contacts = self.config.ai_contacts
+                        ai_specified = self.config.ai_contacts_specified
+                        summary_messages = [
+                            m for m in extracted_data.get('messages', [])
+                            if m.get('source') != 'counseling'
+                            and m.get('sender') in ai_contacts
+                            and m.get('recipient') in ai_contacts
+                            and (ai_specified is None
+                                 or m.get('sender') in ai_specified
+                                 or m.get('recipient') in ai_specified)
+                        ]
+                        summary_messages.sort(key=lambda m: m.get('timestamp', ''))
+
+                        # Show accurate cost estimate before calling the API
+                        if summary_messages:
+                            sample_text, msg_count, _ = (
+                                ai_analyzer._format_messages_for_summary(summary_messages)
+                            )
+                            est_input = ai_analyzer._estimate_tokens(sample_text) + 500
+                            est_output = 4096
+                            sp = get_pricing(ai_analyzer.summary_model)
+                            est_cost = (
+                                (est_input / 1_000_000) * sp['input']
+                                + (est_output / 1_000_000) * sp['output']
+                            )
+                            print(
+                                f"    {len(summary_messages):,} messages for executive summary "
+                                f"(~{est_input:,} input tokens)"
+                            )
+                            print(
+                                f"    Estimated summary cost: ~${est_cost:.4f} "
+                                f"({ai_analyzer.summary_model})"
+                            )
+                            if est_cost > 1.00:
+                                print(
+                                    f"    Cost exceeds $1.00 — press Ctrl+C within "
+                                    f"5 seconds to abort..."
+                                )
+                                try:
+                                    import time as _time
+                                    _time.sleep(5)
+                                except KeyboardInterrupt:
+                                    print("\n    Summary generation aborted by user.")
+                                    summary_messages = None
+
+                        if summary_messages is not None:
+                            ai_results = ai_analyzer.generate_post_review_summary(
+                                ai_results, messages=summary_messages
+                            )
+                            analysis_results['ai_analysis'] = ai_results
+                            print(f"    Executive summary generated")
+                        else:
+                            print("    Executive summary skipped (user aborted)")
                     else:
                         print("    AI summary skipped — not configured")
                 except Exception as e:
