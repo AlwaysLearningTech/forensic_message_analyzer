@@ -28,6 +28,7 @@ except ImportError:
 
 from ..config import Config
 from ..forensic_utils import ForensicRecorder
+from ..utils.pricing import get_pricing
 
 logger = logging.getLogger(__name__)
 
@@ -382,17 +383,18 @@ class AIAnalyzer:
         # (previous estimate of 385 was from billing aggregates that didn't match per-request data)
         est_output_tokens = total_requests * 1600
 
-        # Batch API rates for Opus 4.6: $2.50/MTok input, $12.50/MTok output
-        # Cache creation: $3.125/MTok (first request), cache reads: $0.25/MTok (subsequent)
+        # Batch API rates — fetched from Anthropic pricing page
+        bp = get_pricing(self.batch_model, batch=True)
         message_input_tokens = est_input_tokens - (system_prompt_tokens * total_requests)
-        cache_creation_cost = (system_prompt_tokens / 1_000_000) * 3.125  # first request
-        cache_read_cost = (system_prompt_tokens * max(0, total_requests - 1) / 1_000_000) * 0.25
-        message_cost = (message_input_tokens / 1_000_000) * 2.50
-        output_cost = (est_output_tokens / 1_000_000) * 12.50
+        cache_creation_cost = (system_prompt_tokens / 1_000_000) * bp['cache_write']
+        cache_read_cost = (system_prompt_tokens * max(0, total_requests - 1) / 1_000_000) * bp['cache_read']
+        message_cost = (message_input_tokens / 1_000_000) * bp['input']
+        output_cost = (est_output_tokens / 1_000_000) * bp['output']
         est_cost = cache_creation_cost + cache_read_cost + message_cost + output_cost
 
-        # Add estimated sync summary call (~500 input, ~800 output at standard $5/$25)
-        est_sync_cost = (500 / 1_000_000) * 5.0 + (800 / 1_000_000) * 25.0
+        # Add estimated sync summary call (~500 input, ~800 output at summary model rates)
+        sp = get_pricing(self.summary_model)
+        est_sync_cost = (500 / 1_000_000) * sp['input'] + (800 / 1_000_000) * sp['output']
         est_total = est_cost + est_sync_cost
 
         print(
@@ -496,19 +498,16 @@ class AIAnalyzer:
         analysis_results["processing_stats"]["batch_id"] = batch_id
         analysis_results["processing_stats"]["batch_api"] = True
 
-        # Estimate cost (Batch API = 50% discount on standard rates)
-        # Claude Opus 4.6: $5/MTok input, $25/MTok output (standard)
-        # Batch API: $2.50/MTok input, $12.50/MTok output
-        # Cache reads: 10% of base batch input = $0.25/MTok
-        # Cache writes: 125% of base batch input = $3.125/MTok
+        # Actual cost — model-aware batch pricing
+        bp = get_pricing(self.batch_model, batch=True)
         # Note: cache_creation_tokens are a subset of input_tokens,
         # so subtract them from uncached to avoid double-counting.
         uncached_input = total_input_tokens - cache_read_tokens - cache_creation_tokens
         estimated_cost = (
-            (uncached_input / 1_000_000) * 2.50
-            + (cache_read_tokens / 1_000_000) * 0.25
-            + (cache_creation_tokens / 1_000_000) * 3.125
-            + (total_output_tokens / 1_000_000) * 12.50
+            (uncached_input / 1_000_000) * bp['input']
+            + (cache_read_tokens / 1_000_000) * bp['cache_read']
+            + (cache_creation_tokens / 1_000_000) * bp['cache_write']
+            + (total_output_tokens / 1_000_000) * bp['output']
         )
         analysis_results["processing_stats"]["estimated_cost_usd"] = round(estimated_cost, 2)
 
@@ -943,7 +942,8 @@ class AIAnalyzer:
             # Track tokens from this sync API call (standard rates, not batch)
             summary_input = response.usage.input_tokens
             summary_output = response.usage.output_tokens
-            sync_cost = (summary_input / 1_000_000) * 5.0 + (summary_output / 1_000_000) * 25.0
+            sp = get_pricing(self.summary_model)
+            sync_cost = (summary_input / 1_000_000) * sp['input'] + (summary_output / 1_000_000) * sp['output']
 
             stats = analysis.get("processing_stats", {})
             stats["input_tokens"] = stats.get("input_tokens", 0) + summary_input
@@ -1169,7 +1169,7 @@ class AIAnalyzer:
         """
         if not output_path:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_path = Path(config.output_dir) / f"ai_analysis_report_{timestamp}.json"
+            output_path = Path(self.config.output_dir) / f"ai_analysis_report_{timestamp}.json"
 
         # Add legal metadata
         report = {

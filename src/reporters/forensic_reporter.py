@@ -17,6 +17,7 @@ from reportlab.lib.units import inch
 from ..config import Config
 from ..forensic_utils import ForensicRecorder
 from ..utils.legal_compliance import LegalComplianceManager
+from ..utils.pricing import get_pricing
 from .report_utils import match_quote_to_message, generate_limitations
 
 logger = logging.getLogger(__name__)
@@ -1188,8 +1189,9 @@ class ForensicReporter:
                 api_key=self.config.ai_api_key,
                 base_url="https://api.anthropic.com",
             )
+            model = self.config.ai_summary_model or self.config.ai_model or 'claude-sonnet-4-20250514'
             response = client.messages.create(
-                model=self.config.ai_model or 'claude-opus-4-6',
+                model=model,
                 system=[{
                     "type": "text",
                     "text": system_prompt,
@@ -1204,7 +1206,9 @@ class ForensicReporter:
             # Track tokens from this sync API call (standard rates, not batch)
             legal_input = response.usage.input_tokens
             legal_output = response.usage.output_tokens
-            sync_cost = (legal_input / 1_000_000) * 5.0 + (legal_output / 1_000_000) * 25.0
+
+            rp = get_pricing(model)
+            sync_cost = (legal_input / 1_000_000) * rp['input'] + (legal_output / 1_000_000) * rp['output']
 
             # Update AI processing stats if available
             ai_stats = analysis_results.get('ai_analysis', {}).get('processing_stats')
@@ -1223,7 +1227,7 @@ class ForensicReporter:
             self.forensic.record_action(
                 "legal_team_summary_generated",
                 "Generated AI-powered legal team summary",
-                {"model": self.config.ai_model, "length": len(result),
+                {"model": model, "length": len(result),
                  "input_tokens": legal_input, "output_tokens": legal_output,
                  "estimated_cost_usd": round(sync_cost, 4)}
             )

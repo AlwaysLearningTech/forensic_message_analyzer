@@ -229,43 +229,20 @@ def main():
         # (previous estimate of 385 was from billing aggregates that didn't match per-request data)
         est_output = num_batches * 1600
 
-        # ---- Model-specific pricing (Batch API = 50% of standard) ----
-        # Rates per MTok (million tokens).  Batch API halves both input and output.
-        #
-        #                   Standard input  Standard output  Cache write  Cache read
-        # Opus 4.6          $15.00          $75.00           $18.75       $1.50
-        # Sonnet 4          $ 3.00          $15.00           $ 3.75       $0.30
-        # Haiku 4           $ 0.80          $ 4.00           $ 1.00       $0.08
-        #
-        # Batch API = standard / 2 for input and output; cache rates stay the same.
-        _PRICING = {
-            'opus':   {'batch_input': 7.50,  'batch_output': 37.50, 'cache_write': 18.75, 'cache_read': 1.50,
-                       'sync_input': 15.00, 'sync_output': 75.00},
-            'sonnet': {'batch_input': 1.50,  'batch_output':  7.50, 'cache_write':  3.75, 'cache_read': 0.30,
-                       'sync_input':  3.00, 'sync_output': 15.00},
-            'haiku':  {'batch_input': 0.40,  'batch_output':  2.00, 'cache_write':  1.00, 'cache_read': 0.08,
-                       'sync_input':  0.80, 'sync_output':  4.00},
-        }
+        # ---- Model-specific pricing (fetched from Anthropic pricing page) ----
+        from src.utils.pricing import get_pricing
 
-        def _tier(model_name: str) -> str:
-            m = model_name.lower()
-            if 'haiku' in m:
-                return 'haiku'
-            if 'sonnet' in m:
-                return 'sonnet'
-            return 'opus'
-
-        bp = _PRICING[_tier(ai.batch_model)]
-        sp = _PRICING[_tier(ai.summary_model)]
+        bp = get_pricing(ai.batch_model, batch=True)
+        sp = get_pricing(ai.summary_model)
 
         cache_creation_cost = (system_prompt_tokens / 1_000_000) * bp['cache_write']
         cache_read_cost = (system_prompt_tokens * max(0, num_batches - 1) / 1_000_000) * bp['cache_read']
-        message_input_cost = (message_tokens / 1_000_000) * bp['batch_input']
-        output_cost = (est_output / 1_000_000) * bp['batch_output']
+        message_input_cost = (message_tokens / 1_000_000) * bp['input']
+        output_cost = (est_output / 1_000_000) * bp['output']
         est_batch_cost = cache_creation_cost + cache_read_cost + message_input_cost + output_cost
 
         # Executive summary: ~500 input + ~800 output tokens (single sync API call)
-        est_sync_cost = (500 / 1_000_000) * sp['sync_input'] + (800 / 1_000_000) * sp['sync_output']
+        est_sync_cost = (500 / 1_000_000) * sp['input'] + (800 / 1_000_000) * sp['output']
         est_total = est_batch_cost + est_sync_cost
 
         print(f"  Messages to analyze: {len(mapped_messages):,}")
@@ -376,8 +353,10 @@ def main():
                     print("  FAIL: Token counting returned 0 — still broken!")
                     failed += 1
                 else:
-                    # Synchronous standard rates for Opus 4.6: $5/MTok input, $25/MTok output
-                    actual_cost = (input_tok / 1_000_000) * 5.0 + (output_tok / 1_000_000) * 25.0
+                    # Synchronous standard rates — model-aware
+                    from src.utils.pricing import get_pricing as _gp
+                    _tp = _gp(ai_test.model)
+                    actual_cost = (input_tok / 1_000_000) * _tp['input'] + (output_tok / 1_000_000) * _tp['output']
                     print(f"  Actual cost: ~${actual_cost:.4f} (synchronous rates)")
                     passed += 1
                     print("  PASS")

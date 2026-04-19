@@ -61,7 +61,7 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
 - **Sentiment Analysis**: Message tone and emotion detection using TextBlob
 - **Behavioral Analysis**: Communication pattern identification and profiling
 - **Communication Metrics**: Frequency, volume, timing, and response pattern analysis
-- **AI Analysis**: Anthropic Claude (Opus 4.6) integration with batch API support and prompt caching
+- **AI Analysis**: Anthropic Claude integration with batch API support and prompt caching
   - Threat detection and risk assessment with severity classification
   - Emotional escalation tracking across conversations
   - Behavioral pattern recognition (control, isolation, harassment)
