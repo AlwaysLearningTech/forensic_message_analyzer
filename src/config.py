@@ -156,7 +156,8 @@ class Config:
         self.case_numbers = self._parse_case_numbers()
         self.case_number = "\n".join(self.case_numbers) if self.case_numbers else ''
         self.examiner_name = os.getenv('EXAMINER_NAME', '')
-        self.case_name = os.getenv('CASE_NAME', '')
+        self.case_names = self._parse_case_names()
+        self.case_name = "\n".join(self.case_names) if self.case_names else ''
         self.timezone = os.getenv('ANALYSIS_TIMEZONE', 'America/Los_Angeles')
         self.organization = os.getenv('ORGANIZATION', '')
 
@@ -225,7 +226,45 @@ class Config:
                 seen.add(c)
                 ordered.append(c)
         return ordered
-    
+
+    def _parse_case_names(self) -> List[str]:
+        """Parse case names from CASE_NAME (string or JSON array) or CASE_NAMES.
+
+        Accepts any of:
+          CASE_NAME=Smith v. Smith                        -> ["Smith v. Smith"]
+          CASE_NAME='["Smith v. Smith","Jones v. Jones"]' -> ["Smith v. Smith","Jones v. Jones"]
+          CASE_NAMES='["Smith v. Smith","Jones v. Jones"]' -> ["Smith v. Smith","Jones v. Jones"]
+
+        Returns ordered, de-duplicated list of non-empty strings.
+        """
+        raw_single = os.getenv('CASE_NAME', '').strip()
+        raw_plural = os.getenv('CASE_NAMES', '').strip()
+
+        candidates: List[str] = []
+
+        for raw in (raw_single, raw_plural):
+            if not raw:
+                continue
+            if raw.startswith('['):
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        candidates.extend(str(x).strip() for x in parsed if str(x).strip())
+                except json.JSONDecodeError:
+                    logger.warning(
+                        f"Could not parse case names as JSON; ignoring malformed value: {raw}"
+                    )
+                continue
+            candidates.append(raw)
+
+        seen = set()
+        ordered: List[str] = []
+        for c in candidates:
+            if c and c not in seen:
+                seen.add(c)
+                ordered.append(c)
+        return ordered
+
     def _normalize_phone_number(self, phone: str) -> List[str]:
         """
         Generate common format variations of a phone number.
