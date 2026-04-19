@@ -1,9 +1,6 @@
-"""
-Centralized Anthropic model pricing with auto-fetch and YAML cache fallback.
+"""Centralized Anthropic model pricing with auto-fetch and YAML cache fallback.
 
-On first call, fetches current pricing from Anthropic's pricing page, parses
-the markdown tables, and caches to pricing.yaml. If the fetch fails, falls
-back to the cached YAML with a warning.
+On first call, fetches current pricing from Anthropic's pricing page, parses the markdown tables, and caches to pricing.yaml. If the fetch fails, falls back to the cached YAML with a warning.
 """
 
 import re
@@ -34,8 +31,7 @@ def _fetch_pricing_page() -> str:
     import urllib.request
     import urllib.error
 
-    # Build an SSL context backed by certifi when available (handles the
-    # common 'CERTIFICATE_VERIFY_FAILED' that bites macOS Python installs).
+    # Build an SSL context backed by certifi when available (handles the common 'CERTIFICATE_VERIFY_FAILED' that bites macOS Python installs).
     try:
         import certifi
         ctx = ssl.create_default_context(cafile=certifi.where())
@@ -158,8 +154,7 @@ def _load_pricing() -> Dict[str, dict]:
             return models
         logger.info("Pricing page fetched but no models parsed — using cache")
     except Exception as e:
-        # SSL errors, network failures, parse errors — all non-fatal as long
-        # as the YAML cache exists. Log at info to avoid alarming tracebacks.
+        # SSL errors, network failures, parse errors — all non-fatal as long as the YAML cache exists. Log at info to avoid alarming tracebacks.
         logger.info("Live pricing fetch unavailable (%s) — using cached pricing.yaml", e)
 
     # Fall back to YAML cache

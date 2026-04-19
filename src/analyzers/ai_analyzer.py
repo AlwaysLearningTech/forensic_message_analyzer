@@ -388,9 +388,7 @@ class AIAnalyzer:
                 return self._analyze_messages_batch(messages, batch_size,
                                                     generate_summary=generate_summary)
             except Exception as e:
-                # If the batch was already submitted to Anthropic, do NOT
-                # fall back to sync (that would re-process everything at 2x cost).
-                # Only fall back for pre-submission errors.
+                # If the batch was already submitted to Anthropic, do NOT fall back to sync (that would re-process everything at 2x cost). Only fall back for pre-submission errors.
                 if "Batch" in str(e) and ("timed out" in str(e).lower() or "batch_" in str(e).lower()):
                     logger.error(f"Batch API failed after submission: {e}")
                     self.forensic.record_action(

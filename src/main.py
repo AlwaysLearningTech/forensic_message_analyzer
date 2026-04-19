@@ -511,8 +511,7 @@ class ForensicAnalyzer:
         results['sentiment'] = sentiment_results.to_dict('records') if hasattr(sentiment_results, 'to_dict') else sentiment_results
         print("    Sentiment analysis complete")
         
-        # NOTE: Behavioral analysis moved to Phase 4 (after manual review)
-        # This ensures trends are based on reviewed/confirmed data, not raw detections
+        # NOTE: Behavioral analysis moved to Phase 4 (after manual review) to ensure trends are based on reviewed/confirmed data, not raw detections.
         
         # Run pattern analysis
         print("\n[*] Running pattern detection...")
@@ -547,8 +546,7 @@ class ForensicAnalyzer:
         results['metrics'] = metrics_results
         print("    Communication metrics calculated")
 
-        # Save the enriched DataFrame for Phase 4 behavioral analysis.
-        # At this point combined_df has threat, sentiment, and pattern columns.
+        # Save the enriched DataFrame for Phase 4 behavioral analysis. At this point combined_df has threat, sentiment, and pattern columns.
         self._enriched_df = combined_df.copy()
 
         # AI batch analysis runs in Phase 3 (after this phase).
