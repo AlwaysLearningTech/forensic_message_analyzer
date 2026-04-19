@@ -242,8 +242,20 @@ def main():
         output_cost = (est_output / 1_000_000) * bp['output']
         est_batch_cost = cache_creation_cost + cache_read_cost + message_input_cost + output_cost
 
-        # Executive summary: ~500 input + ~800 output tokens (single sync API call)
-        est_sync_cost = (500 / 1_000_000) * sp['input'] + (800 / 1_000_000) * sp['output']
+        # Executive summary: scales with confirmed messages. Assume 60% will be
+        # confirmed in review; actual cost is shown at finalize.
+        ASSUMED_CONFIRM_RATE = 0.60
+        est_confirmed = int(len(mapped_messages) * ASSUMED_CONFIRM_RATE)
+        confirmed_text_tokens = 0
+        for msg in mapped_messages[:est_confirmed]:
+            text = msg.get('content', msg.get('text', ''))
+            confirmed_text_tokens += max(1, len(text) // 4)
+        est_summary_input = confirmed_text_tokens + 500  # preamble/instructions
+        est_summary_output = 4096
+        est_sync_cost = (
+            (est_summary_input / 1_000_000) * sp['input']
+            + (est_summary_output / 1_000_000) * sp['output']
+        )
         est_total = est_batch_cost + est_sync_cost
 
         print(f"  Messages to analyze: {len(mapped_messages):,}")
@@ -253,6 +265,7 @@ def main():
         print(f"  Estimated output tokens: ~{est_output:,}  (${output_cost:.2f})")
         print(f"  Estimated batch cost: ~${est_batch_cost:.2f}")
         print(f"  Estimated sync summary: ~${est_sync_cost:.4f} (executive summary)")
+        print(f"    NOTE: Assumes {ASSUMED_CONFIRM_RATE:.0%} of messages confirmed in review. Precise estimate shown at finalize.")
         print(f"  Estimated total cost (current selection): ~${est_total:.2f}")
         print()
 
@@ -306,10 +319,13 @@ def main():
                 out_cost = (est_output / 1_000_000) * b_out
                 batch_role_cost = cw_cost + cr_cost + msg_cost + out_cost
 
-                # Summary role cost: ~500 in / 800 out at this model's standard rate.
+                # Summary role cost: uses same estimated summary tokens.
                 s_in = rates.get('input', 0)
                 s_out = rates.get('output', 0)
-                summary_role_cost = (500 / 1_000_000) * s_in + (800 / 1_000_000) * s_out
+                summary_role_cost = (
+                    (est_summary_input / 1_000_000) * s_in
+                    + (est_summary_output / 1_000_000) * s_out
+                )
 
                 # Combined assumes this model used for BOTH roles
                 combined = batch_role_cost + summary_role_cost
