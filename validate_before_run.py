@@ -229,8 +229,7 @@ def main():
             batch_text = ai._prepare_batch(batch)
             message_tokens += int(ai._estimate_tokens(batch_text) * batch_overhead)
         est_input = system_tokens + message_tokens
-        # Based on actual run data: avg ~1,600 output tokens per batch
-        # (previous estimate of 385 was from billing aggregates that didn't match per-request data)
+        # Based on actual run data: avg ~1,600 output tokens per batch (previous estimate of 385 was from billing aggregates that didn't match per-request data)
         est_output = num_batches * 1600
 
         # ---- Model-specific pricing (fetched from Anthropic pricing page) ----
@@ -243,8 +242,7 @@ def main():
         output_cost = (est_output / 1_000_000) * bp['output']
         est_batch_cost = cache_creation_cost + cache_read_cost + message_input_cost + output_cost
 
-        # Executive summary: scales with confirmed messages. Assume 60% will be
-        # confirmed in review; actual cost is shown at finalize.
+        # Executive summary: scales with confirmed messages. Assume 60% will be confirmed in review; actual cost is shown at finalize.
         summary_overhead = get_token_overhead(ai.summary_model)
         ASSUMED_CONFIRM_RATE = 0.60
         est_confirmed = int(len(mapped_messages) * ASSUMED_CONFIRM_RATE)
@@ -272,9 +270,7 @@ def main():
         print()
 
         # ---- Model comparison table --------------------------------
-        # Show what changing the configured batch/summary models would do
-        # to total cost so the user does not have to re-run the validator
-        # to compare options.
+        # Show what changing the configured batch/summary models would do to total cost so the user does not have to re-run the validator to compare options.
         try:
             from src.utils.pricing import _load_pricing  # type: ignore
             all_models = _load_pricing()
@@ -309,15 +305,13 @@ def main():
             ordered_names = sorted(all_models.keys())
             for name in ordered_names:
                 rates = all_models[name]
-                # Derive a model-id-like string from display name for overhead lookup
-                # e.g. "Claude Opus 4.7" → "claude-opus-4-7"
+                # Derive a model-id-like string from display name for overhead lookup, e.g. "Claude Opus 4.7" → "claude-opus-4-7"
                 import re as _re
                 name_id = _re.sub(r'\s+', '-', name.lower())
                 row_batch_overhead = get_token_overhead(name_id)
                 row_summary_overhead = get_token_overhead(name_id)
 
-                # Batch role cost: re-scale base (no-overhead) tokens for this model's
-                # tokenizer, then price at its batch rate.
+                # Batch role cost: re-scale base (no-overhead) tokens for this model's tokenizer, then price at its batch rate.
                 base_sys = ai._estimate_tokens(ai._SYSTEM_PROMPT)
                 base_msg = int(message_tokens / batch_overhead) if batch_overhead else message_tokens
                 row_sys_tokens = int(base_sys * row_batch_overhead)
@@ -370,9 +364,7 @@ def main():
     # ---------------------------------------------------------------
     # Test 7: AI test (representative sample — ~$0.29)
     # ---------------------------------------------------------------
-    # Build a representative sample that includes different message
-    # types so the AI sees what the real data looks like: attachments,
-    # tapbacks, threats, and normal conversation.
+    # Build a representative sample that includes different message types so the AI sees what the real data looks like: attachments, tapbacks, threats, and normal conversation.
     sample_size = args.ai_sample
     ai_test_results = None  # Populated by Test 7 if AI runs
 
@@ -470,9 +462,7 @@ def main():
 
     # ---------------------------------------------------------------
     # Test 8: End-to-end pipeline (ALL messages → reports)
-    # Assembles results from Test 5 (analysis) + Test 7 (AI), then
-    # runs review → filtering → report generation.  No analysis is
-    # re-run — data flows from earlier phases exactly as production.
+    # Assembles results from Test 5 (analysis) + Test 7 (AI), then runs review → filtering → report generation.  No analysis is re-run — data flows from earlier phases exactly as production.
     # ---------------------------------------------------------------
     if args.estimate:
         print(f"\n[8/8] End-to-end pipeline: SKIPPED (--estimate flag)")

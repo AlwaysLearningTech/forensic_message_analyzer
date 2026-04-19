@@ -19,7 +19,7 @@ from ..config import Config
 from ..forensic_utils import ForensicRecorder
 from ..utils.legal_compliance import LegalComplianceManager
 from ..utils.pricing import get_pricing
-from .report_utils import match_quote_to_message, generate_limitations
+from .report_utils import match_quote_to_message, generate_limitations, markdown_to_reportlab, markdown_to_docx
 
 logger = logging.getLogger(__name__)
 
@@ -607,10 +607,7 @@ class ForensicReporter:
                 'results, written for the legal team. It explains the key findings and '
                 'how to use the accompanying output files.'
             )
-            for paragraph in legal_summary.split('\n\n'):
-                stripped = paragraph.strip()
-                if stripped:
-                    doc.add_paragraph(stripped)
+            markdown_to_docx(doc, legal_summary)
             doc.add_page_break()
 
         # Executive Summary
@@ -896,11 +893,7 @@ class ForensicReporter:
                 styles['Normal']
             ))
             elements.append(Spacer(1, 12))
-            for paragraph in legal_summary.split('\n\n'):
-                stripped = paragraph.strip()
-                if stripped:
-                    elements.append(Paragraph(self._esc(stripped), styles['Normal']))
-                    elements.append(Spacer(1, 8))
+            elements.extend(markdown_to_reportlab(legal_summary, styles))
             elements.append(PageBreak())
 
         # Executive Summary
@@ -1169,13 +1162,8 @@ class ForensicReporter:
             doc.add_paragraph(f"Examiner: {header['examiner_name']}")
         doc.add_paragraph('')  # spacer
 
-        # Body -- split on double newlines for paragraph breaks,
-        # preserving single newlines within paragraphs.
-        for block in legal_summary.split('\n\n'):
-            text = block.strip()
-            if not text:
-                continue
-            doc.add_paragraph(text)
+        # Body -- parse markdown formatting from AI-generated text
+        markdown_to_docx(doc, legal_summary)
 
         # Output file reference table
         if reports:

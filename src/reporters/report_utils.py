@@ -5,6 +5,7 @@ Centralizes functions used across multiple reporters to avoid duplication.
 
 import base64
 import io
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -138,3 +139,117 @@ def generate_limitations(config, analysis_results: Dict) -> List[str]:
         limitations.append("No significant limitations identified for this analysis.")
 
     return limitations
+
+
+# ---------------------------------------------------------------------------
+# Markdown → report format helpers
+# ---------------------------------------------------------------------------
+
+def _md_inline_to_html(text: str) -> str:
+    """Convert inline markdown (bold, italic) to ReportLab-compatible HTML."""
+    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<i>\1</i>', text)
+    return text
+
+
+def markdown_to_reportlab(text: str, styles) -> list:
+    """Convert a markdown string into a list of ReportLab flowable elements.
+
+    Handles headings (# / ##), bold/italic inline, bullet lists (- ),
+    numbered lists (1. ), and plain paragraphs. Returns a list of
+    Paragraph/Spacer objects ready to append to a ReportLab document.
+    """
+    from reportlab.platypus import Paragraph, Spacer
+    import html as html_module
+
+    elements = []
+    for block in text.split('\n\n'):
+        for line in block.split('\n'):
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            # Headings
+            heading_match = re.match(r'^(#{1,3})\s+(.*)', stripped)
+            if heading_match:
+                level = len(heading_match.group(1))
+                heading_text = html_module.escape(heading_match.group(2))
+                style_name = f'Heading{min(level, 3)}'
+                style = styles.get(style_name, styles['Heading2'])
+                elements.append(Paragraph(heading_text, style))
+                continue
+
+            # Bullet lines
+            bullet_match = re.match(r'^[-*]\s+(.*)', stripped)
+            if bullet_match:
+                body = html_module.escape(bullet_match.group(1))
+                body = _md_inline_to_html(body)
+                elements.append(Paragraph(f"&bull; {body}", styles['Normal']))
+                continue
+
+            # Numbered list lines
+            num_match = re.match(r'^(\d+)\.\s+(.*)', stripped)
+            if num_match:
+                num = num_match.group(1)
+                body = html_module.escape(num_match.group(2))
+                body = _md_inline_to_html(body)
+                elements.append(Paragraph(f"{num}. {body}", styles['Normal']))
+                continue
+
+            # Regular paragraph — escape then convert inline formatting
+            safe = html_module.escape(stripped)
+            safe = _md_inline_to_html(safe)
+            elements.append(Paragraph(safe, styles['Normal']))
+
+        elements.append(Spacer(1, 6))
+    return elements
+
+
+def markdown_to_docx(doc, text: str):
+    """Add markdown-formatted text to a python-docx Document.
+
+    Handles headings (# / ##), bold/italic inline, bullet lists (- ),
+    and plain paragraphs. Modifies doc in-place.
+    """
+    for block in text.split('\n\n'):
+        for line in block.split('\n'):
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            # Headings
+            heading_match = re.match(r'^(#{1,3})\s+(.*)', stripped)
+            if heading_match:
+                level = len(heading_match.group(1))
+                doc.add_heading(heading_match.group(2), level=min(level, 3))
+                continue
+
+            # Bullet lines
+            bullet_match = re.match(r'^[-*]\s+(.*)', stripped)
+            if bullet_match:
+                _add_md_inline_paragraph(doc, bullet_match.group(1), style='List Bullet')
+                continue
+
+            # Numbered list lines
+            num_match = re.match(r'^(\d+)\.\s+(.*)', stripped)
+            if num_match:
+                _add_md_inline_paragraph(doc, stripped)
+                continue
+
+            # Regular paragraph with inline formatting
+            _add_md_inline_paragraph(doc, stripped)
+
+
+def _add_md_inline_paragraph(doc, text: str, style=None):
+    """Add a paragraph to doc, rendering **bold** and *italic* as Word runs."""
+    para = doc.add_paragraph(style=style)
+    parts = re.split(r'(\*\*.*?\*\*|\*.*?\*)', text)
+    for part in parts:
+        if part.startswith('**') and part.endswith('**'):
+            run = para.add_run(part[2:-2])
+            run.bold = True
+        elif part.startswith('*') and part.endswith('*') and not part.startswith('**'):
+            run = para.add_run(part[1:-1])
+            run.italic = True
+        else:
+            para.add_run(part)

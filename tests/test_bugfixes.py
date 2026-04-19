@@ -139,8 +139,7 @@ class TestAIAnalyzerConfig:
         mock_config.ai_api_key = None
         recorder = ForensicRecorder(output_dir=tmp_output_dir)
         analyzer = AIAnalyzer(forensic_recorder=recorder, config=mock_config)
-        # AI_MODEL env var was removed in 4.4.0; analyzer.model now resolves
-        # to the summary model (preferred) or batch model.
+        # AI_MODEL env var was removed in 4.4.0; analyzer.model now resolves to the summary model (preferred) or batch model.
         assert analyzer.model == mock_config.ai_summary_model
         assert analyzer.client is None  # No API key
 
