@@ -275,6 +275,207 @@ class ForensicReporter:
         )
         return output_path
 
+    def generate_cover_sheet(self, reports: Dict[str, Any], timestamp: str) -> Path:
+        """Generate a one-page READ ME FIRST cover sheet for the legal team.
+
+        Tells a non-technical reader, in one page, which document in the
+        report package answers which question — methodology challenges,
+        plain-English findings, full record, conversation transcripts,
+        timeline, and chain of custody.
+
+        Called after every other report has been written so the file
+        list it points at is accurate. Filenames in `reports` may be
+        either str or Path; both are accepted.
+
+        Args:
+            reports: Mapping of report-format keys (e.g. 'methodology',
+                'legal_summary', 'pdf', 'word', 'chat', 'timeline',
+                'html') to file paths.
+            timestamp: Run timestamp used for the cover-sheet filename.
+
+        Returns:
+            Path to the written cover-sheet docx.
+        """
+        def _name(key: str) -> str:
+            """Return just the filename for a report path, or '' if missing."""
+            value = reports.get(key)
+            if not value:
+                return ''
+            return Path(str(value)).name
+
+        methodology_name = _name('methodology')
+        legal_summary_name = _name('legal_summary')
+        # Prefer PDF for the "full record" pointer; fall back to docx
+        full_report_name = _name('pdf') or _name('word')
+        chat_name = _name('chat') or _name('chat_html')
+        timeline_name = _name('timeline')
+        html_name = _name('html')
+        excel_name = _name('excel')
+
+        doc = Document()
+
+        # Tighter margins so everything fits on one page
+        for section in doc.sections:
+            section.top_margin = Inches(0.7)
+            section.bottom_margin = Inches(0.7)
+            section.left_margin = Inches(0.8)
+            section.right_margin = Inches(0.8)
+
+        # Title
+        title = doc.add_heading('READ ME FIRST', 0)
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        subtitle = doc.add_paragraph()
+        subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        subtitle_run = subtitle.add_run('Forensic Analysis Report Package — Reading Guide')
+        subtitle_run.italic = True
+        subtitle_run.font.size = Pt(12)
+
+        # Case info (compact)
+        header = self.compliance.generate_report_header()
+        case_numbers = header.get('case_numbers') or [header['case_number']]
+
+        case_line = doc.add_paragraph()
+        case_line.add_run('Case Number(s): ').bold = True
+        case_line.add_run('; '.join(case_numbers))
+
+        if header['case_name'] and header['case_name'] != 'Not assigned':
+            name_line = doc.add_paragraph()
+            name_line.add_run('Case Name: ').bold = True
+            name_line.add_run(header['case_name'])
+
+        gen_line = doc.add_paragraph()
+        gen_line.add_run('Generated: ').bold = True
+        gen_line.add_run(header['date_of_examination'])
+
+        if header.get('examiner_name') and header['examiner_name'] != 'Not specified':
+            ex_line = doc.add_paragraph()
+            ex_line.add_run('Examiner: ').bold = True
+            ex_line.add_run(header['examiner_name'])
+
+        # Intro
+        intro = doc.add_paragraph()
+        intro.add_run(
+            'This package contains several documents. Each one answers a '
+            'different question. Open the document below that matches what '
+            'you need; every document references the others by filename so '
+            'you can navigate between them.'
+        )
+
+        doc.add_heading('Where to start', level=1)
+
+        # The guide entries — only render entries whose target file exists
+        guide: list = []
+        if methodology_name:
+            guide.append((
+                'If anyone challenges the methods or the science',
+                methodology_name,
+                'Plain-language, judge-readable walkthrough of every step the '
+                'analyzer took, with an explicit point-by-point map of how '
+                'each Federal Rule of Evidence and Daubert factor was '
+                'satisfied. Includes empirical citations for every pattern '
+                'used to flag a message. Read this first if methodology is '
+                'questioned.'
+            ))
+        if legal_summary_name:
+            guide.append((
+                'If you want the plain-English findings',
+                legal_summary_name,
+                'AI-assisted narrative summary written for attorneys: what '
+                'was found, what it appears to mean, what to do next, and a '
+                'guide to the rest of the files in this package.'
+            ))
+        if full_report_name:
+            guide.append((
+                'If you want the full record for filing or distribution',
+                full_report_name,
+                'Comprehensive forensic report: case information, findings '
+                'summary, threat analysis, sentiment analysis, manual-review '
+                'breakdown, and chain-of-custody reference. The authoritative '
+                'document for the case file.'
+            ))
+        if chat_name:
+            guide.append((
+                'If you want to read the conversations themselves',
+                chat_name,
+                'iMessage-style chat-bubble HTML transcript of the relevant '
+                'conversations, with inline images, edit history, and '
+                'deletion / URL-preview / shared-location markers. Open in '
+                'a web browser.'
+            ))
+        if timeline_name:
+            guide.append((
+                'If you want a chronological view of the case',
+                timeline_name,
+                'Interactive timeline of flagged events and email '
+                'communications with filtering. Open in a web browser.'
+            ))
+        if excel_name:
+            guide.append((
+                'If you want to sort, filter, or query the data yourself',
+                excel_name,
+                'Multi-sheet Excel workbook: per-person message tabs, '
+                'findings summary, AI analysis, timeline, conversation '
+                'threads, manual-review decisions, and third-party contacts.'
+            ))
+        if html_name:
+            guide.append((
+                'If you want a printable visual report with attachments',
+                html_name,
+                'HTML report with inline base64 attachment images and the '
+                'three legal appendices (Methodology, Completeness '
+                'Validation, Limitations).'
+            ))
+        # Always include chain of custody pointer (the JSON file is produced
+        # in the documentation phase; we name the convention even if the
+        # file path was not passed in)
+        guide.append((
+            'If you need the technical audit trail (for a forensics expert)',
+            f'chain_of_custody_{timestamp}.json',
+            'Timestamped audit trail of every operation performed during '
+            'the run, with SHA-256 hashes of every input and output file. '
+            'This is for a digital-forensics expert; the methodology '
+            'document above is what to give a judge or attorney.'
+        ))
+
+        for question, filename, description in guide:
+            q_para = doc.add_paragraph()
+            q_run = q_para.add_run(f'{question}:')
+            q_run.bold = True
+
+            f_para = doc.add_paragraph()
+            f_para.paragraph_format.left_indent = Inches(0.25)
+            f_run = f_para.add_run(f'→ Open  {filename}')
+            f_run.font.name = 'Consolas'
+            f_run.font.size = Pt(10)
+
+            d_para = doc.add_paragraph()
+            d_para.paragraph_format.left_indent = Inches(0.25)
+            d_para.paragraph_format.space_after = Pt(6)
+            d_run = d_para.add_run(description)
+            d_run.font.size = Pt(10)
+
+        # Footer note
+        footer = doc.add_paragraph()
+        footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        footer_run = footer.add_run(
+            'All files in this package were produced by the same analysis run '
+            'and are forensically linked through SHA-256 hashes recorded in '
+            'the chain of custody.'
+        )
+        footer_run.italic = True
+        footer_run.font.size = Pt(9)
+
+        output_path = self.output_dir / f"READ_ME_FIRST_{timestamp}.docx"
+        doc.save(output_path)
+
+        file_hash = self.forensic.compute_hash(output_path)
+        self.forensic.record_action(
+            "cover_sheet_generated",
+            f"Generated READ ME FIRST cover sheet with hash {file_hash}",
+            {"path": str(output_path), "hash": file_hash}
+        )
+        return output_path
+
     def _generate_word_report(self, extracted_data: Dict, analysis_results: Dict,
                             review_decisions: Dict, timestamp: str,
                             legal_summary: str = None) -> Path:

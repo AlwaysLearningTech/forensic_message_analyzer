@@ -517,7 +517,15 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
       threat_confidence, harmful_content, sentiment_score, sentiment_polarity, sentiment_subjectivity
   - **Manual Review**: Review decisions (if applicable)
   - Note: Random phone numbers and chat IDs are excluded (only shows legally relevant parties)
-  
+
+- `READ_ME_FIRST_YYYYMMDD_HHMMSS.docx` - **One-page reading guide for the legal team**
+  - Open this first. Tells the reader, in one page, which file in the
+    package answers which question (methodology challenges → open the
+    methodology document; plain-English findings → open the legal team
+    summary; full record → open the forensic report PDF; etc.)
+  - References every other file in the package by actual filename so
+    attorneys / paralegals can navigate without guessing
+
 - `forensic_report_YYYYMMDD_HHMMSS.docx` - Word document report with:
   - Legal team summary (AI-generated narrative explaining findings and output files)
   - Executive summary
