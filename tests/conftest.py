@@ -23,9 +23,8 @@ def mock_config(tmp_output_dir):
     config.output_dir = str(tmp_output_dir)
     config.ai_api_key = None
     config.ai_endpoint = None
-    config.ai_model = "claude-opus-4-6"
-    config.ai_batch_model = None
-    config.ai_summary_model = None
+    config.ai_batch_model = "claude-haiku-4-5"
+    config.ai_summary_model = "claude-sonnet-4-5"
     config.batch_size = 50
     config.use_batch_api = True
     config.max_tokens_per_request = 4096

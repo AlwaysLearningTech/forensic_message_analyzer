@@ -92,9 +92,22 @@ class AIAnalyzer:
         _config = config if config is not None else Config()
         self.api_key = _config.ai_api_key
         self.endpoint = _config.ai_endpoint
-        self.model = _config.ai_model or 'claude-opus-4-6'
-        self.batch_model = getattr(_config, 'ai_batch_model', None) or self.model
-        self.summary_model = getattr(_config, 'ai_summary_model', None) or self.model
+        # Two-model setup: AI_BATCH_MODEL drives per-message classification,
+        # AI_SUMMARY_MODEL drives the executive narrative. If only one is set
+        # it is used for both roles. The legacy single AI_MODEL env var was
+        # removed in 4.4.0; configure both batch and summary models explicitly.
+        self.batch_model = (
+            getattr(_config, 'ai_batch_model', None)
+            or getattr(_config, 'ai_summary_model', None)
+            or 'claude-haiku-4-5'
+        )
+        self.summary_model = (
+            getattr(_config, 'ai_summary_model', None)
+            or getattr(_config, 'ai_batch_model', None)
+            or self.batch_model
+        )
+        # Used by single-message helpers and back-compat callers; defaults to summary.
+        self.model = self.summary_model
 
         # Token limits from config
         self.max_tokens_per_request = getattr(_config, 'max_tokens_per_request', 4096)

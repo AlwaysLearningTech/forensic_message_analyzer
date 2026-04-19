@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, List, Any
 import logging
 import json
+import re
 import html as html_module
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
@@ -121,6 +122,22 @@ class ForensicReporter:
                 "report_generation_error",
                 f"Word report generation failed: {str(e)}"
             )
+
+        # Generate standalone Methodology document (lay-friendly, distinct
+        # from the findings report so the legal team can read it without
+        # wading through case-specific results)
+        try:
+            methodology_path = self._generate_methodology_document(
+                extracted_data, timestamp
+            )
+            reports['methodology'] = methodology_path
+            logger.info(f"Generated Methodology document: {methodology_path}")
+        except Exception as e:
+            logger.error(f"Failed to generate methodology document: {e}")
+            self.forensic.record_action(
+                "report_generation_error",
+                f"Methodology document generation failed: {str(e)}"
+            )
         
         # Generate PDF report
         try:
@@ -167,6 +184,97 @@ class ForensicReporter:
         
         return reports
     
+    def _generate_methodology_document(self, extracted_data: Dict, timestamp: str) -> Path:
+        """Generate a standalone Methodology Statement Word document.
+
+        Separate from the findings report so the legal team (and the
+        court) can read the methodology without having to navigate
+        case-specific results. Contents are produced by
+        LegalComplianceManager.generate_methodology_statement(), which
+        is plain-language and tied to FRE / Daubert factors point by
+        point.
+        """
+        doc = Document()
+
+        # Title
+        title = doc.add_heading('Methodology Statement', 0)
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        # Case header
+        header = self.compliance.generate_report_header()
+        case_numbers = header.get('case_numbers') or [header['case_number']]
+        if len(case_numbers) > 1:
+            doc.add_paragraph('Case Numbers:')
+            for cn in case_numbers:
+                doc.add_paragraph(cn, style='List Bullet')
+        else:
+            doc.add_paragraph(f"Case Number: {case_numbers[0]}")
+        if header['case_name'] != 'Not assigned':
+            doc.add_paragraph(f"Case Name: {header['case_name']}")
+        doc.add_paragraph(f"Generated: {header['date_of_examination']}")
+        doc.add_paragraph('')
+
+        # Methodology body — heading-aware rendering
+        methodology = self.compliance.generate_methodology_statement()
+        for line in methodology.split('\n'):
+            stripped = line.rstrip()
+            if not stripped:
+                doc.add_paragraph('')
+                continue
+            # Section divider lines like "=" * 60 or "-" * 60
+            if set(stripped) <= {'=', '-'}:
+                continue
+            # Numbered top-level headings like "1. CASE IDENTIFICATION"
+            if re.match(r'^\d+\.\s+[A-Z]', stripped):
+                doc.add_heading(stripped, level=1)
+                continue
+            # Bullets
+            if stripped.lstrip().startswith('- '):
+                doc.add_paragraph(stripped.lstrip()[2:], style='List Bullet')
+                continue
+            doc.add_paragraph(stripped)
+
+        # Standards compliance
+        doc.add_page_break()
+        doc.add_heading('Standards Compliance', level=1)
+        for line in self.compliance.get_standards_compliance_statement().split('\n'):
+            stripped = line.rstrip()
+            if not stripped or set(stripped) <= {'=', '-'}:
+                continue
+            if stripped.lstrip().startswith('- '):
+                doc.add_paragraph(stripped.lstrip()[2:], style='List Bullet')
+                continue
+            doc.add_paragraph(stripped)
+
+        # Completeness Validation
+        messages = extracted_data.get('messages', extracted_data.get('combined', []))
+        completeness = self.compliance.validate_completeness(messages)
+        doc.add_page_break()
+        doc.add_heading('Completeness Validation (FRE 106)', level=1)
+        doc.add_paragraph(
+            f"Total messages examined: {completeness.get('total_messages', 0)}. "
+            f"Conversations analysed: {len(completeness.get('conversations', {}))}. "
+            f"Complete: {'Yes' if completeness.get('is_complete') else 'No'}."
+        )
+        issues = completeness.get('issues', [])
+        if issues:
+            doc.add_paragraph('Issues detected (review and supplement as needed):')
+            for issue in issues:
+                doc.add_paragraph(issue, style='List Bullet')
+        else:
+            doc.add_paragraph('No completeness issues detected.')
+
+        output_path = self.output_dir / f"methodology_{timestamp}.docx"
+        doc.save(output_path)
+
+        file_hash = self.forensic.compute_hash(output_path)
+        self.forensic.record_action(
+            "methodology_document_generated",
+            f"Generated standalone methodology document with hash {file_hash}",
+            {"path": str(output_path), "hash": file_hash}
+        )
+        return output_path
+
     def _generate_word_report(self, extracted_data: Dict, analysis_results: Dict,
                             review_decisions: Dict, timestamp: str,
                             legal_summary: str = None) -> Path:
@@ -184,7 +292,13 @@ class ForensicReporter:
         # ----- Legal Compliance Header -----
         header = self.compliance.generate_report_header()
         doc.add_heading('Case Information', 1)
-        doc.add_paragraph(f"Case Number: {header['case_number']}")
+        case_numbers = header.get('case_numbers') or [header['case_number']]
+        if len(case_numbers) > 1:
+            doc.add_paragraph('Case Numbers:')
+            for cn in case_numbers:
+                doc.add_paragraph(cn, style='List Bullet')
+        else:
+            doc.add_paragraph(f"Case Number: {case_numbers[0]}")
         doc.add_paragraph(f"Case Name: {header['case_name']}")
         doc.add_paragraph(f"Examiner: {header['examiner_name']}")
         doc.add_paragraph(f"Organization: {header['organization']}")
@@ -234,12 +348,15 @@ class ForensicReporter:
            'not configured' not in ai_analysis.get('conversation_summary', '').lower():
             doc.add_heading('Findings Summary', 1)
             doc.add_paragraph(
-                'This section provides AI-assisted analysis findings for rapid legal team review. '
-                'AI findings are supplementary and should be validated against the underlying evidence.'
+                'This section consolidates the analysis findings for rapid legal team review. '
+                'All flagged items — regardless of whether they were surfaced by pattern '
+                'matching, statistical analysis, or AI — were submitted to the same manual '
+                'review process; only items confirmed during manual review are reflected '
+                'in the threat counts below.'
             )
 
             # AI Executive Summary
-            doc.add_heading('AI Analysis Overview', 2)
+            doc.add_heading('Analysis Overview', 2)
             doc.add_paragraph(ai_analysis.get('conversation_summary', 'Not available'))
 
             # Risk indicators with severity
@@ -256,28 +373,6 @@ class ForensicReporter:
                             doc.add_paragraph(f'    Recommended: {action}')
                     else:
                         doc.add_paragraph(f'  {risk}')
-
-            # AI-Detected Threats with quotes and actions
-            threat_assessment = ai_analysis.get('threat_assessment', {})
-            if threat_assessment.get('found'):
-                doc.add_heading('AI-Detected Threats', 2)
-                ai_messages = extracted_data.get('messages', [])
-                for detail in threat_assessment.get('details', []):
-                    if isinstance(detail, dict):
-                        threat_type = detail.get('type', 'Unknown')
-                        severity = str(detail.get('severity', 'unknown')).upper()
-                        quote = detail.get('quote', '')
-                        action = detail.get('recommended_action', '')
-                        match = self._match_quote_to_message(quote, ai_messages)
-                        ts_str = f" [{match['timestamp']}]" if match['timestamp'] else ''
-                        sender_str = f" — {match['sender']}" if match['sender'] else ''
-                        doc.add_paragraph(f'[{severity}] {threat_type}{sender_str}{ts_str}')
-                        if quote:
-                            doc.add_paragraph(f'    "{quote}"')
-                        if action:
-                            doc.add_paragraph(f'    Recommended: {action}')
-                    else:
-                        doc.add_paragraph(f'  {detail}')
 
             # Notable quotes
             notable_quotes = ai_analysis.get('notable_quotes', [])
@@ -362,7 +457,7 @@ class ForensicReporter:
                 doc.add_heading('High Priority Threats', 2)
                 for threat in high_priority:
                     content = threat.get('content', '')[:200]
-                    ts = threat.get('timestamp', '')
+                    ts = self.compliance.convert_to_local(threat.get('timestamp'))
                     sender = threat.get('sender', '')
                     ts_display = f" [{ts}]" if ts else ''
                     sender_display = f" — {sender}" if sender else ''
@@ -436,9 +531,9 @@ class ForensicReporter:
             f"Session ID: {self.forensic.session_id}"
         )
         doc.add_paragraph(
-            f"Session start: {self.forensic.start_time.isoformat()}"
+            f"Session start: {self.compliance.convert_to_local(self.forensic.start_time)}"
         )
-        doc.add_paragraph('See accompanying chain_of_custody.json for detailed forensic trail.')
+        doc.add_paragraph('See accompanying chain_of_custody.json for the detailed forensic trail.')
 
         # Save document
         output_path = self.output_dir / f"forensic_report_{timestamp}.docx"
@@ -495,9 +590,11 @@ class ForensicReporter:
         # ----- Legal Compliance Header -----
         header = self.compliance.generate_report_header()
         elements.append(Paragraph("Case Information", styles['Heading1']))
+        case_numbers = header.get('case_numbers') or [header['case_number']]
+        case_number_cell = '<br/>'.join(self._esc(cn) for cn in case_numbers)
         case_info_data = [
             ['Field', 'Value'],
-            ['Case Number', header['case_number']],
+            ['Case Number(s)', Paragraph(case_number_cell, styles['Normal'])],
             ['Case Name', header['case_name']],
             ['Examiner', header['examiner_name']],
             ['Organization', header['organization']],
@@ -542,14 +639,17 @@ class ForensicReporter:
            'not configured' not in ai_analysis.get('conversation_summary', '').lower():
             elements.append(Paragraph("Findings Summary", styles['Heading1']))
             elements.append(Paragraph(
-                'This section provides AI-assisted analysis findings for rapid legal team review. '
-                'AI findings are supplementary and should be validated against the underlying evidence.',
+                'This section consolidates the analysis findings for rapid legal team review. '
+                'All flagged items — regardless of whether they were surfaced by pattern '
+                'matching, statistical analysis, or AI — were submitted to the same manual '
+                'review process; only items confirmed during manual review are reflected '
+                'in the threat counts below.',
                 styles['Normal']
             ))
             elements.append(Spacer(1, 12))
 
             # AI Executive Summary
-            elements.append(Paragraph("AI Analysis Overview", styles['Heading2']))
+            elements.append(Paragraph("Analysis Overview", styles['Heading2']))
             elements.append(Paragraph(
                 self._esc(ai_analysis.get('conversation_summary', 'Not available')), styles['Normal']
             ))
@@ -573,35 +673,6 @@ class ForensicReporter:
                             ))
                     else:
                         elements.append(Paragraph(f"&nbsp;&nbsp;{self._esc(risk)}", styles['Normal']))
-                elements.append(Spacer(1, 12))
-
-            # AI-Detected Threats with quotes and actions
-            threat_assessment = ai_analysis.get('threat_assessment', {})
-            if threat_assessment.get('found'):
-                elements.append(Paragraph("AI-Detected Threats", styles['Heading2']))
-                ai_messages = extracted_data.get('messages', [])
-                for detail in threat_assessment.get('details', []):
-                    if isinstance(detail, dict):
-                        threat_type = detail.get('type', 'Unknown')
-                        severity = str(detail.get('severity', 'unknown')).upper()
-                        quote = detail.get('quote', '')
-                        action = detail.get('recommended_action', '')
-                        match = self._match_quote_to_message(quote, ai_messages)
-                        ts_str = f" [{self._esc(str(match['timestamp']))}]" if match['timestamp'] else ''
-                        sender_str = f" &mdash; {self._esc(match['sender'])}" if match['sender'] else ''
-                        elements.append(Paragraph(
-                            f"<b>[{self._esc(severity)}]</b> {self._esc(threat_type)}{sender_str}{ts_str}", styles['Normal']
-                        ))
-                        if quote:
-                            elements.append(Paragraph(
-                                f'&nbsp;&nbsp;&nbsp;&nbsp;"{self._esc(quote)}"', styles['Normal']
-                            ))
-                        if action:
-                            elements.append(Paragraph(
-                                f"&nbsp;&nbsp;&nbsp;&nbsp;Recommended: {self._esc(action)}", styles['Normal']
-                            ))
-                    else:
-                        elements.append(Paragraph(f"&nbsp;&nbsp;{self._esc(detail)}", styles['Normal']))
                 elements.append(Spacer(1, 12))
 
             # Recommendations
@@ -697,9 +768,9 @@ class ForensicReporter:
                 elements.append(Paragraph("High Priority Threats", styles['Heading2']))
                 for threat in high_priority:
                     content = threat.get('content', '')[:200]
-                    ts = threat.get('timestamp', '')
+                    ts = self.compliance.convert_to_local(threat.get('timestamp'))
                     sender = threat.get('sender', '')
-                    ts_display = f" [{self._esc(str(ts))}]" if ts else ''
+                    ts_display = f" [{self._esc(ts)}]" if ts else ''
                     sender_display = f" &mdash; {self._esc(sender)}" if sender else ''
                     elements.append(Paragraph(
                         f"&bull; {self._esc(content)}{sender_display}{ts_display}",
@@ -800,9 +871,9 @@ class ForensicReporter:
             f"<b>Session ID:</b> {self.forensic.session_id}", styles['Normal']
         ))
         elements.append(Paragraph(
-            f"<b>Session start:</b> {self.forensic.start_time.isoformat()}", styles['Normal']
+            f"<b>Session start:</b> {self._esc(self.compliance.convert_to_local(self.forensic.start_time))}", styles['Normal']
         ))
-        elements.append(Paragraph("See accompanying chain_of_custody.json for detailed forensic trail.", styles['Normal']))
+        elements.append(Paragraph("See accompanying chain_of_custody.json for the detailed forensic trail.", styles['Normal']))
         elements.append(Spacer(1, 12))
         
         # Build PDF
@@ -884,7 +955,13 @@ class ForensicReporter:
 
         # Case header
         header = self.compliance.generate_report_header()
-        doc.add_paragraph(f"Case Number: {header['case_number']}")
+        case_numbers = header.get('case_numbers') or [header['case_number']]
+        if len(case_numbers) > 1:
+            doc.add_paragraph('Case Numbers:')
+            for cn in case_numbers:
+                doc.add_paragraph(f'  • {cn}')
+        else:
+            doc.add_paragraph(f"Case Number: {case_numbers[0]}")
         doc.add_paragraph(f"Case Name: {header['case_name']}")
         doc.add_paragraph(f"Generated: {header['date_of_examination']}")
         if header['examiner_name'] != 'Not specified':
@@ -919,9 +996,17 @@ class ForensicReporter:
                 ),
                 'word': (
                     'Word Report',
-                    'Comprehensive narrative report with case information, methodology, '
-                    'legal compliance statements, findings summary, threat analysis, '
+                    'Comprehensive narrative report with case information, '
+                    'findings summary, threat analysis, sentiment analysis, '
                     'and chain of custody reference. Suitable for court filing.'
+                ),
+                'methodology': (
+                    'Methodology Statement',
+                    'Standalone document explaining, in plain language, '
+                    'every step of the analysis pipeline and how each '
+                    'FRE / Daubert standard was satisfied. Read this '
+                    'first if anyone questions the methodology; it is '
+                    'written for judges and attorneys, not technicians.'
                 ),
                 'pdf': (
                     'PDF Report',
@@ -1189,7 +1274,11 @@ class ForensicReporter:
                 api_key=self.config.ai_api_key,
                 base_url="https://api.anthropic.com",
             )
-            model = self.config.ai_summary_model or self.config.ai_model or 'claude-sonnet-4-20250514'
+            model = (
+                self.config.ai_summary_model
+                or self.config.ai_batch_model
+                or 'claude-sonnet-4-20250514'
+            )
             response = client.messages.create(
                 model=model,
                 system=[{
@@ -1260,8 +1349,9 @@ class ForensicReporter:
 
         summary = (
             f"This forensic analysis examined {total_messages} digital communications "
-            f"extracted from multiple sources. Pattern-based automated analysis identified "
-            f"{threats} messages containing potentially threatening or concerning content. "
+            f"extracted from multiple sources. Automated screening flagged "
+            f"{threats} messages containing potentially threatening or concerning content "
+            f"for manual review. "
         )
 
         if reviewed > 0:
@@ -1272,13 +1362,13 @@ class ForensicReporter:
 
         if ai_summary and 'not available' not in ai_summary.lower() and 'not configured' not in ai_summary.lower():
             summary += (
-                f"\n\nAI-assisted analysis (Claude Opus) identified {risk_count} distinct risk "
-                f"indicators. "
+                f"\n\nAdditional automated screening identified {risk_count} distinct risk "
+                f"indicators warranting attention. "
             )
             if ai_threats_found:
                 summary += (
-                    f"Threats were detected with an overall severity assessment of "
-                    f"{ai_threat_severity}. "
+                    f"Overall assessed severity: {ai_threat_severity}. "
+                    f"All such items were submitted to the same manual review process. "
                 )
             summary += f"\n\n{ai_summary}"
 

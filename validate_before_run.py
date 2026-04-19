@@ -32,6 +32,7 @@ from src.third_party_registry import ThirdPartyRegistry
 def main():
     parser = argparse.ArgumentParser(description="Validate forensic analyzer before expensive AI run")
     parser.add_argument("--estimate", action="store_true", help="Just show extraction stats + cost estimate")
+    parser.add_argument("--no-ai", action="store_true", help="Skip the live AI sample test (still shows cost estimate)")
     parser.add_argument("--ai-sample", type=int, default=5, help="Number of messages to send to AI (default: 5)")
     args = parser.parse_args()
 
@@ -252,8 +253,74 @@ def main():
         print(f"  Estimated output tokens: ~{est_output:,}  (${output_cost:.2f})")
         print(f"  Estimated batch cost: ~${est_batch_cost:.2f}")
         print(f"  Estimated sync summary: ~${est_sync_cost:.4f} (executive summary)")
-        print(f"  Estimated total cost: ~${est_total:.2f}")
+        print(f"  Estimated total cost (current selection): ~${est_total:.2f}")
         print()
+
+        # ---- Model comparison table --------------------------------
+        # Show what changing the configured batch/summary models would do
+        # to total cost so the user does not have to re-run the validator
+        # to compare options.
+        try:
+            from src.utils.pricing import _load_pricing  # type: ignore
+            all_models = _load_pricing()
+        except Exception as _exc:
+            all_models = {}
+
+        def _matches_id(api_id: str, display_name: str) -> bool:
+            """Loose match between an API model id and a pricing display name."""
+            api = api_id.lower()
+            disp = display_name.lower()
+            if 'opus' in api and 'opus' in disp:
+                pass
+            elif 'sonnet' in api and 'sonnet' in disp:
+                pass
+            elif 'haiku' in api and 'haiku' in disp:
+                pass
+            else:
+                return False
+            import re as _re
+            v_api = _re.search(r'(\d+)[-.](\d+)', api)
+            v_disp = _re.search(r'(\d+)\.(\d+)', disp)
+            if v_api and v_disp:
+                return v_api.group(1) == v_disp.group(1) and v_api.group(2) == v_disp.group(2)
+            return False
+
+        if all_models:
+            print("  --- Model comparison (swap-in totals for this dataset) ---")
+            print(f"  Configured: batch={ai.batch_model}  summary={ai.summary_model}")
+            print()
+            print(f"  {'Model':<28} {'Batch role $':>14} {'Summary role $':>16} {'Combined $':>13}")
+            print(f"  {'-'*28} {'-'*14} {'-'*16} {'-'*13}")
+
+            ordered_names = sorted(all_models.keys())
+            for name in ordered_names:
+                rates = all_models[name]
+                # Batch role cost: same token volume as our selection above,
+                # but priced at this model's batch rate.
+                b_in = rates.get('batch_input', rates.get('input', 0) * 0.5)
+                b_out = rates.get('batch_output', rates.get('output', 0) * 0.5)
+                b_cw = rates.get('cache_write_5m', rates.get('input', 0) * 1.25)
+                b_cr = rates.get('cache_read', rates.get('input', 0) * 0.1)
+                cw_cost = (system_prompt_tokens / 1_000_000) * b_cw
+                cr_cost = (system_prompt_tokens * max(0, num_batches - 1) / 1_000_000) * b_cr
+                msg_cost = (message_tokens / 1_000_000) * b_in
+                out_cost = (est_output / 1_000_000) * b_out
+                batch_role_cost = cw_cost + cr_cost + msg_cost + out_cost
+
+                # Summary role cost: ~500 in / 800 out at this model's standard rate.
+                s_in = rates.get('input', 0)
+                s_out = rates.get('output', 0)
+                summary_role_cost = (500 / 1_000_000) * s_in + (800 / 1_000_000) * s_out
+
+                # Combined assumes this model used for BOTH roles
+                combined = batch_role_cost + summary_role_cost
+
+                # Mark current selections
+                marker_b = ' *' if _matches_id(ai.batch_model, name) else '  '
+                marker_s = ' *' if _matches_id(ai.summary_model, name) else '  '
+                print(f"  {name:<28} {batch_role_cost:>13.2f}{marker_b} {summary_role_cost:>14.4f}{marker_s} {combined:>13.2f}")
+            print(f"  (* = your current selection for that role)")
+            print()
 
         if est_total > 50:
             print(f"  WARNING: Estimated cost > $50! Consider reducing batch size or message count.")
@@ -324,8 +391,9 @@ def main():
           f"{sum(1 for m in sample if m.get('is_tapback'))} tapbacks, "
           f"{sum(1 for m in sample if m in msgs_with_threats)} threats)")
 
-    if args.estimate:
-        print(f"\n[7/8] AI test: SKIPPED (--estimate flag)")
+    if args.estimate or args.no_ai:
+        skip_reason = '--estimate flag' if args.estimate else '--no-ai flag'
+        print(f"\n[7/8] AI test: SKIPPED ({skip_reason})")
     else:
         print(f"\n[7/8] AI test ({sample_size} messages — ~$0.29)...")
         try:
@@ -414,7 +482,6 @@ def main():
                 ai_analysis = {
                     'generated_at': datetime.now().isoformat(),
                     'total_messages': 0,
-                    'ai_model': 'Not configured',
                     'sentiment_analysis': {'scores': [], 'overall': 'neutral', 'shifts': []},
                     'threat_assessment': {'found': False, 'details': []},
                     'behavioral_patterns': {},

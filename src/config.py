@@ -51,9 +51,13 @@ class Config:
     def _load_config(self):
         """Load configuration from environment variables."""
         # AI / Anthropic Claude settings
+        # Two-model setup:
+        #   AI_BATCH_MODEL   - cheaper model for per-message batch classification
+        #   AI_SUMMARY_MODEL - higher-quality model for the executive narrative summary
+        # The legacy single AI_MODEL setting has been removed; both models above are
+        # configured independently. If only one is set, it is used for both roles.
         self.ai_endpoint = os.getenv('AI_ENDPOINT')
         self.ai_api_key = os.getenv('AI_API_KEY')
-        self.ai_model = os.getenv('AI_MODEL')
         self.ai_batch_model = os.getenv('AI_BATCH_MODEL')      # cheaper model for batch extraction
         self.ai_summary_model = os.getenv('AI_SUMMARY_MODEL')  # model for executive summary
         
@@ -144,8 +148,15 @@ class Config:
         )
         
         # Legal compliance / case identification
+        # CASE_NUMBER may be a single value (e.g. "2024-FL-12345") OR a JSON
+        # array of strings (e.g. '["2024-FL-12345","2024-FL-67890"]') for
+        # consolidated runs that span multiple matters.
+        # CASE_NUMBERS (plural) is also accepted as a JSON array.
+        # case_number      - single string (joined with newlines for display)
+        # case_numbers     - list of strings, in input order, for per-line rendering
+        self.case_numbers = self._parse_case_numbers()
+        self.case_number = "\n".join(self.case_numbers) if self.case_numbers else ''
         self.examiner_name = os.getenv('EXAMINER_NAME', '')
-        self.case_number = os.getenv('CASE_NUMBER', '')
         self.case_name = os.getenv('CASE_NAME', '')
         self.timezone = os.getenv('ANALYSIS_TIMEZONE', 'America/Los_Angeles')
         self.organization = os.getenv('ORGANIZATION', '')
@@ -172,6 +183,45 @@ class Config:
         except json.JSONDecodeError:
             logger.warning(f"Could not parse {env_var} as JSON: {value}")
         return []
+
+    def _parse_case_numbers(self) -> List[str]:
+        """Parse case numbers from CASE_NUMBER (string or JSON array) or CASE_NUMBERS.
+
+        Accepts any of:
+          CASE_NUMBER=2024-FL-12345                    -> ["2024-FL-12345"]
+          CASE_NUMBER='["2024-FL-12345","2024-FL-67"]' -> ["2024-FL-12345","2024-FL-67"]
+          CASE_NUMBERS='["2024-FL-12345","2024-FL-67"]' -> ["2024-FL-12345","2024-FL-67"]
+
+        Returns ordered, de-duplicated list of non-empty strings.
+        """
+        raw_single = os.getenv('CASE_NUMBER', '').strip()
+        raw_plural = os.getenv('CASE_NUMBERS', '').strip()
+
+        candidates: List[str] = []
+
+        for raw in (raw_single, raw_plural):
+            if not raw:
+                continue
+            # JSON array form
+            if raw.startswith('['):
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        candidates.extend(str(x).strip() for x in parsed if str(x).strip())
+                        continue
+                except json.JSONDecodeError:
+                    logger.warning(f"Could not parse case numbers as JSON: {raw}")
+            # Single string form
+            candidates.append(raw)
+
+        # De-duplicate while preserving order
+        seen = set()
+        ordered: List[str] = []
+        for c in candidates:
+            if c and c not in seen:
+                seen.add(c)
+                ordered.append(c)
+        return ordered
     
     def _normalize_phone_number(self, phone: str) -> List[str]:
         """
