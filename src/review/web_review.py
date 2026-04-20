@@ -1429,9 +1429,14 @@ let totalItems = {total_items};
 let selectedDecision = null;
 
 function loadItem(idx) {{
+  console.log('[loadItem] fetching /api/item/' + idx);
   fetch('/api/item/' + idx)
-    .then(r => r.json())
+    .then(r => {{
+      console.log('[loadItem] response status:', r.status);
+      return r.json();
+    }})
     .then(data => {{
+      console.log('[loadItem] data received:', data ? 'ok' : 'empty', data?.error || '');
       if (data.error) {{
         document.getElementById('contextPanel').innerHTML =
           '<p style="color:#c62828; padding:40px; text-align:center;">' + data.error + '</p>';
@@ -1449,9 +1454,9 @@ function loadItem(idx) {{
       document.getElementById('notesField').value = '';
     }})
     .catch(err => {{
+      console.error('[loadItem] fetch error:', err);
       document.getElementById('contextPanel').innerHTML =
         '<p style="color:#c62828; padding:40px; text-align:center;">Failed to load item: ' + err.message + '</p>';
-      console.error('loadItem error:', err);
     }});
 }}
 
@@ -1826,12 +1831,27 @@ function jumpToItem(idx) {{
 }}
 
 // Initial load — start on the first unreviewed item so resumed sessions don't dump the reviewer back at item 0.
-fetch('/api/progress').then(r => r.json()).then(updateProgress);
+console.log('[INIT] Starting initial load...');
+fetch('/api/progress').then(r => r.json()).then(data => {{
+  console.log('[INIT] progress:', data);
+  updateProgress(data);
+}}).catch(e => console.error('[INIT] progress error:', e));
 loadNotePhrases();
 fetch('/api/start_index')
-  .then(r => r.json())
-  .then(data => loadItem((data && typeof data.index === 'number') ? data.index : 0))
-  .catch(() => loadItem(0));
+  .then(r => {{
+    console.log('[INIT] start_index response status:', r.status);
+    return r.json();
+  }})
+  .then(data => {{
+    console.log('[INIT] start_index data:', data);
+    const idx = (data && typeof data.index === 'number') ? data.index : 0;
+    console.log('[INIT] calling loadItem(' + idx + ')');
+    loadItem(idx);
+  }})
+  .catch(e => {{
+    console.error('[INIT] start_index error:', e);
+    loadItem(0);
+  }});
 document.getElementById('noteAddInput').addEventListener('keydown', function(e) {{
   if (e.key === 'Enter') {{ e.preventDefault(); addNotePhrase(); }}
 }});
