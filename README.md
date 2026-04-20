@@ -53,7 +53,11 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
   - Filters out system messages (ThreadActivity, Event/Call)
   - Infers senders in 1:1 conversations where identity is not explicit
 - **Screenshots**: Catalog and OCR processing with contact extraction
-- **Attachments**: Full metadata preservation
+- **Attachments**: Full metadata preservation plus EXIF / GPS / tamper-indicator scanning (flags `geolocation_present`, `edited_by:<tool>`, `datetime_mismatch`, `exif_stripped`)
+- **SMS backup (Android)**: Parses the "SMS Backup & Restore" XML format (SMS + MMS); MMS attachments base64-decoded for hashing and EXIF scanning
+- **Call logs**: iOS `CallHistory.storedata` (SQLite), Android call XML, and generic CSV with direction and contact auto-resolution
+- **Voicemail**: iOS `voicemail.db` plus sibling audio files and on-device transcriptions
+- **Location data**: Google Takeout Records.json + Semantic Location History, Apple plist, and GPX 1.1 (unified point-record shape for cross-referencing against message timestamps)
 
 ### Analysis Capabilities
 - **Threat Detection**: Pattern- and keyword-based threat identification with configurable thresholds
@@ -73,11 +77,16 @@ The analyzer can optionally use Anthropic Claude (configurable via `.env`) to:
 AI is one tool in the workflow; nothing reaches a final report without human confirmation. The methodology document distributed with each run describes exactly how AI was used (model, phase, inputs, reviewer override). To run the pipeline without AI, leave `AI_API_KEY` unset — the local analyzers, manual review, and reporting all run without it.
 
 ### Legal Compliance
-- **Chain of Custody**: Complete audit trail with SHA-256 hashing
-- **Evidence Integrity**: Read-only processing, no source modification
-- **FRE Compliance**: Meets Federal Rules of Evidence requirements (FRE 901, 803)
-- **Daubert Standards**: Testable, reproducible, documented methodology
-- **Conversation Filtering**: Reports show only legally relevant parties (configured in .env)
+- **Chain of Custody**: Complete audit trail with SHA-256 hashing; forensic JSONL log is HMAC-chained (`seq` + `prev_hmac` + `hmac` on every record) so edits, deletions, or reorders break the chain. Per-session HMAC key written to a `0600` sidecar file for independent verification.
+- **Evidence Integrity**: Every source is copied to `run_dir/working_copies/` with hash verification before extraction reads it. Originals are never opened during analysis.
+- **Signed outputs**: Manifest, chain of custody, and every final report get detached Ed25519 signatures (`<file>.sig` + `<file>.sig.pub`). Set `EXAMINER_SIGNING_KEY` for a long-lived examiner key, or let the analyzer generate a per-run ephemeral key.
+- **Reviewer accountability**: Manual review requires a named reviewer (configurable via `EXAMINER_NAME`); rejections and uncertainty decisions require explanatory notes; prior decisions are append-only (amendments preserve the original record).
+- **Source provenance on every finding**: Reports stamp each item with `source` in {`pattern_matched`, `ai_screened`, `extracted`, `derived`} and a `method` label so readers can distinguish deterministic findings from AI-screened ones.
+- **Manifest reproducibility**: Full config snapshot (API keys redacted) and SHA-256 hash of every pattern YAML are embedded in the run manifest.
+- **Redaction workflow**: Court-ready exhibits can carry span- or regex-based redactions with required `reason`, `authority`, and `examiner` fields; raw extracted JSON preserves the unredacted content for discovery.
+- **FRE Compliance**: Meets Federal Rules of Evidence requirements (FRE 901, 803, 1001-1008, 106).
+- **Daubert Standards**: Testable, reproducible, documented methodology with component-level error-rate disclosures.
+- **Conversation Filtering**: Reports show only legally relevant parties (configured in .env).
 
 ### Reporting
 - **Excel Reports**: Organized by person with integrated threat/sentiment data
@@ -95,9 +104,10 @@ AI is one tool in the workflow; nothing reaches a final report without human con
 - **Forensic Export**: Unedited, unfiltered CSV and Excel export of all messages for court admissibility
 - **HTML/PDF Reports**: Inline base64 images, per-person message tables, conversation threads, risk indicators, legal compliance footer, legal appendices (Methodology, Completeness Validation, Limitations), edit history display for edited messages, URL preview and shared location rendering, deleted message flags (PDF via WeasyPrint)
 - **Chat-Bubble Reports**: iMessage-style chat-bubble HTML report with left/right aligned message bubbles, per-person sections, inline attachments, threat/sentiment indicators, edit history display, URL preview and shared location blocks, deleted message badges
-- **Timeline Visualization**: Interactive HTML timelines with case chronology — combines flagged events (threats, patterns, SOS) with all email communications including third-party corroboration (counselors, attorneys, family)
-- **Manual Review**: Structured decision tracking
-- **Run Manifest**: Complete documentation of analysis process
+- **Timelines**: Two formats. A sparse "events timeline" for court readers — shows only reviewer-confirmed moments the case turns on (confirmed threats, coercive-control clusters, sentiment shifts, pattern clusters) with category badges and chronological order. A minute-level detailed timeline for analyst drill-down — every flagged event plus all email correspondence including third-party corroboration (counselors, attorneys, family).
+- **Methodology PDF + DOCX**: Standalone Methodology Statement in both formats with structured standards-compliance rendering (headings, bulleted list of standards, term/definition pairs for how each is satisfied) — not a flat text block.
+- **Manual Review**: Structured decision tracking with required reviewer identity, mandatory notes on rejections, and append-only amendments.
+- **Run Manifest**: Complete documentation of analysis process, embedded config snapshot, pattern-file hashes, signed with detached Ed25519.
 
 ## Installation
 
@@ -406,57 +416,82 @@ writing custom extractors / reporters; end-users do not need it.
 ```
 forensic-message-analyzer/
 ├── src/
-│   ├── extractors/              # Data extraction modules
-│   │   ├── data_extractor.py    # Unified extraction orchestrator
-│   │   ├── imessage_extractor.py # iMessage database extraction
-│   │   ├── whatsapp_extractor.py # WhatsApp export parsing
-│   │   ├── email_extractor.py   # Email .eml/.mbox extraction
-│   │   ├── teams_extractor.py   # Microsoft Teams export extraction
-│   │   └── screenshot_extractor.py # Screenshot cataloging
-│   ├── analyzers/               # Analysis engines
-│   │   ├── ai_analyzer.py      # Anthropic Claude AI analysis (batch + sync)
-│   │   ├── threat_analyzer.py   # Threat detection
-│   │   ├── sentiment_analyzer.py # Sentiment analysis
-│   │   ├── behavioral_analyzer.py # Behavioral patterns
-│   │   ├── yaml_pattern_analyzer.py # YAML-defined patterns
+│   ├── extractors/                 # Data extraction modules
+│   │   ├── base.py                 # MessageExtractor base class (shared init + _record helper)
+│   │   ├── data_extractor.py       # Unified extraction orchestrator
+│   │   ├── imessage_extractor.py   # iMessage database extraction
+│   │   ├── whatsapp_extractor.py   # WhatsApp export parsing (zip-bomb + zip-slip guards)
+│   │   ├── email_extractor.py      # Email .eml/.mbox extraction
+│   │   ├── teams_extractor.py      # Microsoft Teams export extraction
+│   │   ├── screenshot_extractor.py # Screenshot cataloging
+│   │   ├── sms_backup_extractor.py # Android SMS Backup & Restore XML
+│   │   ├── call_logs_extractor.py  # iOS CallHistory + Android call XML + CSV
+│   │   ├── voicemail_extractor.py  # iOS voicemail.db + audio + transcripts
+│   │   └── location_extractor.py   # Google Takeout + Apple plist + GPX
+│   ├── analyzers/                  # Analysis engines
+│   │   ├── ai_analyzer.py          # Anthropic Claude AI analysis (batch + sync)
+│   │   ├── threat_analyzer.py      # Threat detection
+│   │   ├── sentiment_analyzer.py   # Sentiment analysis
+│   │   ├── behavioral_analyzer.py  # Behavioral patterns
+│   │   ├── yaml_pattern_analyzer.py # YAML-defined patterns (DARVO, gaslighting, coercive control)
 │   │   ├── communication_metrics.py # Statistical metrics
-│   │   ├── screenshot_analyzer.py # OCR processing
-│   │   └── attachment_processor.py # Attachment cataloging
-│   ├── review/                  # Manual review management
-│   │   ├── manual_review_manager.py # Review decision tracking
-│   │   ├── interactive_review.py # CLI-based message review
-│   │   └── web_review.py       # Flask-based web review UI
-│   ├── reporters/               # Report generation
-│   │   ├── forensic_reporter.py # Main reporter (Excel, Word, PDF)
-│   │   ├── excel_reporter.py    # Standalone Excel report with multiple sheets
-│   │   ├── html_reporter.py    # HTML/PDF report with inline images and legal appendices
-│   │   ├── chat_reporter.py    # iMessage-style chat-bubble HTML report
-│   │   └── json_reporter.py    # JSON output
-│   ├── utils/                   # Utilities and helpers
+│   │   ├── screenshot_analyzer.py  # OCR processing
+│   │   └── attachment_processor.py # Attachment cataloging + EXIF / GPS / tamper scanning
+│   ├── pipeline/                   # Per-phase runners (delegated from ForensicAnalyzer)
+│   │   ├── extraction.py           # Phase 1
+│   │   ├── analysis.py             # Phase 2
+│   │   ├── ai_batch.py             # Phase 3
+│   │   ├── review.py               # Phase 4
+│   │   ├── behavioral.py           # Phase 5
+│   │   ├── reporting.py            # Phase 7
+│   │   └── documentation.py        # Phase 8 (includes events_timeline)
+│   ├── review/                     # Manual review management
+│   │   ├── manual_review_manager.py # Review decision tracking (required reviewer, append-only amendments)
+│   │   ├── redaction_manager.py    # Append-only span / regex redaction workflow
+│   │   ├── interactive_review.py   # CLI-based message review
+│   │   └── web_review.py           # Flask-based web review UI (hardened cookies, scoped attachments)
+│   ├── reporters/                  # Report generation
+│   │   ├── forensic_reporter.py    # Main reporter (Word + PDF + methodology DOCX + methodology PDF + JSON)
+│   │   ├── excel_reporter.py       # Standalone Excel report with multiple sheets
+│   │   ├── html_reporter.py        # HTML/PDF report with inline images, source badges, legal appendices
+│   │   ├── chat_reporter.py        # iMessage-style chat-bubble HTML report
+│   │   └── json_reporter.py        # JSON output
+│   ├── utils/                      # Utilities and helpers
 │   │   ├── conversation_threading.py # Thread detection and grouping
-│   │   ├── legal_compliance.py  # Legal standards documentation
-│   │   ├── timeline_generator.py # HTML timeline creation
-│   │   └── run_manifest.py      # Run documentation
-│   ├── forensic_utils.py        # Chain of custody and integrity
-│   ├── third_party_registry.py  # Unmapped contact tracking
-│   ├── config.py                # Configuration management
-│   └── main.py                  # Main orchestration
-├── tests/                       # Unit and integration tests
-│   ├── test_imports.py          # Dependency verification
-│   ├── test_core_functionality.py # Core component tests
-│   ├── test_integration.py      # End-to-end tests
-│   ├── test_forensic_utils.py   # Forensic utilities tests
-│   ├── test_teams_extractor.py  # Microsoft Teams extractor tests
+│   │   ├── legal_compliance.py     # Legal standards + structured methodology/compliance rendering
+│   │   ├── timeline_generator.py   # Detailed minute-level HTML timeline
+│   │   ├── events_timeline.py      # Sparse executive-view timeline
+│   │   ├── run_manifest.py         # Run documentation (config snapshot, pattern hashes, signed)
+│   │   ├── evidence_preserver.py   # Hashing, archiving, working-copy routing, contact auto-map
+│   │   ├── signing.py              # Ed25519 detached signatures
+│   │   ├── contact_automapper.py   # vCard → contact_mappings merger
+│   │   └── pricing.py              # AI model pricing lookup
+│   ├── forensic_utils.py           # Chain of custody and integrity (HMAC-chained log)
+│   ├── third_party_registry.py     # Unmapped contact tracking
+│   ├── config.py                   # Configuration + snapshot() for manifest
+│   ├── schema.py                   # TypedDicts for Message / Finding / ReviewRecord
+│   └── main.py                     # Thin orchestrator; phase logic lives in src/pipeline/
+├── tests/                          # Unit and integration tests
+│   ├── test_imports.py             # Dependency verification
+│   ├── test_core_functionality.py  # Core component tests
+│   ├── test_integration.py         # End-to-end tests
+│   ├── test_forensic_utils.py      # Forensic utilities tests
+│   ├── test_teams_extractor.py     # Microsoft Teams extractor tests
 │   ├── test_third_party_registry.py # Third-party contact registry tests
-│   └── run_all_tests.sh         # Test runner script
-├── patterns/                    # YAML pattern definitions
+│   ├── test_timezone_dst.py        # DST + Apple-epoch round-trip coverage
+│   └── run_all_tests.sh            # Test runner script
+├── patterns/                       # YAML pattern definitions (with empirical citations)
 │   └── analysis_patterns.yaml
 ├── .github/
-│   └── copilot-instructions.md  # Development guidelines
-├── validate_before_run.py       # Pre-run validation and cost estimation
-├── check_readiness.py           # System readiness checker
-├── run.py                       # Main entry point
-└── .env.example                 # Configuration template
+│   └── copilot-instructions.md     # Development guidelines
+├── validate_before_run.py          # Pre-run validation and cost estimation
+├── check_readiness.py              # System readiness checker
+├── generate_sample_output.py       # Regenerates sample_output/ from anonymized fixtures
+├── run.py                          # Main entry point
+├── ROADMAP.md                      # Deferred work (redaction UI, Signal/Telegram)
+├── requirements.txt                # Supported minimum versions
+├── requirements-lock.txt           # Pinned versions for reproducible installs
+└── .env.example                    # Configuration template
 ```
 
 ### Data Flow
@@ -542,13 +577,13 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
   - Contains same content as Word document
   - Formatted for legal distribution and printing
 
-- `methodology_YYYYMMDD_HHMMSS.docx` - **Standalone Methodology Statement**
+- `methodology_YYYYMMDD_HHMMSS.docx` / `methodology_YYYYMMDD_HHMMSS.pdf` - **Standalone Methodology Statement** (both formats)
   - Plain-language, judge-readable walkthrough of every analysis phase
   - Explicitly maps each FRE / Daubert factor to how it was satisfied
-  - Empirical citations for every threat / behavioural pattern matched
-  - Included as a separate document so the legal team can review the
-    methodology without wading through case-specific findings; this is
-    the document to read first if the methodology is ever challenged
+  - Component-level error-rate and known-failure-mode disclosures (pattern matching, sentiment, attributedBody decoding, OCR, EXIF, AI screening)
+  - Empirical citations for every threat / behavioural pattern matched (Stark 2007, Sweet 2019, Campbell 2003, Freyd 1997 / Harsey & Freyd 2020 for DARVO, etc.)
+  - Structured Standards Compliance section with real headings, bulleted list of standards, and term/definition pairs
+  - Included as separate documents so the legal team can review the methodology without wading through case-specific findings; PDF form exists for court exhibits and readers without Office
 
 - `forensic_analysis_YYYYMMDD_HHMMSS.html` - HTML report with inline images
   - Overview cards, per-person message tables, conversation threads
@@ -558,7 +593,13 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
 
 - `forensic_analysis_YYYYMMDD_HHMMSS.pdf` - PDF conversion of HTML report (via WeasyPrint)
 
-- `timeline_YYYYMMDD_HHMMSS.html` - Interactive timeline visualization (case chronology)
+- `events_timeline_YYYYMMDD_HHMMSS.html` - **Big-picture events timeline** (court-facing)
+  - Sparse, executive-view chronology of the moments the case turns on
+  - Shows only reviewer-confirmed events: pattern-matched threats, AI-screened threats, coercive-control pattern clusters, sentiment shifts
+  - Category badges (THREAT / PATTERN / ESCALATION / DE-ESCALATION / MILESTONE) with per-event provenance reference
+  - Dates resolve against the message corpus even when the AI summary omits them
+
+- `timeline_YYYYMMDD_HHMMSS.html` - Detailed minute-level timeline (analyst drill-down)
   - Chronological message view with filtering
   - Threat highlighting and sentiment indicators
   - Email communications with subject lines (purple border for mapped persons, pink for third-party)
@@ -587,32 +628,55 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
 ### Documentation
 - `chain_of_custody_YYYYMMDD_HHMMSS.json` - Complete audit trail with:
   - Session metadata (start time, duration, session ID)
-  - All operations performed (with timestamps and details)
+  - All operations performed (with timestamps, details, and per-record HMAC chain)
   - System information (platform, Python version, analyzer version)
   - Legal notice for FRE 901 compliance
-  
+  - Sibling `<file>.sig` + `<file>.sig.pub` detached Ed25519 signature
+
+- `forensic_log_YYYYMMDD_HHMMSS.jsonl` - Tamper-evident append-only JSONL log
+  - Every action carries `seq`, `prev_hmac`, `hmac`; `ForensicRecorder.verify_log_chain()` reports any break
+  - Sibling `forensic_hmac_key_YYYYMMDD_HHMMSS.bin` (mode 0600) — archive with the log for independent verification
+
 - `run_manifest_YYYYMMDD_HHMMSS.json` - Analysis process documentation with:
   - Input files processed (with paths and hashes)
   - Output files generated (with paths and hashes)
-  - Processing steps and configuration used
-  
+  - `config_snapshot` — every setting used (API keys redacted)
+  - `pattern_files` — SHA-256 of each YAML under `patterns/`
+  - Sibling `<file>.sig` + `<file>.sig.pub` detached Ed25519 signature
+
+- `preserved_sources.zip` - Hash-verified archive of every source file as extracted
+- `working_copies/` - The copies the extractors actually read (originals never opened)
+- `keys/examiner_ed25519.pem` - Per-run ephemeral signing key (unless `EXAMINER_SIGNING_KEY` points to a long-lived one)
+
 ### Example Output Structure
 ```
-~/workspace/output/forensic-message-analyzer/
-├── extracted_data_20251006_011535.json
-├── analysis_results_20251006_011542.json
-├── report_20251006_011549.xlsx
-├── forensic_report_20251006_011543.docx
-├── forensic_report_20251006_011543.pdf
-├── forensic_analysis_20251006_011543.html
-├── forensic_analysis_20251006_011543.pdf
-├── chat_report_20251006_011543.html
-├── timeline_20251006_011545.html
-├── legal_team_summary_20251006_011545.docx
-├── all_messages_20251006_011545.csv
-├── all_messages_20251006_011545.xlsx
-├── chain_of_custody_20251006_011530.json
-└── run_manifest_20251006_011545.json
+~/workspace/output/forensic-message-analyzer/run_YYYYMMDD_HHMMSS/
+├── extracted_data_YYYYMMDD_HHMMSS.json
+├── analysis_results_YYYYMMDD_HHMMSS.json
+├── ai_batch_results_YYYYMMDD_HHMMSS.json
+├── review_results_YYYYMMDD_HHMMSS.json
+├── pipeline_state.json
+├── report_YYYYMMDD_HHMMSS.xlsx
+├── forensic_report_YYYYMMDD_HHMMSS.docx
+├── forensic_report_YYYYMMDD_HHMMSS.pdf
+├── methodology_YYYYMMDD_HHMMSS.docx
+├── methodology_YYYYMMDD_HHMMSS.pdf
+├── report_YYYYMMDD_HHMMSS.html
+├── report_YYYYMMDD_HHMMSS_chat.html
+├── events_timeline_YYYYMMDD_HHMMSS.html
+├── timeline_YYYYMMDD_HHMMSS.html
+├── legal_team_summary_YYYYMMDD_HHMMSS.docx
+├── all_messages_YYYYMMDD_HHMMSS.csv
+├── all_messages_YYYYMMDD_HHMMSS.xlsx
+├── chain_of_custody_YYYYMMDD_HHMMSS.json (+ .sig + .sig.pub)
+├── run_manifest_YYYYMMDD_HHMMSS.json (+ .sig + .sig.pub)
+├── forensic_log_YYYYMMDD_HHMMSS.jsonl
+├── forensic_hmac_key_YYYYMMDD_HHMMSS.bin
+├── preserved_sources.zip
+├── working_copies/
+│   └── {imessage,email,teams,whatsapp,screenshots}/...
+└── keys/
+    └── examiner_ed25519.pem
 ```
 
 ## Contributing

@@ -5,6 +5,55 @@ All notable changes to the Forensic Message Analyzer will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.5.0] - 2026-04-19
+
+Security, legal-defensibility, and feature-breadth push.
+
+### Added
+- **Detached Ed25519 signing** (`src/utils/signing.py`): every manifest, chain of custody, and final report gets sibling `<file>.sig` + `<file>.sig.pub`. Tampering breaks the signature even if the hash is recomputed. Set `EXAMINER_SIGNING_KEY=path/to/key.pem` for a long-lived examiner key; otherwise a per-run ephemeral key is generated under `run_dir/keys/` (mode 0600).
+- **HMAC-chained forensic log**: every `record_action` entry now carries `seq`, `prev_hmac`, and `hmac` (SHA-256 HMAC over the canonical JSON of the record). Any edit, deletion, or reorder breaks the chain at the first affected line. `ForensicRecorder.verify_log_chain(log_path, key)` walks a persisted JSONL and reports the first break. Per-session key lives beside the log as `forensic_hmac_key_{session}.bin` (mode 0600).
+- **Events timeline** (`src/utils/events_timeline.py`): sparse executive-view chronology for court readers, showing only reviewer-confirmed moments the case turns on. Replaces the minute-level drill-down as the default legal-team timeline (the detailed `TimelineGenerator` remains for analysts). Event dates resolve via ISO parse → natural-language parse → quote-match against the message corpus.
+- **Redaction workflow** (`src/review/redaction_manager.py`): append-only span + regex redactions with required `reason`, `authority`, and `examiner` fields. Prior redactions never mutate; `revoke()` records a new entry with `revoked_at` + `revoked_by`. Applied in `run_reporting_phase` before reporters render; raw `extracted_data` JSON preserves the unredacted content for discovery challenges.
+- **`source` + `method` stamping on every finding**: `items_for_review` entries now carry `source` in {pattern_matched, ai_screened, extracted, derived} and a `method` label (`yaml_patterns`, `claude-haiku-4-5`, `email_import`, etc.). Excel Manual Review sheet, HTML report, and web review UI all render a badge/column so readers can weight deterministic vs AI-screened findings.
+- **DARVO + extended gaslighting patterns** in `patterns/analysis_patterns.yaml`: `darvo_deny`, `darvo_attack`, `darvo_reverse`, `gaslighting_extended`, `minimization`, each with empirical citations (Freyd 1997; Harsey & Freyd 2020; Abramson 2014; Sweet 2019).
+- **EXIF / GPS / tamper-indicator scanner** in `AttachmentProcessor.extract_image_metadata`: decodes GPSInfo IFD to decimal lat/lon/alt; returns an `anomalies` list (`geolocation_present`, `edited_by:<tool>`, `datetime_mismatch`, `exif_stripped`).
+- **Contact auto-mapping** (`src/utils/contact_automapper.py`): parses `.vcf` exports, merges identifiers into `config.contact_mappings` before extraction. Opt in via `CONTACTS_VCARD_DIR`.
+- **Methodology PDF**: `_generate_methodology_pdf` emits `methodology_<timestamp>.pdf` alongside the `.docx`, using the same structured section source.
+- **Structured Standards Compliance rendering**: `LegalComplianceManager.generate_standards_compliance_sections()` returns heading/bullet/definition blocks (previously a flat text block); reporters use the same `_render_methodology_to_*` helpers, producing real headings and structured lists in DOCX and PDF.
+- **New extractors, all subclassing `MessageExtractor` (`src/extractors/base.py`)**:
+  - `SMSBackupExtractor` — Android "SMS Backup & Restore" XML (sms + mms with base64-decoded attachments).
+  - `CallLogsExtractor` — iOS `CallHistory.storedata`, Android call XML, generic CSV.
+  - `VoicemailExtractor` — iOS `voicemail.db` + sibling `rowid.{amr,wav,m4a}` audio; surfaces on-device transcriptions.
+  - `LocationExtractor` — Google Takeout Records.json, Semantic Location History, Apple plist, GPX 1.1.
+- **Per-phase runner split**: `src/pipeline/{extraction,analysis,ai_batch,review,behavioral,reporting,documentation}.py`. `ForensicAnalyzer` becomes a thin delegate; `src/main.py` drops from 1435 to ~740 lines.
+- **`EvidencePreserver`** (`src/utils/evidence_preserver.py`): hashing, archiving, working-copy routing, and contact auto-mapping extracted out of `ForensicAnalyzer`.
+- **Working copies for all sources** (FRE 1002 best-evidence): `EvidencePreserver.route_to_working_copies` copies every configured source into `run_dir/working_copies/` and repoints `config` attributes in place. Extractors never read originals.
+- **Config snapshot + pattern-file hash in manifest**: `Config.snapshot()` (api keys redacted) is embedded under `config_snapshot`; every `.yaml` under `patterns/` is hashed into `pattern_files` — proves the exact settings and rule set in force.
+- **Required reviewer identity + required notes on rejection**: `ManualReviewManager.add_review` demands a named reviewer (falls back to `EXAMINER_NAME`) and refuses empty notes on `not_relevant` / `uncertain`. Re-deciding an item raises `ValueError`; use `amend_review()` which appends a superseding record without mutating the prior one.
+- **TypedDict schema** (`src/schema.py`): `Message`, `Finding`, `ReviewRecord`, `ThreatDetails`, `SentimentDetails`, `AnalysisResults`, plus Literal types for `FindingSource` and `ReviewDecision`.
+- **DST / Apple-epoch tests** (`tests/test_timezone_dst.py`): 11 tests covering UTC↔local round-trip across zones, spring-forward rejection, fall-back disambiguation, and Cocoa-reference-date conversion.
+- **ROADMAP.md**: captures explicitly deferred work (redaction UI, Signal + Telegram extractors).
+
+### Changed
+- **Methodology section 7 expanded** with component-level Daubert disclosures: separate subsections for pattern matching, sentiment analysis, attributedBody decoding, OCR, EXIF extraction, and AI screening — each naming deterministic vs non-deterministic behavior and known failure modes.
+- **`src/main.py` print() calls converted to `logger`**: 161 sites; `run.py` configures `logging.basicConfig` to stdout at INFO so user experience is unchanged. Library code no longer owns stdout.
+- **`Config._parse_json_list` raises `ValueError`** on malformed JSON in `PERSON*_MAPPING`, `AI_CONTACTS`, etc. Previously silently returned `[]`, which made mapping typos invisible.
+- **WhatsApp ZIP extraction hardened**: caps on uncompressed size, member count, per-member compression ratio; absolute paths and parent-directory traversal rejected. Guards against zip bombs and zip-slip.
+- **`IMessageExtractor._discover_columns` whitelists table names** against `_ALLOWED_SCHEMA_TABLES` before interpolating into a PRAGMA statement.
+- **Flask web-review cookies**: `SameSite=Strict`, `HttpOnly=True`, per-session random `SECRET_KEY`. Attachment serving constrained to a fixed set of base directories plus a per-request allowlist from loaded messages.
+- **AI endpoint sanitization**: `_sanitize_endpoint` strips userinfo, query, and fragment before writing the endpoint to the forensic log. Embedded credentials (`https://user:token@host`) never reach chain of custody.
+- **`requirements-lock.txt` added**: exact pinned versions for reproducible installs. `requirements.txt` retains `>=` constraints as a dev guide.
+- **ExcelReporter Manual Review sheet column order**: `timestamp, reviewer, item_id, item_type, source, method, decision, notes, amended, supersedes, superseded_by, session_id`.
+- **`RunManifest(forensic_recorder=None, config=None)`**: config is optional but recommended; when absent, `config_snapshot` is `None`.
+- **`ManualReviewManager` constructor** now accepts `config` and `forensic_recorder` kwargs.
+- **`WebReview` constructor** now accepts `config`.
+
+### Fixed
+- **Events timeline date resolution**: AI-flagged threats with no date field no longer render with an empty date. Dates resolve via ISO parse → natural-language parse ("early September 4") → quote-match against the message corpus.
+- **Events timeline chronological sort**: previously lexicographic on mixed date formats, which placed "early September 4" after `2025-09-04T16:00:00`. Resolved ISO dates now sort correctly; undated entries sink to the end.
+- **Events timeline filler removed**: period-start/period-end milestones are no longer rendered. An executive timeline should show only turning points.
+- **Sample output**: `generate_sample_output.py` now emits the events timeline, methodology PDF, run manifest, and signed artifacts so the sample matches what a real run produces.
+
 ## [4.4.0] - 2026-04-19
 
 ### Added
