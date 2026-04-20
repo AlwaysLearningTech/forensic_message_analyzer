@@ -51,7 +51,7 @@ class ForensicAnalyzer:
         self.config = config if config is not None else Config()
         self.forensic = ForensicRecorder(Path(self.config.output_dir))
         self.integrity = ForensicIntegrity(self.forensic)
-        self.manifest = RunManifest(self.forensic)
+        self.manifest = RunManifest(self.forensic, config=self.config)
         self.third_party_registry = ThirdPartyRegistry(self.forensic, self.config)
         
         # Record session start
@@ -409,7 +409,7 @@ class ForensicAnalyzer:
             # Re-point forensic recorder at the new directory
             self.forensic = ForensicRecorder(run_dir)
             self.integrity = ForensicIntegrity(self.forensic)
-            self.manifest = RunManifest(self.forensic)
+            self.manifest = RunManifest(self.forensic, config=self.config)
 
         # Hash all source files BEFORE reading them (chain of custody)
         self._hash_source_files()

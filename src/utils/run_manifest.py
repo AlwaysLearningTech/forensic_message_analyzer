@@ -22,27 +22,59 @@ class RunManifest:
     Provides complete audit trail for legal proceedings (FRE 803(6) business records).
     """
     
-    def __init__(self, forensic_recorder: Optional[ForensicRecorder] = None):
+    def __init__(self, forensic_recorder: Optional[ForensicRecorder] = None, config=None):
         """
         Initialize the run manifest generator.
-        
+
         Args:
             forensic_recorder: Optional ForensicRecorder for chain of custody
+            config: Optional Config instance; when provided, its snapshot() is embedded in the manifest so the exact run configuration can be reproduced.
         """
         self.forensic = forensic_recorder or ForensicRecorder()
         self.manifest_data = {
             "created_at": datetime.now().isoformat(),
             "system_info": self._get_system_info(),
+            "config_snapshot": config.snapshot() if config is not None and hasattr(config, "snapshot") else None,
+            "pattern_files": {},
             "input_files": {},
             "output_files": {},
             "operations": [],
             "validation": {}
         }
-        
+
         self.forensic.record_action(
             "manifest_initialized",
             "Run manifest generator initialized"
         )
+
+        # Hash the bundled pattern YAML so opposing experts can verify that the same rule set was in effect during the run.
+        self._hash_pattern_files()
+
+    def _hash_pattern_files(self):
+        """Hash every pattern YAML in patterns/ and attach to the manifest."""
+        try:
+            project_root = Path(__file__).resolve().parents[2]
+        except IndexError:
+            return
+        patterns_dir = project_root / "patterns"
+        if not patterns_dir.is_dir():
+            return
+        for yaml_path in sorted(patterns_dir.glob("*.yaml")):
+            try:
+                file_hash = self.forensic.compute_hash(yaml_path)
+                stats = yaml_path.stat()
+                self.manifest_data["pattern_files"][yaml_path.name] = {
+                    "path": str(yaml_path),
+                    "hash": file_hash,
+                    "size_bytes": stats.st_size,
+                    "modified": datetime.fromtimestamp(stats.st_mtime, tz=timezone.utc).isoformat(),
+                }
+            except Exception as e:
+                self.forensic.record_error(
+                    "pattern_hash_error",
+                    f"Failed to hash pattern file {yaml_path.name}: {e}",
+                    {"file": str(yaml_path)},
+                )
     
     def _get_system_info(self) -> Dict[str, str]:
         """

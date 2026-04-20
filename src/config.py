@@ -175,14 +175,86 @@ class Config:
         return None
     
     def _parse_json_list(self, env_var: str) -> List[str]:
-        """Parse JSON list from environment variable."""
-        value = os.getenv(env_var, '[]')
+        """Parse JSON list from environment variable.
+
+        Raises ValueError when the env var is set to something non-empty that fails to parse as JSON, so malformed contact mappings fail fast instead of silently becoming an empty list. An unset or empty env var returns [] as before.
+        """
+        value = os.getenv(env_var, '')
+        if not value or value == 'None':
+            return []
         try:
-            if value and value != 'None':
-                return json.loads(value)
-        except json.JSONDecodeError:
-            logger.warning(f"Could not parse {env_var} as JSON: {value}")
-        return []
+            parsed = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{env_var} is not valid JSON: {exc.msg}") from exc
+        if not isinstance(parsed, list):
+            raise ValueError(f"{env_var} must be a JSON array, got {type(parsed).__name__}")
+        return parsed
+
+    def snapshot(self) -> Dict[str, object]:
+        """Return a serializable snapshot of this config for the run manifest.
+
+        Redacts secrets (api keys) and resolves Paths to strings so downstream writers can json.dump the result directly. Every setting a reader would need to reproduce the run is included.
+        """
+        def _redact(value):
+            if not value:
+                return None
+            return f"<redacted:{len(str(value))}>"
+
+        return {
+            "ai": {
+                "endpoint": self.ai_endpoint,
+                "api_key": _redact(self.ai_api_key),
+                "batch_model": self.ai_batch_model,
+                "summary_model": self.ai_summary_model,
+                "use_batch_api": self.use_batch_api,
+                "max_requests_per_minute": self.max_requests_per_minute,
+                "tokens_per_minute": self.tokens_per_minute,
+                "request_delay_ms": self.request_delay_ms,
+                "max_tokens_per_request": self.max_tokens_per_request,
+                "ai_contacts_specified": sorted(self.ai_contacts_specified) if self.ai_contacts_specified else None,
+                "ai_contacts": sorted(self.ai_contacts),
+            },
+            "persons": {
+                "person1_name": self.person1_name,
+                "person2_name": self.person2_name,
+                "person3_name": self.person3_name,
+                "contact_mappings": {k: list(v) for k, v in self.contact_mappings.items()},
+            },
+            "sources": {
+                "messages_db_path": self.messages_db_path,
+                "messages_db_wal": self.messages_db_wal,
+                "messages_db_shm": self.messages_db_shm,
+                "whatsapp_source_dir": self.whatsapp_source_dir,
+                "screenshot_source_dir": self.screenshot_source_dir,
+                "email_source_dir": self.email_source_dir,
+                "teams_source_dir": self.teams_source_dir,
+                "counseling_source_dir": self.counseling_source_dir,
+                "counseling_correlation_window_hours": self.counseling_correlation_window_hours,
+            },
+            "analysis": {
+                "start_date": self.start_date,
+                "end_date": self.end_date,
+                "threat_threshold": self.threat_threshold,
+                "review_threshold": self.review_threshold,
+                "batch_size": self.batch_size,
+                "max_retries": self.max_retries,
+                "enable_image_analysis": self.enable_image_analysis,
+                "enable_sentiment": self.enable_sentiment,
+                "enable_ocr": self.enable_ocr,
+            },
+            "case": {
+                "case_numbers": list(self.case_numbers),
+                "case_names": list(self.case_names),
+                "examiner_name": self.examiner_name,
+                "organization": self.organization,
+                "timezone": self.timezone,
+            },
+            "paths": {
+                "output_dir": self.output_dir,
+                "review_dir": self.review_dir,
+                "content_filter_log": self.content_filter_log,
+            },
+        }
 
     def _parse_case_numbers(self) -> List[str]:
         """Parse case numbers from CASE_NUMBER (string or JSON array) or CASE_NUMBERS.
