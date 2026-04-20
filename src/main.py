@@ -276,6 +276,60 @@ class ForensicAnalyzer:
         logger.info(f"    Preserved {preserved_count} source files → {zip_path.name}")
 
     # ------------------------------------------------------------------
+    # Redaction application
+    # ------------------------------------------------------------------
+
+    def _apply_redactions_to_messages(self, data: Dict) -> Dict:
+        """Return a shallow copy of ``data`` with per-message content rewritten through any active redactions.
+
+        Loads redactions from review_dir/redactions_*.json (session_id matches the review session when available). When no redaction file exists the input is returned unchanged. The raw extracted_data JSON produced earlier in the pipeline is NOT modified — it remains available for challenge in discovery.
+        """
+        try:
+            from .review.redaction_manager import RedactionManager
+        except ImportError:
+            return data
+
+        session_id = getattr(self, "_review_session_id", None)
+        if session_id:
+            rm = RedactionManager(session_id=session_id, config=self.config, forensic_recorder=self.forensic)
+        else:
+            return data
+
+        if not rm._records:
+            return data
+
+        new_data = dict(data)
+        new_messages = []
+        redacted_count = 0
+        for msg in data.get("messages", []):
+            msg_id = msg.get("message_id")
+            if not msg_id:
+                new_messages.append(msg)
+                continue
+            active = rm.active_for(msg_id)
+            if not active:
+                new_messages.append(msg)
+                continue
+            copy_msg = dict(msg)
+            copy_msg["content"] = rm.apply(msg_id, msg.get("content") or "")
+            copy_msg["_redactions_applied"] = [
+                {"reason": r["reason"], "authority": r["authority"], "examiner": r["examiner"]}
+                for r in active
+            ]
+            new_messages.append(copy_msg)
+            redacted_count += 1
+
+        new_data["messages"] = new_messages
+        if redacted_count:
+            logger.info(f"\n[*] Applied redactions to {redacted_count} message(s)")
+            self.forensic.record_action(
+                "redactions_applied_for_rendering",
+                f"Redactions applied to {redacted_count} messages prior to reporting",
+                {"count": redacted_count},
+            )
+        return new_data
+
+    # ------------------------------------------------------------------
     # Output signing (detached Ed25519)
     # ------------------------------------------------------------------
 
@@ -1133,6 +1187,9 @@ class ForensicAnalyzer:
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         reports = {}
+
+        # Apply redactions (if any) before any reporter renders content. The raw extracted_data JSON (already persisted) preserves the unredacted content so opposing counsel can challenge specific redactions in discovery.
+        data = self._apply_redactions_to_messages(data)
 
         # Filter analysis to only include human-verified findings
         # The forensic all-messages export (CSV/Excel) uses extracted_data directly
