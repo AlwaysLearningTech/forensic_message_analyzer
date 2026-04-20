@@ -185,6 +185,21 @@ class WebReview:
             self._save_custom_phrases(custom)
             return jsonify({"ok": True})
 
+        @self.app.route("/api/notes_overview")
+        def notes_overview():
+            return jsonify(self._get_notes_overview())
+
+        @self.app.route("/api/bulk_edit_note", methods=["POST"])
+        def bulk_edit_note():
+            body = request.json or {}
+            old_text = (body.get("old_text") or "").strip()
+            new_text = (body.get("new_text") or "").strip()
+            if not old_text or not new_text:
+                return jsonify({"error": "old_text and new_text are required"}), 400
+            new_text = new_text[0].upper() + new_text[1:] if new_text else new_text
+            result = self._bulk_edit_note(old_text, new_text)
+            return jsonify(result)
+
         @self.app.route("/api/start_index")
         def start_index():
             return jsonify({"index": self._first_unreviewed_index()})
@@ -648,6 +663,79 @@ class WebReview:
 
         return {"suggestions": ordered[:40]}
 
+    def _get_notes_overview(self) -> Dict:
+        """Return all note phrases with associated item details and flagged-item indices for linking."""
+        # Build item_id → flagged index lookup
+        id_to_idx = {}
+        for i, item in enumerate(self.flagged_items):
+            id_to_idx[item.get("id", f"item_{i}")] = i
+
+        # Group active reviews by normalized note text
+        groups: Dict[str, Dict] = {}
+        for record in self.review_manager.reviews:
+            if record.get("superseded_by"):
+                continue
+            note = (record.get("notes") or "").strip()
+            if not note:
+                continue
+            key = " ".join(note.lower().split())
+            entry = groups.setdefault(key, {"variants": {}, "items": []})
+            entry["variants"][note] = entry["variants"].get(note, 0) + 1
+            item_id = record.get("item_id", "")
+            entry["items"].append({
+                "item_id": item_id,
+                "decision": record.get("decision", ""),
+                "flagged_index": id_to_idx.get(item_id),
+                "timestamp": record.get("timestamp", ""),
+            })
+
+        result = []
+        for key, entry in groups.items():
+            display = max(entry["variants"].items(), key=lambda kv: (len(kv[0]), kv[1]))[0]
+            display = display[0].upper() + display[1:] if display else display
+            result.append({
+                "text": display,
+                "count": len(entry["items"]),
+                "items": entry["items"],
+            })
+        result.sort(key=lambda g: (-g["count"], g["text"].lower()))
+        return {"notes": result}
+
+    def _bulk_edit_note(self, old_text: str, new_text: str) -> Dict:
+        """Amend every active review whose note matches old_text, replacing with new_text.
+
+        Uses amend_review so the audit trail is preserved — prior records are
+        superseded, not mutated.
+        """
+        old_key = " ".join(old_text.lower().split())
+        amended = 0
+        errors = []
+        for record in list(self.review_manager.reviews):
+            if record.get("superseded_by"):
+                continue
+            note = (record.get("notes") or "").strip()
+            if not note:
+                continue
+            if " ".join(note.lower().split()) != old_key:
+                continue
+            item_id = record.get("item_id", "")
+            try:
+                self.review_manager.amend_review(
+                    item_id=item_id,
+                    decision=record["decision"],
+                    notes=new_text,
+                )
+                amended += 1
+            except ValueError as exc:
+                errors.append({"item_id": item_id, "error": str(exc)})
+        if self.forensic:
+            self.forensic.record_action(
+                "bulk_edit_note",
+                f"Bulk-edited note from '{old_text}' to '{new_text}' across {amended} reviews",
+                {"old_text": old_text, "new_text": new_text, "amended": amended},
+            )
+        return {"amended": amended, "errors": errors}
+
     def _get_progress(self) -> Dict:
         """Return review progress stats."""
         total = len(self.flagged_items)
@@ -987,7 +1075,7 @@ class WebReview:
               border-radius: 6px; font-size: 13px; resize: vertical; }}
 
   /* Quick-select note phrases — reused prior notes surfaced as clickable chips so the examiner can replay consistent language across findings. */
-  .note-phrases {{ display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; max-height: 120px; overflow-y: auto; }}
+  .note-phrases {{ display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; max-height: 260px; overflow-y: auto; }}
   .note-phrases .phrase-chip {{ display: inline-flex; align-items: center; gap: 4px;
                                 background: #eef3ff; color: #1a237e; border: 1px solid #c5cae9;
                                 border-radius: 14px; padding: 3px 10px; font-size: 12px;
@@ -999,7 +1087,7 @@ class WebReview:
   .note-phrases .phrase-chip:hover .chip-count {{ background: rgba(255,255,255,0.22); }}
   .note-phrases .phrase-empty {{ color: #999; font-size: 11px; font-style: italic; padding: 2px 2px; }}
 
-  /* Edit mode for note phrases */
+  /* Edit mode for note phrases (unused CSS kept for backwards compat) */
   .note-phrases-header {{ display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }}
   .note-phrases-header label {{ font-size: 13px; font-weight: 600; margin: 0; }}
   .edit-phrases-btn {{ background: none; border: 1px solid #c5cae9; border-radius: 4px; padding: 2px 8px;
@@ -1019,9 +1107,9 @@ class WebReview:
   .phrase-edit-input {{ border: 1px solid #1a237e; border-radius: 4px; font-size: 12px;
                         padding: 3px 6px; width: 200px; outline: none; }}
 
-  .submit-btn {{ padding: 8px 18px; background: #1a237e; color: #fff; border: none;
-                 border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }}
-  .submit-btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
+  .nav .submit-btn {{ padding: 8px 18px; background: #1a237e; color: #fff; border: none;
+                      border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }}
+  .nav .submit-btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
 
   /* Navigation */
   .nav {{ display: flex; justify-content: space-between; align-items: center; margin-top: auto;
@@ -1063,10 +1151,29 @@ class WebReview:
           font-size: 14px; cursor: pointer; border-bottom: 3px solid transparent; }}
   .tab:hover {{ color: #fff; }}
   .tab.active {{ color: #fff; border-bottom-color: #43a047; }}
-  .tab-edit-btn {{ margin-left: auto; padding: 6px 14px; border: 1px solid #607d8b; border-radius: 4px;
-                   background: transparent; color: #b0bec5; font-size: 12px; cursor: pointer;
-                   align-self: center; margin-right: 12px; }}
-  .tab-edit-btn:hover {{ background: #37474f; color: #fff; }}
+
+  /* Notes tab */
+  .notes-container {{ display: none; padding: 20px 24px; max-width: 900px; margin: 0 auto; }}
+  .note-group {{ background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 14px; margin-bottom: 12px; }}
+  .note-group-header {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; }}
+  .note-group-text {{ font-size: 15px; font-weight: 600; flex: 1; }}
+  .note-group-count {{ font-size: 12px; color: #666; white-space: nowrap; }}
+  .note-group-actions {{ display: flex; gap: 6px; }}
+  .note-group-actions button {{ padding: 4px 10px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; font-size: 12px; }}
+  .note-group-actions button:hover {{ background: #f5f5f5; }}
+  .note-group-items {{ margin-top: 10px; }}
+  .note-item-link {{ display: inline-block; padding: 3px 8px; margin: 2px 4px 2px 0; border-radius: 4px; font-size: 12px; cursor: pointer; text-decoration: none; }}
+  .note-item-link:hover {{ text-decoration: underline; }}
+  .note-item-link.decision-relevant {{ background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }}
+  .note-item-link.decision-not_relevant {{ background: #eeeeee; color: #424242; border: 1px solid #e0e0e0; }}
+  .note-item-link.decision-uncertain {{ background: #fff3e0; color: #e65100; border: 1px solid #ffe0b2; }}
+  .note-bulk-edit {{ display: flex; gap: 8px; margin-top: 10px; align-items: center; }}
+  .note-bulk-edit input {{ flex: 1; padding: 6px 10px; border: 1px solid #1a237e; border-radius: 4px; font-size: 13px; }}
+  .note-bulk-edit button {{ padding: 6px 14px; background: #1a237e; color: #fff; border: none; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; }}
+  .note-bulk-edit .cancel-btn {{ background: #9e9e9e; }}
+  .note-add-form {{ background: #fff; border: 1px dashed #7986cb; border-radius: 8px; padding: 14px; margin-bottom: 12px; display: flex; gap: 8px; align-items: center; }}
+  .note-add-form input {{ flex: 1; padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }}
+  .note-add-form button {{ padding: 7px 14px; background: #1a237e; color: #fff; border: none; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; }}
 
   /* Browse mode */
   .browse-container {{ display: flex; height: calc(100vh - 108px); }}
@@ -1140,7 +1247,9 @@ class WebReview:
   <button class="tab" id="tabEvents" onclick="switchTab('events')">
     Events Timeline
   </button>
-  <button class="tab-edit-btn" id="editPhrasesBtn" onclick="toggleEditPhrases()">Edit Notes</button>
+  <button class="tab" id="tabNotes" onclick="switchTab('notes')">
+    Notes
+  </button>
 </div>
 
 <div class="container" id="flaggedContainer">
@@ -1280,6 +1389,21 @@ class WebReview:
   <h3 style="margin:0 0 10px; font-size:15px;">Active events</h3>
   <div id="eventsList">
     <p style="color:#999; padding:20px; text-align:center;">No events yet. Name the first one above.</p>
+  </div>
+</div>
+
+<!-- Notes tab: manage note phrases, bulk edit, and link to tagged items -->
+<div id="notesContainer" class="notes-container">
+  <h2 style="margin:0 0 6px;">Note Phrases</h2>
+  <p style="color:#666; font-size:13px; margin:0 0 16px;">
+    Manage the note phrases used across all reviewed items. Editing a phrase here updates every review that uses it (via amend, so the audit trail is preserved). Click an item link to jump to it in the Flagged Items tab.
+  </p>
+  <div class="note-add-form">
+    <input type="text" id="noteAddInput" placeholder="Add a new phrase...">
+    <button onclick="addNotePhrase()">Add</button>
+  </div>
+  <div id="notesOverview">
+    <p style="color:#999; padding:20px; text-align:center;">Loading...</p>
   </div>
 </div>
 
@@ -1493,8 +1617,7 @@ document.addEventListener('keydown', e => {{
   else if (e.key === 'ArrowRight') navigate(1);
 }});
 
-// Quick-select note phrases
-let phraseEditMode = false;
+// Quick-select note phrases (read-only chips in decision panel)
 let cachedSuggestions = [];
 
 function loadNotePhrases() {{
@@ -1509,114 +1632,21 @@ function loadNotePhrases() {{
 function renderNotePhrases(suggestions) {{
   const host = document.getElementById('notePhrases');
   if (!host) return;
-  if (!suggestions.length && !phraseEditMode) {{
+  if (!suggestions.length) {{
     host.innerHTML = '<span class="phrase-empty">No reusable phrases yet — your notes will appear here.</span>';
     return;
   }}
-  host.classList.toggle('editing', phraseEditMode);
-  const btn = document.getElementById('editPhrasesBtn');
-  if (btn) btn.textContent = phraseEditMode ? 'Done' : 'Edit';
-
-  let html = suggestions.map(s => {{
+  host.innerHTML = suggestions.map(s => {{
     const text = s.text || '';
     const count = s.count || 0;
-    const isCustom = s.custom || false;
-    const chipClass = 'phrase-chip' + (isCustom ? ' custom-chip' : '');
-    const onclick = phraseEditMode
-      ? 'editPhrase(this)'
-      : 'applyPhrase(this)';
-    return '<span class="' + chipClass + '" title="' + escapeHtml(text) + '" onclick="' + onclick + '" data-text="' + escapeHtml(text) + '" data-custom="' + isCustom + '">'
+    return '<span class="phrase-chip" title="' + escapeHtml(text) + '" onclick="applyPhrase(this)" data-text="' + escapeHtml(text) + '">'
          + '<span class="chip-text">' + escapeHtml(text) + '</span>'
          + (count > 1 ? '<span class="chip-count">' + count + '</span>' : '')
-         + '<button class="chip-delete" onclick="event.stopPropagation(); deletePhrase(this)" title="Remove">&times;</button>'
          + '</span>';
   }}).join('');
-
-  if (phraseEditMode) {{
-    html += '<span class="phrase-add" onclick="addPhrase()">+ Add phrase</span>';
-  }}
-  host.innerHTML = html;
-}}
-
-function toggleEditPhrases() {{
-  phraseEditMode = !phraseEditMode;
-  renderNotePhrases(cachedSuggestions);
-}}
-
-function deletePhrase(btn) {{
-  const chip = btn.closest('.phrase-chip');
-  const text = chip.getAttribute('data-text');
-  const isCustom = chip.getAttribute('data-custom') === 'true';
-  fetch('/api/note_suggestions', {{
-    method: 'DELETE',
-    headers: {{'Content-Type': 'application/json'}},
-    body: JSON.stringify({{text: text, custom: isCustom}})
-  }}).then(() => loadNotePhrases());
-}}
-
-function editPhrase(el) {{
-  const chip = el.closest ? el.closest('.phrase-chip') || el : el;
-  const oldText = chip.getAttribute('data-text');
-  const chipText = chip.querySelector('.chip-text');
-  if (!chipText || chip.querySelector('.phrase-edit-input')) return;
-  const input = document.createElement('input');
-  input.className = 'phrase-edit-input';
-  input.value = oldText;
-  chipText.style.display = 'none';
-  chip.insertBefore(input, chipText.nextSibling);
-  input.focus();
-  input.select();
-  function commit() {{
-    const newText = input.value.trim();
-    if (newText && newText !== oldText) {{
-      fetch('/api/note_suggestions', {{
-        method: 'PUT',
-        headers: {{'Content-Type': 'application/json'}},
-        body: JSON.stringify({{old_text: oldText, new_text: newText}})
-      }}).then(() => loadNotePhrases());
-    }} else {{
-      chipText.style.display = '';
-      input.remove();
-    }}
-  }}
-  input.addEventListener('blur', commit);
-  input.addEventListener('keydown', function(e) {{
-    if (e.key === 'Enter') {{ e.preventDefault(); input.blur(); }}
-    if (e.key === 'Escape') {{ input.value = oldText; input.blur(); }}
-  }});
-}}
-
-function addPhrase() {{
-  const host = document.getElementById('notePhrases');
-  const addBtn = host.querySelector('.phrase-add');
-  if (host.querySelector('.phrase-edit-input')) return;
-  const input = document.createElement('input');
-  input.className = 'phrase-edit-input';
-  input.placeholder = 'New phrase...';
-  if (addBtn) host.insertBefore(input, addBtn);
-  else host.appendChild(input);
-  input.focus();
-  function commit() {{
-    const text = input.value.trim();
-    if (text) {{
-      fetch('/api/note_suggestions', {{
-        method: 'POST',
-        headers: {{'Content-Type': 'application/json'}},
-        body: JSON.stringify({{text: text}})
-      }}).then(() => loadNotePhrases());
-    }} else {{
-      input.remove();
-    }}
-  }}
-  input.addEventListener('blur', commit);
-  input.addEventListener('keydown', function(e) {{
-    if (e.key === 'Enter') {{ e.preventDefault(); input.blur(); }}
-    if (e.key === 'Escape') {{ input.value = ''; input.blur(); }}
-  }});
 }}
 
 function applyPhrase(el) {{
-  if (phraseEditMode) return;
   const phrase = el.getAttribute('data-text') || '';
   if (!phrase) return;
   const field = document.getElementById('notesField');
@@ -1630,8 +1660,150 @@ function applyPhrase(el) {{
     field.value = current + sep + phrase;
   }}
   field.focus();
-  // Put cursor at the end
   field.setSelectionRange(field.value.length, field.value.length);
+}}
+
+// =====================================================================
+// Notes tab — bulk edit, add/delete phrases, linked items
+// =====================================================================
+
+function loadNotesOverview() {{
+  Promise.all([
+    fetch('/api/notes_overview').then(r => r.json()),
+    fetch('/api/note_suggestions').then(r => r.json()),
+  ]).then(([overview, suggestions]) => {{
+    renderNotesOverview(overview.notes || [], suggestions.suggestions || []);
+  }});
+}}
+
+function renderNotesOverview(noteGroups, suggestions) {{
+  const panel = document.getElementById('notesOverview');
+  // Build a set of note keys that have items so we can identify unused custom phrases
+  const usedKeys = new Set(noteGroups.map(g => g.text.toLowerCase().trim()));
+
+  // Unused custom phrases (in suggestions but not in any review)
+  const unused = suggestions.filter(s => s.custom && !usedKeys.has(s.text.toLowerCase().trim()));
+
+  if (!noteGroups.length && !unused.length) {{
+    panel.innerHTML = '<p style="color:#999; padding:20px; text-align:center;">No notes yet. Notes you add during review will appear here.</p>';
+    return;
+  }}
+
+  let html = '';
+
+  noteGroups.forEach((g, idx) => {{
+    const items = g.items || [];
+    html += '<div class="note-group" id="noteGroup_' + idx + '">'
+          + '<div class="note-group-header">'
+          +   '<span class="note-group-text">' + escapeHtml(g.text) + '</span>'
+          +   '<span class="note-group-count">' + g.count + ' item' + (g.count !== 1 ? 's' : '') + '</span>'
+          +   '<div class="note-group-actions">'
+          +     '<button onclick="startBulkEdit(' + idx + ', this)" data-text="' + escapeHtml(g.text) + '">Edit</button>'
+          +     '<button onclick="deleteNotePhrase(\'' + escapeHtml(g.text).replace(/'/g, "\\'") + '\', false)">Hide</button>'
+          +   '</div>'
+          + '</div>'
+          + '<div class="note-group-items">'
+          + items.map(it => {{
+              const cls = 'note-item-link decision-' + (it.decision || 'uncertain');
+              const idx = (it.flagged_index != null) ? it.flagged_index : -1;
+              const onclick = idx >= 0 ? 'onclick="jumpToItem(' + idx + ')"' : '';
+              return '<span class="' + cls + '" ' + onclick + ' title="' + escapeHtml(it.item_id) + '">'
+                   + escapeHtml(it.item_id) + '</span>';
+            }}).join('')
+          + '</div>'
+          + '<div class="note-bulk-edit" id="bulkEdit_' + idx + '" style="display:none;"></div>'
+          + '</div>';
+  }});
+
+  // Unused custom phrases section
+  if (unused.length) {{
+    html += '<h3 style="margin:16px 0 8px; font-size:14px; color:#666;">Custom phrases (unused)</h3>';
+    unused.forEach(s => {{
+      html += '<div class="note-group" style="opacity:0.7;">'
+            + '<div class="note-group-header">'
+            +   '<span class="note-group-text" style="font-style:italic;">' + escapeHtml(s.text) + '</span>'
+            +   '<div class="note-group-actions">'
+            +     '<button onclick="deleteNotePhrase(\'' + escapeHtml(s.text).replace(/'/g, "\\'") + '\', true)">Delete</button>'
+            +   '</div>'
+            + '</div>'
+            + '</div>';
+    }});
+  }}
+
+  panel.innerHTML = html;
+}}
+
+function startBulkEdit(idx, btn) {{
+  const text = btn.getAttribute('data-text');
+  const editDiv = document.getElementById('bulkEdit_' + idx);
+  if (editDiv.style.display !== 'none') {{
+    editDiv.style.display = 'none';
+    return;
+  }}
+  editDiv.style.display = 'flex';
+  editDiv.innerHTML = '<input type="text" value="' + escapeHtml(text) + '" id="bulkEditInput_' + idx + '">'
+    + '<button onclick="submitBulkEdit(' + idx + ', \'' + escapeHtml(text).replace(/'/g, "\\'") + '\')">Save</button>'
+    + '<button class="cancel-btn" onclick="document.getElementById(\'bulkEdit_' + idx + '\').style.display=\'none\'">Cancel</button>';
+  const input = document.getElementById('bulkEditInput_' + idx);
+  input.focus();
+  input.select();
+  input.addEventListener('keydown', function(e) {{
+    if (e.key === 'Enter') {{ e.preventDefault(); submitBulkEdit(idx, text); }}
+    if (e.key === 'Escape') {{ editDiv.style.display = 'none'; }}
+  }});
+}}
+
+function submitBulkEdit(idx, oldText) {{
+  const input = document.getElementById('bulkEditInput_' + idx);
+  const newText = (input ? input.value : '').trim();
+  if (!newText || newText === oldText) return;
+  fetch('/api/bulk_edit_note', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{old_text: oldText, new_text: newText}})
+  }})
+  .then(r => r.json())
+  .then(data => {{
+    if (data.error) {{ showToast('Error: ' + data.error); return; }}
+    showToast('Updated ' + data.amended + ' review' + (data.amended !== 1 ? 's' : ''));
+    loadNotesOverview();
+    loadNotePhrases();
+  }});
+}}
+
+function deleteNotePhrase(text, isCustom) {{
+  fetch('/api/note_suggestions', {{
+    method: 'DELETE',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{text: text, custom: isCustom}})
+  }}).then(() => {{
+    loadNotesOverview();
+    loadNotePhrases();
+  }});
+}}
+
+function addNotePhrase() {{
+  const input = document.getElementById('noteAddInput');
+  const text = (input ? input.value : '').trim();
+  if (!text) return;
+  fetch('/api/note_suggestions', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{text: text}})
+  }})
+  .then(r => r.json())
+  .then(data => {{
+    if (data.error) {{ showToast(data.error); return; }}
+    input.value = '';
+    showToast('Phrase added');
+    loadNotesOverview();
+    loadNotePhrases();
+  }});
+}}
+
+function jumpToItem(idx) {{
+  switchTab('flagged');
+  loadItem(idx);
 }}
 
 // Initial load — start on the first unreviewed item so resumed sessions don't dump the reviewer back at item 0.
@@ -1641,6 +1813,9 @@ fetch('/api/start_index')
   .then(r => r.json())
   .then(data => loadItem((data && typeof data.index === 'number') ? data.index : 0))
   .catch(() => loadItem(0));
+document.getElementById('noteAddInput').addEventListener('keydown', function(e) {{
+  if (e.key === 'Enter') {{ e.preventDefault(); addNotePhrase(); }}
+}});
 
 // =====================================================================
 // Browse mode + Search
@@ -1655,14 +1830,18 @@ function switchTab(tab) {{
   const flagged = document.getElementById('flaggedContainer');
   const browse = document.getElementById('browseContainer');
   const events = document.getElementById('eventsContainer');
+  const notes = document.getElementById('notesContainer');
   document.getElementById('tabFlagged').classList.toggle('active', tab === 'flagged');
   document.getElementById('tabBrowse').classList.toggle('active', tab === 'browse');
   document.getElementById('tabEvents').classList.toggle('active', tab === 'events');
+  document.getElementById('tabNotes').classList.toggle('active', tab === 'notes');
   flagged.style.display = (tab === 'flagged') ? 'flex' : 'none';
   browse.style.display = (tab === 'browse') ? 'flex' : 'none';
   events.style.display = (tab === 'events') ? 'block' : 'none';
+  notes.style.display = (tab === 'notes') ? 'block' : 'none';
   if (tab === 'browse') loadConversations();
   if (tab === 'events') loadEvents();
+  if (tab === 'notes') loadNotesOverview();
 }}
 
 // ---- Events ----
