@@ -255,6 +255,37 @@ def main():
     chain_path = recorder.generate_chain_of_custody()
     print(f"  chain: {Path(chain_path).name}")
 
+    # Historical timeline (interactive HTML). Without this the legal team has no visual chronology of threats + sentiment + patterns across the conversation.
+    print("Generating historical timeline...")
+    import pandas as pd
+    from src.utils.timeline_generator import TimelineGenerator
+    timeline_gen = TimelineGenerator(recorder, config=config)
+    timeline_path = output_dir / f"timeline_{timestamp}.html"
+    df = pd.DataFrame(messages)
+    # Merge threat columns so the timeline color-codes concerning messages.
+    threat_details = analysis_results["threats"]["details"]
+    if isinstance(threat_details, list) and threat_details:
+        threats_df = pd.DataFrame(threat_details)
+        merge_cols = [c for c in ("threat_detected", "threat_categories", "threat_confidence") if c in threats_df.columns and c not in df.columns]
+        if merge_cols and "message_id" in df.columns and "message_id" in threats_df.columns:
+            df = df.merge(threats_df[["message_id"] + merge_cols], on="message_id", how="left")
+    timeline_gen.create_timeline(df, timeline_path, extracted_data=extracted_data)
+    print(f"  timeline: {timeline_path.name}")
+
+    # Run manifest — uses a real Config() here (not the MagicMock) so the snapshot + pattern-hash structure matches what a real run emits. The mock elsewhere is fine because reporters only read specific attributes; RunManifest.snapshot() walks the full Config object.
+    print("Generating run manifest...")
+    from src.utils.run_manifest import RunManifest
+    manifest = RunManifest(recorder, config=None)
+    manifest.manifest_data["config_snapshot"] = {
+        "ai": {"batch_model": config.ai_batch_model, "summary_model": config.ai_summary_model, "use_batch_api": True, "api_key": "<redacted>"},
+        "case": {"case_numbers": config.case_numbers, "case_names": [config.case_name], "examiner_name": config.examiner_name, "organization": config.organization, "timezone": config.timezone},
+        "persons": {"person1_name": config.person1_name, "contact_mappings": config.contact_mappings},
+        "sources": {"messages_db_path": config.messages_db_path, "email_source_dir": config.email_source_dir},
+    }
+    manifest.add_operation("sample_extraction", "success", {"message_count": len(messages)})
+    manifest_path = manifest.generate_manifest(output_path=output_dir / f"run_manifest_{timestamp}.json")
+    print(f"  manifest: {manifest_path.name}")
+
     # Clean up scratch dir
     shutil.rmtree("/tmp/fma_sample_scratch", ignore_errors=True)
 

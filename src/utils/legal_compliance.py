@@ -779,13 +779,63 @@ class LegalComplianceManager:
     # Helper: standards compliance statement (reusable text block)
     # ------------------------------------------------------------------
 
-    def get_standards_compliance_statement(self) -> str:
-        """
-        Return a standalone standards-compliance statement.
+    def generate_standards_compliance_sections(self) -> List[Dict]:
+        """Structured standards-compliance content for reporters that render headings and lists.
 
-        Suitable for insertion into reports, chain of custody documents,
-        or evidence packages. Plain-language so the testifying party can
-        speak to it on the stand.
+        Returns the same block-dict shape as generate_methodology_sections so reporters can use _render_methodology_to_docx / _render_methodology_to_reportlab on it directly. This replaces the earlier flat-string statement that renderers were splitting on newlines — the result looked like a text dump in every format.
+        """
+        overview = {
+            "heading": "Standards Applied",
+            "level": 1,
+            "blocks": [
+                {"type": "paragraph", "text": (
+                    "This forensic analysis was conducted in compliance with the standards below. Each is summarised in plain language so the party offering this report can speak to how the standard was satisfied."
+                )},
+                {"type": "bullets", "items": list(APPLICABLE_STANDARDS)},
+            ],
+        }
+
+        how_satisfied = {
+            "heading": "How Each Standard Was Satisfied",
+            "level": 1,
+            "blocks": [
+                {"type": "definition", "term": "FRE 901 (Authentication)", "text": (
+                    "Every source file was hashed (SHA-256) before any processing. The same hash can be recomputed at any time to prove the evidence has not been altered. Hashes for source files and every output file are recorded in the chain-of-custody log."
+                )},
+                {"type": "definition", "term": "FRE 1001-1008 (Best Evidence)", "text": (
+                    "Source files were opened read-only. Original metadata (timestamps, sender/recipient identifiers, attachment references) is preserved in the extracted record. The original evidence is never modified."
+                )},
+                {"type": "definition", "term": "FRE 803(6) (Business Records)", "text": (
+                    "Messages were captured in the regular course of communication on the device's normal messaging applications. The analyzer adds no content; it only re-organises and indexes what was already there."
+                )},
+                {"type": "definition", "term": "FRE 106 (Rule of Completeness)", "text": (
+                    "The completeness validation report checks every conversation for one-sided extraction and for >24-hour gaps; any flagged conversations are listed with the specific issue so the legal team can pursue supplemental production."
+                )},
+                {"type": "definition", "term": "Daubert (FRE 702)", "text": (
+                    "The methodology is testable (an open-source test suite re-runs the entire pipeline on every code change), uses peer-reviewed libraries (pandas, TextBlob, etc.), has documented error characteristics (see section 7 of the Methodology Statement), follows published standards (SWGDE, NIST SP 800-86), and is generally accepted in digital-forensics practice."
+                )},
+                {"type": "definition", "term": "SWGDE / NIST SP 800-86", "text": (
+                    "The Scientific Working Group on Digital Evidence's best practices and NIST's guide to forensic-technique integration were the procedural template for the eight-phase pipeline used here."
+                )},
+            ],
+        }
+
+        pointer = {
+            "heading": "Related Documents",
+            "level": 1,
+            "blocks": [
+                {"type": "paragraph", "text": (
+                    "See the accompanying Methodology Statement for a step-by-step description of every phase, and the chain-of-custody log for the timestamped audit trail of every operation."
+                )},
+            ],
+        }
+
+        return [overview, how_satisfied, pointer]
+
+    def get_standards_compliance_statement(self) -> str:
+        """Legacy flat-string form of the standards statement.
+
+        Retained for any caller that needs a plain-text block (e.g. embedded in a JSON field). New renderers should consume generate_standards_compliance_sections() instead so headings, bullets, and term/definition formatting survive the render.
         """
         return (
             "STANDARDS COMPLIANCE STATEMENT\n"

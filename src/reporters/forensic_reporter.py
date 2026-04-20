@@ -181,6 +181,20 @@ class ForensicReporter:
                 "report_generation_error",
                 f"Methodology document generation failed: {str(e)}"
             )
+
+        # PDF methodology (same content as the Word version, rendered for readers who cannot open .docx or need a signed/stamped court exhibit)
+        try:
+            methodology_pdf = self._generate_methodology_pdf(
+                extracted_data, timestamp
+            )
+            reports['methodology_pdf'] = methodology_pdf
+            logger.info(f"Generated Methodology PDF: {methodology_pdf}")
+        except Exception as e:
+            logger.error(f"Failed to generate methodology PDF: {e}")
+            self.forensic.record_action(
+                "report_generation_error",
+                f"Methodology PDF generation failed: {str(e)}"
+            )
         
         # Generate PDF report
         try:
@@ -261,17 +275,11 @@ class ForensicReporter:
         sections = self.compliance.generate_methodology_sections()
         self._render_methodology_to_docx(doc, sections, base_level=1)
 
-        # Standards compliance
+        # Standards compliance — rendered through the same structured renderer as the methodology body so headings, bullet lists, and term/definition pairs survive instead of coming out as a flat text block.
         doc.add_page_break()
-        doc.add_heading('Standards Compliance', level=1)
-        for line in self.compliance.get_standards_compliance_statement().split('\n'):
-            stripped = line.rstrip()
-            if not stripped or set(stripped) <= {'=', '-'}:
-                continue
-            if stripped.lstrip().startswith('- '):
-                doc.add_paragraph(stripped.lstrip()[2:], style='List Bullet')
-                continue
-            doc.add_paragraph(stripped)
+        doc.add_heading('Standards Compliance', level=0)
+        standards_sections = self.compliance.generate_standards_compliance_sections()
+        self._render_methodology_to_docx(doc, standards_sections, base_level=1)
 
         # Completeness Validation
         messages = extracted_data.get('messages', extracted_data.get('combined', []))
@@ -299,6 +307,81 @@ class ForensicReporter:
             "methodology_document_generated",
             f"Generated standalone methodology document with hash {file_hash}",
             {"path": str(output_path), "hash": file_hash}
+        )
+        return output_path
+
+    def _generate_methodology_pdf(self, extracted_data: Dict, timestamp: str) -> Path:
+        """PDF version of the standalone Methodology Statement.
+
+        Mirrors _generate_methodology_document but emits PDF via reportlab. Shares the same structured section source (generate_methodology_sections + generate_standards_compliance_sections) so the two files can be cross-referenced by the court without worrying about content drift.
+        """
+        output_path = self.output_dir / f"methodology_{timestamp}.pdf"
+        doc = SimpleDocTemplate(
+            str(output_path),
+            pagesize=letter,
+            title="Methodology Statement",
+            author=getattr(self.config, "examiner_name", "") or "Forensic Analyzer",
+        )
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            "MethodologyTitle", parent=styles["Title"], alignment=1, spaceAfter=20
+        )
+        section_style = ParagraphStyle(
+            "MethodologyH1", parent=styles["Heading1"], spaceBefore=10, spaceAfter=6
+        )
+        # The default reportlab styles carry a Heading2 but no dedicated block style for methodology bullets; we reuse Normal since _render_methodology_to_reportlab owns bullet formatting itself.
+
+        story = []
+        story.append(Paragraph("Methodology Statement", title_style))
+
+        header = self.compliance.generate_report_header()
+        case_numbers = header.get("case_numbers") or [header["case_number"]]
+        if len(case_numbers) > 1:
+            story.append(Paragraph("<b>Case Numbers</b>", styles["Normal"]))
+            for cn in case_numbers:
+                story.append(Paragraph(f"• {html_module.escape(str(cn))}", styles["Normal"]))
+        else:
+            story.append(Paragraph(f"<b>Case Number:</b> {html_module.escape(str(case_numbers[0]))}", styles["Normal"]))
+        if header.get("case_name") and header["case_name"] != "Not assigned":
+            story.append(Paragraph(f"<b>Case Name:</b> {html_module.escape(str(header['case_name']))}", styles["Normal"]))
+        story.append(Paragraph(f"<b>Generated:</b> {html_module.escape(str(header['date_of_examination']))}", styles["Normal"]))
+        story.append(Spacer(1, 12))
+
+        self._render_methodology_to_reportlab(
+            story, self.compliance.generate_methodology_sections(), styles
+        )
+
+        story.append(PageBreak())
+        story.append(Paragraph("Standards Compliance", section_style))
+        self._render_methodology_to_reportlab(
+            story, self.compliance.generate_standards_compliance_sections(), styles
+        )
+
+        story.append(PageBreak())
+        story.append(Paragraph("Completeness Validation (FRE 106)", section_style))
+        messages = extracted_data.get("messages", extracted_data.get("combined", []))
+        completeness = self.compliance.validate_completeness(messages)
+        story.append(Paragraph(
+            f"Total messages examined: {completeness.get('total_messages', 0)}. "
+            f"Conversations analysed: {len(completeness.get('conversations', {}))}. "
+            f"Complete: {'Yes' if completeness.get('is_complete') else 'No'}.",
+            styles["Normal"],
+        ))
+        issues = completeness.get("issues", [])
+        if issues:
+            story.append(Paragraph("Issues detected (review and supplement as needed):", styles["Normal"]))
+            for issue in issues:
+                story.append(Paragraph(f"• {html_module.escape(str(issue))}", styles["Normal"]))
+        else:
+            story.append(Paragraph("No completeness issues detected.", styles["Normal"]))
+
+        doc.build(story)
+
+        file_hash = self.forensic.compute_hash(output_path)
+        self.forensic.record_action(
+            "methodology_pdf_generated",
+            f"Generated standalone methodology PDF with hash {file_hash}",
+            {"path": str(output_path), "hash": file_hash},
         )
         return output_path
 
