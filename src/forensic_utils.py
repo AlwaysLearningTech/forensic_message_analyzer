@@ -4,9 +4,11 @@ Implements FRE 901 authentication and Daubert reliability standards.
 """
 
 import hashlib
+import hmac
 import json
 import os
 import platform
+import secrets
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,12 +49,23 @@ class ForensicRecorder:
                 self.output_dir = Path('./output')
         
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize action log for chain of custody
         self.actions: List[Dict] = []
         self.start_time = datetime.now(timezone.utc)
         self.session_id = self.start_time.strftime("%Y%m%d_%H%M%S")
-        
+
+        # HMAC chain for tamper-evidence. Each record carries an hmac computed over the prior record's hmac plus its own canonical JSON; modifying or deleting any record in the middle of the log breaks the chain from that point forward. The key is per-session and written to a 0600 sidecar file so verification is possible but casual readers cannot forge records.
+        self._hmac_key = secrets.token_bytes(32)
+        self._last_hmac = "0" * 64  # genesis sentinel
+        self._hmac_key_path = self.output_dir / f"forensic_hmac_key_{self.session_id}.bin"
+        try:
+            fd = os.open(self._hmac_key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(self._hmac_key)
+        except OSError:
+            pass
+
         # Record initialization for audit trail
         self.record_action(
             "session_start",
@@ -75,10 +88,19 @@ class ForensicRecorder:
             "action": action,
             "details": details,
             "metadata": metadata or {},
-            "session_id": self.session_id
+            "session_id": self.session_id,
+            "seq": len(self.actions),
+            "prev_hmac": self._last_hmac,
         }
+
+        # Compute HMAC over the canonical JSON of the record (excluding the hmac field itself, which we add after). A deterministic sort_keys dump keeps the MAC reproducible.
+        canonical = json.dumps(action_record, sort_keys=True, default=str).encode("utf-8")
+        record_hmac = hmac.new(self._hmac_key, canonical, hashlib.sha256).hexdigest()
+        action_record["hmac"] = record_hmac
+        self._last_hmac = record_hmac
+
         self.actions.append(action_record)
-        
+
         # Persist to log file immediately for evidence integrity
         log_file = self.output_dir / f"forensic_log_{self.session_id}.jsonl"
         try:
@@ -86,6 +108,39 @@ class ForensicRecorder:
                 f.write(json.dumps(action_record, default=str) + '\n')
         except Exception as e:
             print(f"Warning: Could not write to forensic log: {e}")
+
+    def verify_log_chain(self, log_path: Optional[Path] = None, key: Optional[bytes] = None) -> Dict[str, Any]:
+        """Verify the HMAC chain on a persisted forensic log.
+
+        Any tamper — insertion, deletion, reordering, or field edit — breaks the chain at the first affected record. Returns a dict with verified=<bool>, records=<count verified before failure>, and an error field when verification fails.
+        """
+        log_path = Path(log_path) if log_path else self.output_dir / f"forensic_log_{self.session_id}.jsonl"
+        key = key if key is not None else self._hmac_key
+
+        prev = "0" * 64
+        verified = 0
+        try:
+            with open(log_path) as f:
+                for line_no, line in enumerate(f, start=1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    record = json.loads(line)
+                    expected_prev = record.get("prev_hmac")
+                    if expected_prev != prev:
+                        return {"verified": False, "records": verified, "error": f"prev_hmac mismatch at line {line_no}"}
+                    stored = record.pop("hmac", None)
+                    canonical = json.dumps(record, sort_keys=True, default=str).encode("utf-8")
+                    expected = hmac.new(key, canonical, hashlib.sha256).hexdigest()
+                    if not stored or not hmac.compare_digest(stored, expected):
+                        return {"verified": False, "records": verified, "error": f"hmac mismatch at line {line_no}"}
+                    prev = stored
+                    verified += 1
+            return {"verified": True, "records": verified, "error": None}
+        except FileNotFoundError:
+            return {"verified": False, "records": 0, "error": "log file not found"}
+        except Exception as e:
+            return {"verified": False, "records": verified, "error": str(e)}
     
     def compute_hash(self, file_path: Path) -> str:
         """
