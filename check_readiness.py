@@ -47,36 +47,43 @@ def check_imports():
     
     return results, missing
 
+_PROJECT_ROOT = Path(__file__).resolve().parent
+
+
 def check_configuration():
-    """Check if configuration files exist."""
+    """Check if configuration files exist.
+
+    Search order mirrors Config: DOTENV_PATH (if set) → project-root .env → cwd .env. The 4.4-era data-directory default is no longer primary; users who still keep .env there point at it with DOTENV_PATH or `run.py --env`.
+    """
     checks = []
-    
-    # Check for .env file in data directory (correct location)
-    env_file_data = Path.home() / 'workspace/data/forensic-message-analyzer/.env'
-    checks.append(('.env file (data dir)', env_file_data.exists()))
-    
-    # Also check for local .env (for backward compatibility)
-    env_file_local = Path('.env')
-    if env_file_local.exists():
-        checks.append(('.env file (local)', True))
-    
-    # Check for .env.example
-    env_example = Path('.env.example')
+    env_project = _PROJECT_ROOT / '.env'
+    env_cwd = Path('.env').resolve() if Path('.env').exists() else None
+    env_override = os.environ.get('DOTENV_PATH', '').strip()
+    env_override_path = Path(env_override).expanduser() if env_override else None
+
+    if env_override_path:
+        checks.append((f".env (DOTENV_PATH → {env_override_path})", env_override_path.exists()))
+    checks.append(('.env (project root)', env_project.exists()))
+    if env_cwd and env_cwd != env_project:
+        checks.append((f'.env (cwd → {env_cwd})', True))
+
+    env_example = _PROJECT_ROOT / '.env.example'
     checks.append(('.env.example', env_example.exists()))
-    
-    # Check for config.py
-    config_py = Path('src/config.py')
+    config_py = _PROJECT_ROOT / 'src/config.py'
     checks.append(('src/config.py', config_py.exists()))
-    
-    return checks, env_file_data.exists()
+
+    env_found = (
+        (env_override_path and env_override_path.exists())
+        or env_project.exists()
+        or (env_cwd and env_cwd.exists())
+    )
+    return checks, bool(env_found)
+
 
 def check_directories():
     """Check if required directories exist or can be created."""
-    # Set DOTENV_PATH environment variable for Config to find the right .env
-    os.environ['DOTENV_PATH'] = str(Path.home() / 'workspace/data/forensic-message-analyzer/.env')
-    
     from src.config import Config
-    
+
     config = Config()
     checks = []
     
@@ -154,10 +161,12 @@ def main():
     
     if not env_found:
         all_good = False
-        print("\nNote: .env file should be in ~/workspace/data/forensic-message-analyzer/")
+        print("\nNote: .env file is expected in the project root.")
         print("If you need to create it:")
-        print("  cp .env.example ~/workspace/data/forensic-message-analyzer/.env")
+        print("  cp .env.example .env")
         print("  # Then edit it with your settings")
+        print("To keep .env elsewhere, pass its path with `python3 run.py --env /path/to/.env`")
+        print("or set DOTENV_PATH in your shell.")
     print()
     
     # Check directories
