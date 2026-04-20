@@ -308,12 +308,9 @@ class EmailExtractor:
 
     def _resolve_contact(self, raw_address: str) -> str:
         """
-        Resolve an email address to a contact name using config mappings.
-        Extracts the email address from a formatted string like 'Name <email@example.com>'
-        and checks against contact mappings.
+        Resolve an email address to a contact name using config mappings. Extracts the email address from a formatted string like 'Name <email@example.com>' and checks against contact mappings.
 
-        If no mapping is found and a third_party_registry is available, the
-        contact is registered as a third party.
+        If no mapping is found and a third_party_registry is available, the contact is registered as a third party.
 
         Args:
             raw_address: Raw address string from email header

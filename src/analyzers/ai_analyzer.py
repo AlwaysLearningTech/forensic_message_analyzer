@@ -1,11 +1,8 @@
 """
-AI-powered analysis module for forensic message analyzer.
-Uses Anthropic Claude (via Azure AI or direct API) for advanced
-threat detection and content analysis in family law proceedings.
+AI-powered analysis module for forensic message analyzer. Uses Anthropic Claude (via Azure AI or direct API) for advanced threat detection and content analysis in family law proceedings.
 
 Supports two processing modes:
-- Batch API (default): Submits all requests asynchronously at 50% cost discount.
-  Prompt caching further reduces costs on repeated system prompts.
+- Batch API (default): Submits all requests asynchronously at 50% cost discount. Prompt caching further reduces costs on repeated system prompts.
 - Synchronous: Real-time processing with rate limiting (for development/testing).
 """
 
@@ -112,10 +109,7 @@ class AIAnalyzer:
         _config = config if config is not None else Config()
         self.api_key = _config.ai_api_key
         self.endpoint = _config.ai_endpoint
-        # Two-model setup: AI_BATCH_MODEL drives per-message classification,
-        # AI_SUMMARY_MODEL drives the executive narrative. If only one is set
-        # it is used for both roles. The legacy single AI_MODEL env var was
-        # removed in 4.4.0; configure both batch and summary models explicitly.
+        # Two-model setup: AI_BATCH_MODEL drives per-message classification, AI_SUMMARY_MODEL drives the executive narrative. If only one is set it is used for both roles. The legacy single AI_MODEL env var was removed in 4.4.0; configure both batch and summary models explicitly.
         self.batch_model = (
             getattr(_config, 'ai_batch_model', None)
             or getattr(_config, 'ai_summary_model', None)
@@ -142,9 +136,7 @@ class AIAnalyzer:
             try:
                 client_kwargs = {"api_key": self.api_key}
 
-                # If an endpoint is configured, use it as base_url;
-                # otherwise force the default to prevent env vars
-                # (e.g. VS Code's ANTHROPIC_BASE_URL) from hijacking requests.
+                # If an endpoint is configured, use it as base_url; otherwise force the default to prevent env vars (e.g. VS Code's ANTHROPIC_BASE_URL) from hijacking requests.
                 if self.endpoint:
                     base = self.endpoint.rstrip("/")
                     client_kwargs["base_url"] = base
@@ -194,10 +186,7 @@ class AIAnalyzer:
     ) -> Tuple[str, int, bool]:
         """Format messages chronologically for the executive summary prompt.
 
-        Sorts by timestamp and formats each message as a single line.
-        If the total exceeds *max_tokens* (estimated), applies middle-truncation:
-        keeps the earliest and latest messages (split evenly) and inserts a
-        marker noting how many were omitted.
+        Sorts by timestamp and formats each message as a single line. If the total exceeds *max_tokens* (estimated), applies middle-truncation: keeps the earliest and latest messages (split evenly) and inserts a marker noting how many were omitted.
 
         Returns:
             (formatted_text, message_count_included, was_truncated)
@@ -363,9 +352,7 @@ class AIAnalyzer:
     def _cached_system_prompt(self) -> list:
         """Return system prompt as content blocks with prompt caching enabled.
 
-        Prompt caching avoids re-processing the identical system prompt on every
-        request. With the Batch API, this can reduce input token costs by up to
-        90% for the system prompt portion across all requests in the batch.
+        Prompt caching avoids re-processing the identical system prompt on every request. With the Batch API, this can reduce input token costs by up to 90% for the system prompt portion across all requests in the batch.
         """
         return [{
             "type": "text",
@@ -382,8 +369,7 @@ class AIAnalyzer:
         """
         Analyze messages using Claude for advanced insights.
 
-        Uses the Batch API by default (50% cost discount + prompt caching).
-        Falls back to synchronous processing if batch API is disabled or fails.
+        Uses the Batch API by default (50% cost discount + prompt caching). Falls back to synchronous processing if batch API is disabled or fails.
 
         Args:
             messages: List of message dictionaries
@@ -465,9 +451,7 @@ class AIAnalyzer:
 
         total_requests = len(batch_requests)
 
-        # Pre-submission cost estimate based on token estimation.
-        # Apply tokenizer overhead multiplier for models (e.g. Opus 4.7) that
-        # use a new tokenizer producing more tokens for the same text.
+        # Pre-submission cost estimate based on token estimation. Apply tokenizer overhead multiplier for models (e.g. Opus 4.7) that use a new tokenizer producing more tokens for the same text.
         batch_overhead = get_token_overhead(self.batch_model)
         system_prompt_tokens = int(self._estimate_tokens(self._SYSTEM_PROMPT) * batch_overhead)
         est_input_tokens = int(sum(self._estimate_tokens(r["params"]["messages"][0]["content"]) for r in batch_requests) * batch_overhead)
@@ -485,8 +469,7 @@ class AIAnalyzer:
         output_cost = (est_output_tokens / 1_000_000) * bp['output']
         est_cost = cache_creation_cost + cache_read_cost + message_cost + output_cost
 
-        # Estimated summary call — scales with message volume. Assume ~60% of
-        # messages will be confirmed in review; actual cost shown at finalize.
+        # Estimated summary call — scales with message volume. Assume ~60% of messages will be confirmed in review; actual cost shown at finalize.
         summary_overhead = get_token_overhead(self.summary_model)
         sp = get_pricing(self.summary_model)
         est_confirmed_tokens = int(message_input_tokens * 0.60 * summary_overhead) + 500  # preamble
@@ -600,8 +583,7 @@ class AIAnalyzer:
 
         # Actual cost — model-aware batch pricing
         bp = get_pricing(self.batch_model, batch=True)
-        # Note: cache_creation_tokens are a subset of input_tokens,
-        # so subtract them from uncached to avoid double-counting.
+        # Note: cache_creation_tokens are a subset of input_tokens, so subtract them from uncached to avoid double-counting.
         uncached_input = total_input_tokens - cache_read_tokens - cache_creation_tokens
         estimated_cost = (
             (uncached_input / 1_000_000) * bp['input']
@@ -845,8 +827,7 @@ class AIAnalyzer:
 
     def _analyze_batch(self, batch_text: str, messages: List[Dict]) -> Dict[str, Any]:
         """
-        Analyze a single batch of messages synchronously.
-        Uses prompt caching on the system prompt.
+        Analyze a single batch of messages synchronously. Uses prompt caching on the system prompt.
 
         Args:
             batch_text: Formatted text of messages
@@ -906,8 +887,7 @@ class AIAnalyzer:
                 results["sentiment_analysis"] = {"scores": [], "overall": "neutral", "shifts": []}
 
             sentiment = batch_analysis["sentiment"]
-            # Store the AI's overall direction (positive/neutral/negative) per batch,
-            # not just the intensity scale. Intensity (0-10) measures strength, not direction.
+            # Store the AI's overall direction (positive/neutral/negative) per batch, not just the intensity scale. Intensity (0-10) measures strength, not direction.
             batch_overall = sentiment.get("overall", "neutral")
             results["sentiment_analysis"]["scores"].append(batch_overall)
 
@@ -970,8 +950,7 @@ class AIAnalyzer:
     ) -> Dict:
         """Generate executive summary, risks, and recommendations for existing batch results.
 
-        Called during finalize (post-review) to add the narrative summary
-        to AI batch results that were collected before manual review.
+        Called during finalize (post-review) to add the narrative summary to AI batch results that were collected before manual review.
 
         Args:
             ai_results: AI analysis results from a previous batch run
@@ -994,10 +973,7 @@ class AIAnalyzer:
     def _generate_summary(self, analysis: Dict, messages: List[Dict] = None) -> str:
         """Generate an executive summary of the AI analysis.
 
-        When *messages* is provided the full conversation text is included in the
-        prompt so the AI can write an evidence-based narrative with quoted
-        excerpts and a timeline.  When omitted, falls back to the legacy
-        aggregate-statistics-only prompt for backward compatibility.
+        When *messages* is provided the full conversation text is included in the prompt so the AI can write an evidence-based narrative with quoted excerpts and a timeline. When omitted, falls back to the legacy aggregate-statistics-only prompt for backward compatibility.
 
         Args:
             analysis: Complete analysis results dict.

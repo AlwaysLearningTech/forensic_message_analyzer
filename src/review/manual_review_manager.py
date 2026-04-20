@@ -1,10 +1,7 @@
 """
 Manual review manager for handling manual review decisions.
 
-This module provides the `ManualReviewManager` class, which is responsible
-for managing the manual review process of messages flagged by the system.
-It handles the loading, saving, and tracking of manual review decisions,
-as well as the interaction with the forensic recording system.
+This module provides the `ManualReviewManager` class, which is responsible for managing the manual review process of messages flagged by the system. It handles the loading, saving, and tracking of manual review decisions, as well as the interaction with the forensic recording system.
 """
 
 import json

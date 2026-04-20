@@ -39,8 +39,7 @@ class ForensicRecorder:
             try:
                 from src.config import Config
                 cfg = Config()
-                # Use a session-specific subdirectory so forensic logs
-                # never land in the base output directory as orphan files.
+                # Use a session-specific subdirectory so forensic logs never land in the base output directory as orphan files.
                 base = Path(cfg.output_dir)
                 session_ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
                 self.output_dir = base / f"session_{session_ts}"
@@ -75,8 +74,7 @@ class ForensicRecorder:
     
     def record_action(self, action: str, details: str, metadata: Optional[Dict] = None):
         """
-        Record a forensic action for chain of custody (FRE 901 authentication).
-        Every operation is logged with timestamp and metadata for reproducibility.
+        Record a forensic action for chain of custody (FRE 901 authentication). Every operation is logged with timestamp and metadata for reproducibility.
         
         Args:
             action: Type of action performed
@@ -182,8 +180,7 @@ class ForensicRecorder:
     
     def verify_integrity(self, file_path: Path, expected_hash: str) -> bool:
         """
-        Verify file integrity using SHA-256 hash.
-        Ensures evidence has not been tampered with (FRE 901, Daubert reliability).
+        Verify file integrity using SHA-256 hash. Ensures evidence has not been tampered with (FRE 901, Daubert reliability).
         
         Args:
             file_path: Path to the file
@@ -286,9 +283,7 @@ class ForensicRecorder:
             with open(output_file, 'w') as f:
                 json.dump(custody_doc, f, indent=2, default=str)
 
-            # Compute hash of the final file for forensic logging.
-            # The hash is recorded in the forensic log only — NOT written back
-            # into the document itself, which would invalidate the hash.
+            # Compute hash of the final file for forensic logging. The hash is recorded in the forensic log only — NOT written back into the document itself, which would invalidate the hash.
             doc_hash = self.compute_hash(Path(output_file))
 
             self.record_action(
@@ -309,8 +304,7 @@ class ForensicRecorder:
     
     def record_file_state(self, file_path: Path, operation: str):
         """
-        Record the state of a file for evidence tracking.
-        Implements best evidence rule (FRE 1002) by preserving original state.
+        Record the state of a file for evidence tracking. Implements best evidence rule (FRE 1002) by preserving original state.
         
         Args:
             file_path: Path to the file
@@ -437,8 +431,7 @@ class EvidenceValidator:
                               output_files: List[Path],
                               metadata: Optional[Dict] = None) -> Path:
         """
-        Create an evidence package with all files and metadata.
-        Satisfies best evidence rule (FRE 1002) and business records exception (FRE 803(6)).
+        Create an evidence package with all files and metadata. Satisfies best evidence rule (FRE 1002) and business records exception (FRE 803(6)).
         
         Args:
             source_files: List of source file paths
@@ -481,8 +474,7 @@ class EvidenceValidator:
         with open(manifest_path, 'w') as f:
             json.dump(package_manifest, f, indent=2, default=str)
 
-        # Hash the final manifest for forensic logging only — NOT written
-        # back into the file, which would invalidate the hash.
+        # Hash the final manifest for forensic logging only — NOT written back into the file, which would invalidate the hash.
         manifest_hash = self.forensic.compute_hash(manifest_path)
 
         self.forensic.record_action(

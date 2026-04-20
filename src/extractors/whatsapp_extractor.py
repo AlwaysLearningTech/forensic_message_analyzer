@@ -220,9 +220,7 @@ class WhatsAppExtractor:
             # Find all message boundaries using finditer (captures multiline content)
             boundaries = list(self.message_pattern.finditer(content))
 
-            # First pass: identify unique senders to determine chat participants
-            # This lets us correctly assign recipients in 1:1 chats even when
-            # the filename doesn't contain the contact name.
+            # First pass: identify unique senders to determine chat participants. This lets us correctly assign recipients in 1:1 chats even when the filename doesn't contain the contact name.
             person1 = getattr(self.config, 'person1_name', None)
             raw_senders = set()
             for match in boundaries:
@@ -253,9 +251,7 @@ class WhatsAppExtractor:
                 sender = match.group(2)
                 first_line = match.group(3)
 
-                # Capture continuation lines between this boundary and the next.
-                # Any text after the first matched line up to the next message
-                # header belongs to this message (multiline messages).
+                # Capture continuation lines between this boundary and the next. Any text after the first matched line up to the next message header belongs to this message (multiline messages).
                 first_line_end = match.end()
                 if idx + 1 < len(boundaries):
                     next_start = boundaries[idx + 1].start()
@@ -310,8 +306,7 @@ class WhatsAppExtractor:
                     # Sender is another person, so recipient is Me
                     recipient = 'Me'
 
-                # Clean Unicode control characters (WhatsApp embeds LTR marks,
-                # object replacement chars, etc.)
+                # Clean Unicode control characters (WhatsApp embeds LTR marks, object replacement chars, etc.)
                 clean_content = message_content.strip()
                 clean_content = re.sub(r'[\u200e\u200f\u202a-\u202e\ufffc\ufeff]', '', clean_content)
 
@@ -355,9 +350,7 @@ class WhatsAppExtractor:
         """
         Parse WhatsApp timestamp into a timezone-aware (UTC) datetime.
 
-        WhatsApp export timestamps are in the device's local timezone.
-        We localize to the configured ANALYSIS_TIMEZONE and convert to UTC
-        so they are consistent with iMessage, email, and Teams timestamps.
+        WhatsApp export timestamps are in the device's local timezone. We localize to the configured ANALYSIS_TIMEZONE and convert to UTC so they are consistent with iMessage, email, and Teams timestamps.
 
         Args:
             timestamp_str: Timestamp string from WhatsApp

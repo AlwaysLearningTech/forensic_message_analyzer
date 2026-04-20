@@ -33,8 +33,7 @@ class TeamsExtractor:
     """
     Extracts messages from a Microsoft Teams personal export.
 
-    The export is a TAR archive containing ``messages.json`` with the
-    structure::
+    The export is a TAR archive containing ``messages.json`` with the structure::
 
         {
           "userId": "8:live:tanikir",
@@ -300,9 +299,7 @@ class TeamsExtractor:
         """
         Map a Teams userId (e.g. ``8:live:tanikir``) to a person name.
 
-        Strategy: extract the local part from ``8:live:<username>`` and check
-        if it matches the local part of any email in the contact mappings.
-        Also check the userId directly against mappings.
+        Strategy: extract the local part from ``8:live:<username>`` and check if it matches the local part of any email in the contact mappings. Also check the userId directly against mappings.
         """
         if not user_id:
             return 'Me'

@@ -234,8 +234,7 @@ class WebReview:
                     f"Web review session completed with {len(self.reviewed_indices)} items reviewed",
                     {"reviewed": len(self.reviewed_indices), "total": len(self.flagged_items)}
                 )
-            # Signal the main thread to stop waiting; Flask runs in a daemon
-            # thread and will terminate automatically when start_review returns.
+            # Signal the main thread to stop waiting; Flask runs in a daemon thread and will terminate automatically when start_review returns.
             self._shutdown_event.set()
             return jsonify({"status": "ok"})
 
@@ -278,8 +277,7 @@ class WebReview:
         print(f"\n    Opening review interface at http://127.0.0.1:{port}")
         print(f"    Press Ctrl+C or click 'Complete Review' to finish.\n")
 
-        # Run Flask in a daemon thread so that 'Complete Review' doesn't
-        # need to SIGINT the whole process (which kills the parent pipeline).
+        # Run Flask in a daemon thread so that 'Complete Review' doesn't need to SIGINT the whole process (which kills the parent pipeline).
         server_thread = threading.Thread(
             target=self.app.run,
             kwargs={"host": "127.0.0.1", "port": port, "debug": False},

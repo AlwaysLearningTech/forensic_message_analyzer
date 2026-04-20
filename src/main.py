@@ -172,10 +172,7 @@ class ForensicAnalyzer:
         """
         Create hash-verified working copies of all attachment files.
 
-        Copies each original attachment to output_dir/attachments/ and
-        updates the message dicts to reference the preserved copy.
-        Deduplicates so the same source file is only copied once even
-        if referenced by multiple messages.
+        Copies each original attachment to output_dir/attachments/ and updates the message dicts to reference the preserved copy. Deduplicates so the same source file is only copied once even if referenced by multiple messages.
         """
         messages = extracted_data.get('messages', [])
         dest_dir = Path(self.config.output_dir) / "attachments"
@@ -305,12 +302,9 @@ class ForensicAnalyzer:
     def _filter_analysis_by_review(self, analysis: Dict, review: Dict) -> Dict:
         """Filter analysis results to only include human-verified findings.
 
-        Only threats and risk indicators explicitly marked 'relevant' or
-        'uncertain' during manual review survive into analysis reports.
-        Unreviewed and rejected findings are cleared.
+        Only threats and risk indicators explicitly marked 'relevant' or 'uncertain' during manual review survive into analysis reports. Unreviewed and rejected findings are cleared.
 
-        The forensic all-messages export is NOT affected by this filtering —
-        it uses extracted_data directly and remains a complete, unfiltered record.
+        The forensic all-messages export is NOT affected by this filtering — it uses extracted_data directly and remains a complete, unfiltered record.
 
         Args:
             analysis: Raw analysis results from Phase 2.
@@ -390,14 +384,10 @@ class ForensicAnalyzer:
     def run_full_analysis(self, resume: bool = False):
         """Run extraction, analysis, AI batch, and review phases (1-4), then stop.
 
-        After review completes, pipeline state is saved and the process
-        exits.  Run ``run_finalize()`` (via ``python3 run.py --finalize``)
-        to continue with behavioral analysis, AI summary, reporting, and
-        documentation (Phases 5-8).
+        After review completes, pipeline state is saved and the process exits. Run ``run_finalize()`` (via ``python3 run.py --finalize``) to continue with behavioral analysis, AI summary, reporting, and documentation (Phases 5-8).
 
         Args:
-            resume: If True, skip extraction and analysis by loading
-                    saved state from a previous run. Resumes at the review phase.
+            resume: If True, skip extraction and analysis by loading saved state from a previous run. Resumes at the review phase.
         """
         logger.info("\n" + "="*80)
         logger.info(" FORENSIC MESSAGE ANALYZER — PHASES 1-4 ")
@@ -449,8 +439,7 @@ class ForensicAnalyzer:
                 ai_batch_results = self.run_ai_batch_phase(extracted_data)
                 analysis_results['ai_analysis'] = ai_batch_results
 
-                # Re-save analysis results now that AI batch data is included,
-                # so finalize can load the complete analysis from disk.
+                # Re-save analysis results now that AI batch data is included, so finalize can load the complete analysis from disk.
                 if self._analysis_results_path:
                     with open(self._analysis_results_path, 'w') as f:
                         json.dump(analysis_results, f, indent=2, default=str)
@@ -487,9 +476,7 @@ class ForensicAnalyzer:
     def run_finalize(self):
         """Run post-review phases (5-8) using saved pipeline state.
 
-        Loads extraction data, analysis results (including AI batch results),
-        and review decisions from disk. Runs behavioral analysis, AI executive
-        summary, reporting, and documentation.
+        Loads extraction data, analysis results (including AI batch results), and review decisions from disk. Runs behavioral analysis, AI executive summary, reporting, and documentation.
         """
         logger.info("\n" + "="*80)
         logger.info(" FORENSIC MESSAGE ANALYZER — FINALIZE (POST-REVIEW) ")
@@ -539,10 +526,7 @@ class ForensicAnalyzer:
         self._extracted_data_path = Path(ext_path)
         self._analysis_results_path = Path(ana_path)
 
-        # Reconstruct enriched DataFrame for Phase 4 behavioral analysis.
-        # During the initial run, Phase 2 enriches a DataFrame with threat/sentiment/pattern
-        # columns and saves it as self._enriched_df. Since finalize runs in a new process,
-        # we must rebuild it from the saved analysis results.
+        # Reconstruct enriched DataFrame for Phase 4 behavioral analysis. During the initial run, Phase 2 enriches a DataFrame with threat/sentiment/pattern columns and saves it as self._enriched_df. Since finalize runs in a new process, we must rebuild it from the saved analysis results.
         import pandas as pd
         messages = extracted_data.get('messages', [])
         if messages:
@@ -594,9 +578,7 @@ class ForensicAnalyzer:
                     logger.info(f"    {src}: {count}")
 
             # Phase 6: Executive Summary (post-review)
-            # Batch results already exist from Phase 3 (pre-review).
-            # Now generate summary, risks, and recommendations using the
-            # summary model, incorporating the actual conversation messages.
+            # Batch results already exist from Phase 3 (pre-review). Now generate summary, risks, and recommendations using the summary model, incorporating the actual conversation messages.
             ai_results = analysis_results.get('ai_analysis', {})
             if ai_results and ai_results.get('total_messages', 0) > 0:
                 logger.info("\n" + "="*60)
@@ -607,8 +589,7 @@ class ForensicAnalyzer:
                     from src.utils.pricing import get_pricing
                     ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic, config=self.config)
                     if ai_analyzer.client:
-                        # Build message list for the summary using the same
-                        # contact filter as Phase 3 (AI batch analysis).
+                        # Build message list for the summary using the same contact filter as Phase 3 (AI batch analysis).
                         ai_contacts = self.config.ai_contacts
                         ai_specified = self.config.ai_contacts_specified
                         summary_messages = [
@@ -720,12 +701,10 @@ def main(config: Config = None, resume: bool = False):
 def finalize(config: Config = None):
     """Entry point for the finalize (post-review) phase (Phases 4-7).
 
-    Loads saved pipeline state including review decisions, then runs
-    behavioral analysis, AI analysis, reporting, and documentation.
+    Loads saved pipeline state including review decisions, then runs behavioral analysis, AI analysis, reporting, and documentation.
 
     Args:
-        config: Configuration instance. ``config.output_dir`` must point
-                to the run directory from the original pipeline run.
+        config: Configuration instance. ``config.output_dir`` must point to the run directory from the original pipeline run.
 
     Returns:
         bool: True if completed successfully, False otherwise.

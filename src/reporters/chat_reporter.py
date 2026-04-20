@@ -1,8 +1,5 @@
 """
-Chat-bubble HTML reporter — iMessage-style conversation view.
-
-Renders messages as chat bubbles with tapback reactions, inline images,
-source badges, threat highlighting, and per-person conversation sections.
+Chat-bubble HTML reporter — iMessage-style conversation view. Renders messages as chat bubbles with tapback reactions, inline images, source badges, threat highlighting, and per-person conversation sections.
 """
 
 import logging

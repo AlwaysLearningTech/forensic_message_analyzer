@@ -90,9 +90,7 @@ class ExcelReporter:
                 if 'messages' in extracted_data:
                     df_messages = pd.DataFrame(extracted_data['messages'])
 
-                    # Create a tab for every mapped person except person1.
-                    # Always create the tab even if zero messages match (documents
-                    # absence of communication, which is itself evidence).
+                    # Create a tab for every mapped person except person1. Always create the tab even if zero messages match (documents absence of communication, which is itself evidence).
                     person1 = getattr(self.config, 'person1_name', None)
                     persons = sorted(
                         p for p in mapped_persons if p != person1
@@ -308,9 +306,7 @@ class ExcelReporter:
 
     def _write_conversation_threads_sheet(self, writer, messages: list):
         """
-        Write a 'Conversation Threads' sheet summarising every detected
-        conversation thread.  One row per thread with: participants,
-        time_range, message_count, threat_count, avg_sentiment.
+        Write a 'Conversation Threads' sheet summarising every detected conversation thread. One row per thread with: participants, time_range, message_count, threat_count, avg_sentiment.
 
         Args:
             writer: Active pd.ExcelWriter object.
@@ -390,10 +386,7 @@ class ExcelReporter:
                     })
 
             # --- Additional threats flagged by pre-review screening ---
-            # Source labelling is intentionally consistent ("Threat") — all
-            # flagged items go through the same manual review process and
-            # the report addresses the review findings, not the source of
-            # the initial flag.
+            # Source labelling is intentionally consistent ("Threat") — all flagged items go through the same manual review process and the report addresses the review findings, not the source of the initial flag.
             ai_analysis = analysis_results.get('ai_analysis', {})
             threat_assessment = ai_analysis.get('threat_assessment', {})
             if threat_assessment.get('found'):
@@ -527,8 +520,7 @@ class ExcelReporter:
                         continue
                     if not item.get('threat_detected'):
                         continue
-                    # Skip email and counseling source threats; they are added
-                    # in dedicated sections below to avoid duplicates.
+                    # Skip email and counseling source threats; they are added in dedicated sections below to avoid duplicates.
                     if item.get('source') in ('email', 'counseling'):
                         continue
                     events.append({

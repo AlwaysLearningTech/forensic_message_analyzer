@@ -64,8 +64,7 @@ class Config:
         # Two-model setup:
         #   AI_BATCH_MODEL   - cheaper model for per-message batch classification
         #   AI_SUMMARY_MODEL - higher-quality model for the executive narrative summary
-        # The legacy single AI_MODEL setting has been removed; both models above are
-        # configured independently. If only one is set, it is used for both roles.
+        # The legacy single AI_MODEL setting has been removed; both models above are configured independently. If only one is set, it is used for both roles.
         self.ai_endpoint = os.getenv('AI_ENDPOINT')
         self.ai_api_key = os.getenv('AI_API_KEY')
         self.ai_batch_model = os.getenv('AI_BATCH_MODEL')      # cheaper model for batch extraction
@@ -99,11 +98,8 @@ class Config:
         # AI analysis contacts — which mapped persons' conversations get sent to AI
         # ai_contacts_specified: the explicit names from AI_CONTACTS (e.g. {"Jane Doe"})
         # ai_contacts: the full set including Me/PERSON1 (used to validate both parties are known)
-        # Filter logic: at least one party must be in ai_contacts_specified,
-        #   AND both parties must be in ai_contacts. This ensures only conversations
-        #   WITH the specified person(s) are analyzed, not all conversations OF the user.
-        # PERSON1 (the user) is always included in ai_contacts since 'Me' and PERSON1_NAME
-        # refer to the same person across different data sources.
+        # Filter logic: at least one party must be in ai_contacts_specified, AND both parties must be in ai_contacts. This ensures only conversations WITH the specified person(s) are analyzed, not all conversations OF the user.
+        # PERSON1 (the user) is always included in ai_contacts since 'Me' and PERSON1_NAME refer to the same person across different data sources.
         ai_contacts_raw = self._parse_json_list('AI_CONTACTS')
         if ai_contacts_raw:
             self.ai_contacts_specified = set(ai_contacts_raw)
@@ -158,12 +154,9 @@ class Config:
         )
         
         # Legal compliance / case identification
-        # CASE_NUMBER may be a single value (e.g. "2024-FL-12345") OR a JSON
-        # array of strings (e.g. '["2024-FL-12345","2024-FL-67890"]') for
-        # consolidated runs that span multiple matters.
-        # CASE_NUMBERS (plural) is also accepted as a JSON array.
-        # case_number      - single string (joined with newlines for display)
-        # case_numbers     - list of strings, in input order, for per-line rendering
+        # CASE_NUMBER may be a single value (e.g. "2024-FL-12345") OR a JSON array of strings (e.g. '["2024-FL-12345","2024-FL-67890"]') for consolidated runs that span multiple matters. CASE_NUMBERS (plural) is also accepted as a JSON array.
+        # case_number  - single string (joined with newlines for display)
+        # case_numbers - list of strings, in input order, for per-line rendering
         self.case_numbers = self._parse_case_numbers()
         self.case_number = "\n".join(self.case_numbers) if self.case_numbers else ''
         self.examiner_name = os.getenv('EXAMINER_NAME', '')
@@ -301,8 +294,7 @@ class Config:
                     logger.warning(
                         f"Could not parse case numbers as JSON; ignoring malformed value: {raw}"
                     )
-                # JSON-array-shaped values never fall through to single-string treatment;
-                # otherwise a malformed '[...' would be appended verbatim as a "case number".
+                # JSON-array-shaped values never fall through to single-string treatment; otherwise a malformed '[...' would be appended verbatim as a "case number".
                 continue
             # Single string form
             candidates.append(raw)

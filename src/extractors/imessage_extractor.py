@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
-iMessage extraction module.
-Extracts messages from iMessage chat.db database with full forensic column
-coverage, tapback/reaction linking, and robust attributedBody parsing.
+iMessage extraction module. Extracts messages from iMessage chat.db database with full forensic column coverage, tapback/reaction linking, and robust attributedBody parsing.
 """
 
 import sqlite3
@@ -52,8 +50,7 @@ class IMessageExtractor:
     """
     Extracts messages from iMessage chat.db database.
     Handles both SMS and iMessage conversations.
-    Includes attributedBody decoding via pytypedstream library with
-    legacy heuristic fallbacks.
+    Includes attributedBody decoding via pytypedstream library with legacy heuristic fallbacks.
     """
 
     IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.heic', '.heif', '.webp', '.tiff', '.bmp'}
@@ -129,8 +126,7 @@ class IMessageExtractor:
                 if isinstance(text, str) and text.strip():
                     return text.strip()
 
-        # Low-level fallback: iterate stream events for the first bytes value
-        # after an NSString class declaration.
+        # Low-level fallback: iterate stream events for the first bytes value after an NSString class declaration.
         from typedstream.stream import TypedStreamReader
         reader = TypedStreamReader.from_data(data)
         found_nsstring = False
@@ -260,10 +256,7 @@ class IMessageExtractor:
     def _parse_edit_history(self, blob_data) -> list:
         """Parse message_summary_info BLOB to extract edit history.
 
-        iOS 16+ stores edit history as a binary plist in the
-        message_summary_info column.  The plist contains an 'ec' dict
-        mapping part indices to arrays of edit events.  Each event has
-        'd' (Apple-epoch timestamp) and 't' (typedstream-encoded text).
+        iOS 16+ stores edit history as a binary plist in the message_summary_info column. The plist contains an 'ec' dict mapping part indices to arrays of edit events. Each event has 'd' (Apple-epoch timestamp) and 't' (typedstream-encoded text).
 
         Returns list of dicts ordered oldest-first:
             [{'timestamp': <datetime|None>, 'content': <str>}, ...]
@@ -323,8 +316,7 @@ class IMessageExtractor:
         """Compute human-readable delay between send and read timestamps.
 
         Both arguments are ISO datetime strings from the SQL query.
-        Returns a string like '2m 30s', '1h 15m', '2d 3h', or '' if
-        either timestamp is missing.
+        Returns a string like '2m 30s', '1h 15m', '2d 3h', or '' if either timestamp is missing.
         """
         if not sent_ts or not read_ts:
             return ''
@@ -527,8 +519,7 @@ class IMessageExtractor:
 
     def extract_messages(self) -> list:
         """
-        Extract messages from iMessage database with full forensic column
-        coverage, tapback inclusion, and reaction linking.
+        Extract messages from iMessage database with full forensic column coverage, tapback inclusion, and reaction linking.
         """
         if not self.db_path:
             logger.warning("No iMessage database path configured")
@@ -832,8 +823,7 @@ class IMessageExtractor:
         """
         Link tapback messages to their parents.
 
-        For each tapback, enriches its content with a snippet of the parent
-        message and adds a reaction entry to the parent's reactions list.
+        For each tapback, enriches its content with a snippet of the parent message and adds a reaction entry to the parent's reactions list.
         """
         # Build guid -> message index
         guid_to_msg = {}
@@ -890,9 +880,7 @@ class IMessageExtractor:
     def _get_recently_deleted_ids(cursor, placeholders, all_handles) -> set:
         """Return set of message ROWIDs from the recovery table.
 
-        The chat_recoverable_message_join table (iOS 16+) links recently
-        deleted messages to the chat they were deleted from.  Messages
-        remain recoverable for ~30 days.
+        The chat_recoverable_message_join table (iOS 16+) links recently deleted messages to the chat they were deleted from. Messages remain recoverable for ~30 days.
         """
         try:
             query = f"""
@@ -912,8 +900,7 @@ class IMessageExtractor:
     def _recover_deleted_messages(self, cursor, message_ids, msg_cols, att_cols) -> list:
         """Extract full message dicts for deleted messages not in the main set.
 
-        Uses the same column-discovery approach as the main extraction to
-        build message dicts for each recovered ROWID.
+        Uses the same column-discovery approach as the main extraction to build message dicts for each recovered ROWID.
         """
         if not message_ids:
             return []

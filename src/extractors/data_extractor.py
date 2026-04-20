@@ -166,9 +166,7 @@ class DataExtractor:
                     f"Counseling extraction failed: {str(e)}"
                 )
 
-        # Normalize 'Me' → PERSON1_NAME so the entire downstream pipeline uses
-        # a single consistent identity for the device owner.  Extractors assign
-        # 'Me' before contact-mapping runs, so we fix it up here in one place.
+        # Normalize 'Me' → PERSON1_NAME so the entire downstream pipeline uses a single consistent identity for the device owner. Extractors assign 'Me' before contact-mapping runs, so we fix it up here in one place.
         person1 = getattr(self.config, 'person1_name', None)
         if person1:
             me_count = 0

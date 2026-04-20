@@ -276,16 +276,14 @@ class BehavioralAnalyzer:
     def _analyze_response_patterns(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Analyze response times and patterns.
 
-        Response time = gap between a message and the previous message
-        from a *different* sender (i.e., actual conversational response).
+        Response time = gap between a message and the previous message from a *different* sender (i.e., actual conversational response).
         """
         if 'sender' not in df.columns or 'timestamp' not in df.columns:
             return {}
 
         df_sorted = df.sort_values('timestamp').copy()
 
-        # Compute per-message response time: time since the last message
-        # from a different sender (actual conversational turn response).
+        # Compute per-message response time: time since the last message from a different sender (actual conversational turn response).
         prev_sender = df_sorted['sender'].shift(1)
         raw_diff = df_sorted['timestamp'].diff()
         # Only count as a response when the sender changed

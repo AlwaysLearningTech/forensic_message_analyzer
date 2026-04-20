@@ -170,8 +170,7 @@ class TestTeamsExtractor:
         extractor = TeamsExtractor(str(tmp_path), recorder, MagicMock())
         messages = extractor.extract_all()
 
-        # The userId 8:live:tanikir should resolve to the person
-        # whose mapping contains tanikir@gmail.com
+        # The userId 8:live:tanikir should resolve to the person whose mapping contains tanikir@gmail.com
         assert len(messages) == 1
         # Sender should be a mapped person name (not raw userId)
         assert messages[0]['sender'] != '8:live:tanikir'
@@ -268,15 +267,7 @@ class TestTeamsExtractor:
         extractor = TeamsExtractor(str(tmp_path), recorder, MagicMock())
         messages = extractor.extract_all()
 
-        # Owner is always mapped. The message should still be included
-        # if the owner is a mapped person (which they should be).
-        # But the "other person" is not mapped.
-        # The message should still appear since one participant (owner) is mapped.
-        # Whether the specific message is included depends on sender/recipient filtering.
-        # Owner didn't send any messages here, so the other person's message
-        # would have sender="Random Person Nobody Knows" and recipient=owner.
-        # Since recipient (owner) is mapped, it should be included.
-        # This verifies the mapped-persons filter works correctly.
+        # Owner is always mapped. The message should still be included if the owner is a mapped person (which they should be). But the "other person" is not mapped. The message should still appear since one participant (owner) is mapped. Whether the specific message is included depends on sender/recipient filtering. Owner didn't send any messages here, so the other person's message would have sender="Random Person Nobody Knows" and recipient=owner. Since recipient (owner) is mapped, it should be included. This verifies the mapped-persons filter works correctly.
         for m in messages:
             assert m['sender'] in list(extractor._person_names_lower.values()) + ['Me', 'Random Person Nobody Knows']
 
@@ -311,8 +302,7 @@ class TestTeamsExtractor:
         extractor = TeamsExtractor(str(tmp_path), recorder, MagicMock())
         messages = extractor.extract_all()
 
-        # All 3 should be extracted; the unidentified one should have
-        # sender inferred as "Alice Johnson" because it's a 1:1 chat
+        # All 3 should be extracted; the unidentified one should have sender inferred as "Alice Johnson" because it's a 1:1 chat
         assert len(messages) == 3
         unid = [m for m in messages if m['content'] == 'Unidentified sender message']
         assert len(unid) == 1

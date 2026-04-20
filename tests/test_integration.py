@@ -201,10 +201,7 @@ class TestSystemIntegration:
         _create_test_image(door_damage_path, width=50, height=40, color=(139, 69, 19))
 
         # ---------------------------------------------------------------
-        # 1. Build synthetic iMessage-style messages using the production
-        #    person names so reports render exactly as they will in the
-        #    real run. Covers: threats, normal conversation, images,
-        #    tapbacks, emojis, and special message types.
+        # 1. Build synthetic iMessage-style messages using the production person names so reports render exactly as they will in the real run. Covers: threats, normal conversation, images, tapbacks, emojis, and special message types.
         # ---------------------------------------------------------------
         messages = [
             # --- Original text messages (threats + normal) ---
@@ -927,8 +924,7 @@ class TestSystemIntegration:
             "'<script>...</script> I will stalk you' should be detected"
         )
 
-        # Stub AI analysis with realistic structure including
-        # threat details that the review filter can act on
+        # Stub AI analysis with realistic structure including threat details that the review filter can act on
         ai_analysis = {
             'generated_at': datetime.now().isoformat(),
             'total_messages': len(messages),
@@ -1080,8 +1076,7 @@ class TestSystemIntegration:
             f"Expected at least 10 review items, got {len(items_for_review)}"
         )
 
-        # Cycle through relevant / not_relevant / uncertain to simulate
-        # a realistic human review with mixed decisions
+        # Cycle through relevant / not_relevant / uncertain to simulate a realistic human review with mixed decisions
         review_dir = tmp_path / "reviews"
         manager = ManualReviewManager(review_dir=review_dir, forensic_recorder=forensic)
         decision_cycle = ['relevant', 'not_relevant', 'uncertain']
@@ -1556,8 +1551,7 @@ class TestSystemIntegration:
         # ---------------------------------------------------------------
         # 13. Copy output to persistent sample directory for inspection
         # ---------------------------------------------------------------
-        # Always write sample output so the developer can inspect reports
-        # before spending money on a real run.
+        # Always write sample output so the developer can inspect reports before spending money on a real run.
         sample_dir = Path(__file__).parent.parent / "sample_output"
         if sample_dir.exists():
             import shutil

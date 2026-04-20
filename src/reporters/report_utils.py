@@ -26,10 +26,7 @@ _MIME_MAP = {
 def b64_img(path_str: str) -> Optional[str]:
     """Return a resized data-URI for an image file, or None if unreadable.
 
-    Images are resized to fit within _HTML_IMG_MAX_DIM pixels and saved in
-    their original format (PNG stays PNG, JPEG stays JPEG).  JPEGs are
-    re-compressed at _HTML_IMG_JPEG_QUALITY.  Original files are preserved
-    unmodified in the attachments/ output directory.
+    Images are resized to fit within _HTML_IMG_MAX_DIM pixels and saved in their original format (PNG stays PNG, JPEG stays JPEG). JPEGs are re-compressed at _HTML_IMG_JPEG_QUALITY. Original files are preserved unmodified in the attachments/ output directory.
     """
     p = Path(path_str)
     if not p.is_file():

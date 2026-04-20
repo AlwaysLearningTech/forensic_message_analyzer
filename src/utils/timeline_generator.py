@@ -90,8 +90,7 @@ class TimelineGenerator:
         significant_df = df[filter_mask]
 
         for _, row in significant_df.iterrows():
-            # Skip email and counseling source messages here; they are added
-            # in dedicated sections below to avoid duplicates.
+            # Skip email and counseling source messages here; they are added in dedicated sections below to avoid duplicates.
             if row.get('source') in ('email', 'counseling'):
                 continue
             # Build conversation context for this flagged message
@@ -115,9 +114,7 @@ class TimelineGenerator:
             events.append(event)
 
         # --- Email communications (case chronology context) ---
-        # All emails are included because they are low-volume and each is
-        # purposeful.  Third-party emails (counselors, attorneys, family)
-        # provide crucial corroboration for court chronologies.
+        # All emails are included because they are low-volume and each is purposeful. Third-party emails (counselors, attorneys, family) provide crucial corroboration for court chronologies.
         if extracted_data:
             mapped_persons = set(self.config.contact_mappings.keys())
             for msg in extracted_data.get('messages', []):
@@ -138,9 +135,7 @@ class TimelineGenerator:
                 })
 
         # --- Counseling session events (with correlated message context) ---
-        # Counseling sessions are included as standalone events with
-        # surrounding communication context to show what was happening
-        # in the time window around each session.
+        # Counseling sessions are included as standalone events with surrounding communication context to show what was happening in the time window around each session.
         if extracted_data:
             window_hours = getattr(self.config, 'counseling_correlation_window_hours', 48)
             for msg in extracted_data.get('messages', []):

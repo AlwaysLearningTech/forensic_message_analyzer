@@ -83,10 +83,7 @@ class ForensicReporter:
     def _docx_to_pdf(self, docx_path: Path) -> Path:
         """Convert a DOCX file to PDF using docx2pdf (MS Word / LibreOffice).
 
-        On macOS, MS Word is sandboxed and may lack permission to read/write
-        arbitrary directories.  We work around this by copying the DOCX into a
-        temporary directory under ~/Documents (which Word always has access to),
-        converting there, then moving the PDF back to the original location.
+        On macOS, MS Word is sandboxed and may lack permission to read/write arbitrary directories. We work around this by copying the DOCX into a temporary directory under ~/Documents (which Word always has access to), converting there, then moving the PDF back to the original location.
 
         Returns the path to the generated PDF file.
         """
@@ -207,9 +204,7 @@ class ForensicReporter:
                 f"Word report generation failed: {str(e)}"
             )
 
-        # Generate standalone Methodology document (lay-friendly, distinct
-        # from the findings report so the legal team can read it without
-        # wading through case-specific results)
+        # Generate standalone Methodology document (lay-friendly, distinct from the findings report so the legal team can read it without wading through case-specific results)
         try:
             methodology_path = self._generate_methodology_document(
                 extracted_data, timestamp
@@ -281,12 +276,7 @@ class ForensicReporter:
     def _generate_methodology_document(self, extracted_data: Dict, timestamp: str) -> Path:
         """Generate a standalone Methodology Statement Word document.
 
-        Separate from the findings report so the legal team (and the
-        court) can read the methodology without having to navigate
-        case-specific results. Contents are produced by
-        LegalComplianceManager.generate_methodology_sections(), which
-        is plain-language and tied to FRE / Daubert factors point by
-        point.
+        Separate from the findings report so the legal team (and the court) can read the methodology without having to navigate case-specific results. Contents are produced by LegalComplianceManager.generate_methodology_sections(), which is plain-language and tied to FRE / Daubert factors point by point.
         """
         doc = Document()
 
@@ -859,15 +849,12 @@ class ForensicReporter:
                                       reports: Dict[str, Any] = None):
         """Generate a formatted Word document from the legal team summary text.
 
-        Parses the narrative and produces a professional document with case
-        header, formatted paragraphs, an output file reference table, and a
-        compliance footer.
+        Parses the narrative and produces a professional document with case header, formatted paragraphs, an output file reference table, and a compliance footer.
 
         Args:
             legal_summary: Plain text narrative.
             output_path: Path for the output .docx file.
-            reports: Dict mapping report type keys to file paths. Used to build
-                     the output file reference table with actual filenames.
+            reports: Dict mapping report type keys to file paths. Used to build the output file reference table with actual filenames.
         """
         doc = Document()
 

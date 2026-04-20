@@ -307,8 +307,7 @@ class CommunicationMetricsAnalyzer:
     
     def generate_metrics_report(self, metrics: Dict[str, Any], output_path: Optional[Path] = None) -> Path:
         """
-        Generate a metrics report file.
-        Creates a JSON report for use in legal proceedings (FRE 803(6) business records).
+        Generate a metrics report file. Creates a JSON report for use in legal proceedings (FRE 803(6) business records).
         
         Args:
             metrics: Metrics dictionary from analyze_messages

@@ -330,9 +330,7 @@ class RunManifest:
         with open(output_path, 'w') as f:
             json.dump(self.manifest_data, f, indent=2, default=str)
 
-        # Compute hash of the final manifest file for chain-of-custody logging.
-        # The hash is recorded in the forensic log only — NOT written back into
-        # the manifest file itself, which would invalidate the hash.
+        # Compute hash of the final manifest file for chain-of-custody logging. The hash is recorded in the forensic log only — NOT written back into the manifest file itself, which would invalidate the hash.
         manifest_hash = self.forensic.compute_hash(output_path)
 
         # Detached signature: a sibling .sig (raw Ed25519) + .sig.pub (PEM). Hashing alone does not resist an attacker with write access to the output directory; a signature tied to an examiner key does.
