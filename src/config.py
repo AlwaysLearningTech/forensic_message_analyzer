@@ -148,7 +148,12 @@ class Config:
         if not (1024 <= port_val <= 65535):
             raise ValueError(f"REVIEW_PORT must be between 1024 and 65535, got {port_val}")
         self.review_port = port_val
-        
+
+        # Review interface mode. Default is "web" (Flask). Set REVIEW_MODE=terminal in .env to use the sequential terminal reviewer instead.
+        self.review_mode = os.getenv('REVIEW_MODE', 'web').strip().lower()
+        if self.review_mode not in ('web', 'terminal'):
+            raise ValueError(f"REVIEW_MODE must be 'web' or 'terminal', got {self.review_mode!r}")
+
         # AI processing mode
         self.use_batch_api = os.getenv('USE_BATCH_API', 'true').lower() == 'true'
 
@@ -274,6 +279,7 @@ class Config:
             },
             "review_ui": {
                 "port": self.review_port,
+                "mode": self.review_mode,
             },
         }
 

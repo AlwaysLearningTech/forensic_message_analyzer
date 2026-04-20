@@ -49,21 +49,13 @@ def run(analyzer, analysis_results: Dict, extracted_data: Dict, resume_session_i
     messages = [m for m in all_messages if _is_mapped(analyzer, m)]
     screenshots = extracted_data.get("screenshots", [])
 
-    review_mode = "terminal"
-    if items_for_review:
-        try:
-            choice = input("\n    Review mode: (W)eb interface or (T)erminal? [W]: ").strip().upper()
-            if choice != "T":
-                review_mode = "web"
-        except (EOFError, KeyboardInterrupt):
-            review_mode = "terminal"
+    review_mode = analyzer.config.review_mode  # "web" (default) or "terminal" via REVIEW_MODE in .env
 
     if review_mode == "web" and items_for_review:
         try:
             from ..review.web_review import WebReview
             web = WebReview(manager, forensic_recorder=analyzer.forensic, config=analyzer.config)
             web.start_review(messages, items_for_review, screenshots=screenshots, port=analyzer.config.review_port)
-            # Reviewer can stop the session two ways: Complete Review (review_complete=True) or Pause & Quit (review_complete stays False so --resume picks it up). Surface the pause signal to the pipeline runner so it doesn't flip review_complete.
             if getattr(web, "was_paused", False):
                 analyzer._review_paused = True
         except ImportError:
