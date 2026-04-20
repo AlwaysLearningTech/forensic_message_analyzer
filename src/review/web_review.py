@@ -1753,7 +1753,7 @@ function renderNotesOverview(noteGroups, suggestions) {{
             + '<div class="note-group-header">'
             +   '<span class="note-group-text" style="font-style:italic;">' + escapeHtml(s.text) + '</span>'
             +   '<div class="note-group-actions">'
-            +     '<button onclick="deleteNotePhrase(\'' + escapeHtml(s.text).replace(/'/g, "\\'") + '\', true)">Delete</button>'
+            +     '<button onclick="deleteNotePhrase(\'' + escapeHtml(s.text).replace(/'/g, "&#39;") + '\', true)">Delete</button>'
             +   '</div>'
             + '</div>'
             + '</div>';
@@ -1772,7 +1772,7 @@ function startBulkEdit(idx, btn) {{
   }}
   editDiv.style.display = 'flex';
   editDiv.innerHTML = '<input type="text" value="' + escapeHtml(text) + '" id="bulkEditInput_' + idx + '">'
-    + '<button onclick="submitBulkEdit(' + idx + ', \'' + escapeHtml(text).replace(/'/g, "\\'") + '\')">Save</button>'
+    + '<button onclick="submitBulkEdit(' + idx + ', \'' + escapeHtml(text).replace(/'/g, "&#39;") + '\')">Save</button>'
     + '<button class="cancel-btn" onclick="document.getElementById(\'bulkEdit_' + idx + '\').style.display=\'none\'">Cancel</button>';
   const input = document.getElementById('bulkEditInput_' + idx);
   input.focus();
