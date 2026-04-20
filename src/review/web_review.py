@@ -313,6 +313,7 @@ class WebReview:
 
         @self.app.route("/api/complete", methods=["POST"])
         def complete_review():
+            logger.info(f"[COMPLETE] /api/complete route: was_paused is {self.was_paused}")
             if self.forensic:
                 self.forensic.record_action(
                     "web_review_completed",
@@ -330,6 +331,7 @@ class WebReview:
             Functionally similar to /api/complete but stamps a different audit event and sets was_paused so the pipeline runner keeps the phase resumable via --resume.
             """
             self.was_paused = True
+            logger.info(f"[PAUSE] /api/pause route: was_paused set to {self.was_paused}")
             if self.forensic:
                 self.forensic.record_action(
                     "web_review_paused",
@@ -400,7 +402,9 @@ class WebReview:
         try:
             self._shutdown_event.wait()
         except KeyboardInterrupt:
-            pass
+            logger.info("[EXIT] KeyboardInterrupt caught (Ctrl+C)")
+
+        logger.info(f"[EXIT] start_review returning. was_paused={self.was_paused}")
 
     # ------------------------------------------------------------------
     # Attachment path safety

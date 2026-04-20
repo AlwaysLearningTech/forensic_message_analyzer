@@ -489,6 +489,7 @@ class ForensicAnalyzer:
 
             # The reviewer can end the session two ways: Complete Review (phase is done, move to finalize) or Pause & Quit (phase stays open, come back with --resume). _review_paused distinguishes the two so review_complete only flips on Complete.
             paused = getattr(self, '_review_paused', False)
+            logger.info(f"[MAIN] After review phase: _review_paused={getattr(self, '_review_paused', 'NOT_SET')}, paused={paused}, review_complete will be={not paused}")
 
             self._save_pipeline_state(
                 review_session_id=getattr(self, '_review_session_id', None),

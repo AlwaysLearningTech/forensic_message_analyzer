@@ -67,8 +67,10 @@ def run(analyzer, analysis_results: Dict, extracted_data: Dict, resume_session_i
             from ..review.web_review import WebReview
             web = WebReview(manager, forensic_recorder=analyzer.forensic, config=analyzer.config)
             web.start_review(messages, items_for_review, screenshots=screenshots, port=analyzer.config.review_port)
+            logger.info(f"[PIPELINE] After start_review: web.was_paused={getattr(web, 'was_paused', 'NOT_SET')}")
             if getattr(web, "was_paused", False):
                 analyzer._review_paused = True
+                logger.info("[PIPELINE] Set analyzer._review_paused = True")
         except ImportError:
             logger.info("    Flask not installed. Falling back to terminal review.")
             from ..review.interactive_review import InteractiveReview
