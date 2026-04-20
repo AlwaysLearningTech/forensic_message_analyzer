@@ -113,7 +113,11 @@ class WebReview:
 
         @self.app.route("/api/item/<int:idx>")
         def get_item(idx):
-            return jsonify(self._get_review_item(idx))
+            logger.info(f"[API] /api/item/{idx} called. flagged_items={len(self.flagged_items)}, messages={len(self.messages)}")
+            result = self._get_review_item(idx)
+            if 'error' in result:
+                logger.warning(f"[API] /api/item/{idx} error: {result['error']}")
+            return jsonify(result)
 
         @self.app.route("/api/decision", methods=["POST"])
         def submit_decision():
@@ -1005,7 +1009,7 @@ class WebReview:
         """Return the single-page review interface HTML."""
         import html as html_module
         case_number = html_module.escape(self.config.case_number.split("\n")[0] if self.config.case_number else "")
-        case_name = html_module.escape(self.config.case_name or "")
+        case_name = html_module.escape(self.config.case_name.split("\n")[0] if self.config.case_name else "")
         examiner = html_module.escape(self.config.examiner_name or "")
         total_items = len(self.flagged_items)
 
@@ -1443,6 +1447,11 @@ function loadItem(idx) {{
       document.querySelectorAll('.decision-buttons button').forEach(b => b.classList.remove('selected'));
       document.getElementById('submitBtn').disabled = true;
       document.getElementById('notesField').value = '';
+    }})
+    .catch(err => {{
+      document.getElementById('contextPanel').innerHTML =
+        '<p style="color:#c62828; padding:40px; text-align:center;">Failed to load item: ' + err.message + '</p>';
+      console.error('loadItem error:', err);
     }});
 }}
 
