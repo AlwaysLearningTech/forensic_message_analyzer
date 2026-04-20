@@ -86,6 +86,7 @@ class ForensicReporter:
         On macOS, MS Word is sandboxed and may lack permission to read/write arbitrary directories. We work around this by copying the DOCX into a temporary directory under ~/Documents (which Word always has access to), converting there, then moving the PDF back to the original location.
 
         Returns the path to the generated PDF file.
+        Raises RuntimeError if the conversion fails.
         """
         import shutil
         import tempfile
@@ -102,6 +103,8 @@ class ForensicReporter:
             tmp_pdf = tmp_dir / pdf_path.name
             shutil.copy2(docx_path, tmp_docx)
             convert(str(tmp_docx), str(tmp_pdf))
+            if not tmp_pdf.exists():
+                raise RuntimeError(f"MS Word failed to produce {tmp_pdf.name} — Word may need to be restarted or granted Full Disk Access in System Settings > Privacy")
             shutil.move(str(tmp_pdf), str(pdf_path))
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
