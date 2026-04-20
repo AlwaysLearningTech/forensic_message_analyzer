@@ -56,17 +56,21 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
 - **Attachments**: Full metadata preservation
 
 ### Analysis Capabilities
-- **Threat Detection**: AI-powered threat identification with configurable thresholds
+- **Threat Detection**: Pattern- and keyword-based threat identification with configurable thresholds
 - **Pattern Analysis**: YAML-based configurable patterns for behavioral detection
 - **Sentiment Analysis**: Message tone and emotion detection using TextBlob
 - **Behavioral Analysis**: Communication pattern identification and profiling
 - **Communication Metrics**: Frequency, volume, timing, and response pattern analysis
-- **AI Analysis**: Anthropic Claude integration with batch API support and prompt caching
-  - Threat detection and risk assessment with severity classification
-  - Emotional escalation tracking across conversations
-  - Behavioral pattern recognition (control, isolation, harassment)
-  - Legal team summary: narrative guide explaining findings and how to use the outputs
-  - Conversation summary written in plain language for attorneys
+- **Manual Review**: Every flagged item is reviewed and confirmed by a human examiner before it appears in the final reports
+
+### Optional AI Assistance
+
+The analyzer can optionally use Anthropic Claude (configurable via `.env`) to:
+
+- Pre-screen messages for threat indicators during the local analysis phase, surfacing additional candidates for the examiner's manual review queue. The examiner — not the model — decides what is included in the final reports.
+- Draft the executive summary narrative and legal-team reading guide *after* manual review is complete, working only from the messages the examiner confirmed.
+
+AI is one tool in the workflow; nothing reaches a final report without human confirmation. The methodology document distributed with each run describes exactly how AI was used (model, phase, inputs, reviewer override). To run the pipeline without AI, leave `AI_API_KEY` unset — the local analyzers, manual review, and reporting all run without it.
 
 ### Legal Compliance
 - **Chain of Custody**: Complete audit trail with SHA-256 hashing
@@ -81,7 +85,7 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
   - Each tab combines messages, threats, and sentiment in one view
   - Excludes conversations with non-relevant parties
 - **Word/PDF Reports**: Comprehensive analysis with:
-  - Legal team summary (AI-generated narrative for attorneys)
+  - Legal team summary (plain-language narrative for attorneys)
   - Executive summary
   - Data extraction statistics
   - Threat analysis with high-priority examples
@@ -106,8 +110,8 @@ The Forensic Message Analyzer is a multi-phase digital evidence processor design
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/AlwaysLearningTech/forensic_message_analyzer.git
-cd forensic_message_analyzer
+git clone https://github.com/AlwaysLearningTech/forensic-message-analyzer.git
+cd forensic-message-analyzer
 ```
 
 2. Install dependencies:
@@ -130,7 +134,7 @@ sudo apt-get install tesseract-ocr
 ## Configuration
 
 The `.env` file is stored **outside the repository** for security. The system looks for it in:
-1. `~/workspace/data/forensic_message_analyzer/.env` (primary location)
+1. `~/workspace/data/forensic-message-analyzer/.env` (primary location)
 2. Path specified in `DOTENV_PATH` environment variable
 3. Local `.env` in the project directory (not recommended)
 
@@ -138,17 +142,17 @@ The `.env` file is stored **outside the repository** for security. The system lo
 
 1. Create the data directory structure:
 ```bash
-mkdir -p ~/workspace/data/forensic_message_analyzer
+mkdir -p ~/workspace/data/forensic-message-analyzer
 ```
 
 2. Copy the example configuration to the data directory:
 ```bash
-cp .env.example ~/workspace/data/forensic_message_analyzer/.env
+cp .env.example ~/workspace/data/forensic-message-analyzer/.env
 ```
 
-3. Edit `~/workspace/data/forensic_message_analyzer/.env` with your settings:
+3. Edit `~/workspace/data/forensic-message-analyzer/.env` with your settings:
 ```bash
-# Anthropic Claude API key (required for AI analysis)
+# Anthropic Claude API key (optional — enables pre-review screening and AI executive summary)
 AI_API_KEY=your-api-key
 # Two-model setup (the legacy single AI_MODEL was removed in v4.4.0):
 AI_BATCH_MODEL=claude-haiku-4-20250506      # cheap; per-message classification
@@ -170,10 +174,10 @@ PERSON3_MAPPING='["third@example.com","ThirdName","Nickname"]'
 
 # Data Sources (comment out or remove any you don't have)
 MESSAGES_DB_PATH=~/Library/Messages/chat.db
-WHATSAPP_SOURCE_DIR=~/workspace/data/forensic_message_analyzer/source_files/whatsapp/
-SCREENSHOT_SOURCE_DIR=~/workspace/data/forensic_message_analyzer/source_files/screenshots/
-EMAIL_SOURCE_DIR=~/workspace/data/forensic_message_analyzer/source_files/email/
-TEAMS_SOURCE_DIR=~/workspace/data/forensic_message_analyzer/source_files/microsoft_teams_personal/
+WHATSAPP_SOURCE_DIR=~/workspace/data/forensic-message-analyzer/source_files/whatsapp/
+SCREENSHOT_SOURCE_DIR=~/workspace/data/forensic-message-analyzer/source_files/screenshots/
+EMAIL_SOURCE_DIR=~/workspace/data/forensic-message-analyzer/source_files/email/
+TEAMS_SOURCE_DIR=~/workspace/data/forensic-message-analyzer/source_files/microsoft_teams_personal/
 ```
 
 ## Data Separation Strategy
@@ -184,7 +188,7 @@ The project implements a strict separation between code and data to prevent sens
 
 ```
 Repository (GitHub)              Local Data Storage
-├── src/                        ~/workspace/data/forensic_message_analyzer/
+├── src/                        ~/workspace/data/forensic-message-analyzer/
 ├── tests/                      ├── .env (configuration with keys)
 ├── patterns/                   ├── source_files/
 ├── .env.example                │   ├── whatsapp/
@@ -194,24 +198,24 @@ Repository (GitHub)              Local Data Storage
                                ├── review/ (manual review decisions)
                                └── logs/
 
-                               ~/workspace/output/forensic_message_analyzer/
+                               ~/workspace/output/forensic-message-analyzer/
                                └── [all analysis outputs]
 ```
 
 ### Key Principles
 
-1. **Code Repository** (`/workspace/repos/forensic_message_analyzer/`):
+1. **Code Repository** (`/workspace/repos/forensic-message-analyzer/`):
    - Contains only source code, tests, and documentation
    - `.env.example` provides template without sensitive data
    - `.gitignore` excludes all data directories
 
-2. **Data Storage** (`/workspace/data/forensic_message_analyzer/`):
+2. **Data Storage** (`/workspace/data/forensic-message-analyzer/`):
    - Holds actual `.env` with credentials
    - Contains source files for analysis
    - Stores review decisions and logs
    - Never tracked in version control
 
-3. **Output Storage** (`/workspace/output/forensic_message_analyzer/`):
+3. **Output Storage** (`/workspace/output/forensic-message-analyzer/`):
    - All analysis results and reports
    - Chain of custody documents
    - Separate from both code and input data
@@ -220,12 +224,12 @@ Repository (GitHub)              Local Data Storage
 
 ```bash
 # Create data directory structure
-mkdir -p ~/workspace/data/forensic_message_analyzer/{source_files,review,logs}
-mkdir -p ~/workspace/data/forensic_message_analyzer/source_files/{whatsapp,screenshots,email,microsoft_teams_personal}
-mkdir -p ~/workspace/output/forensic_message_analyzer
+mkdir -p ~/workspace/data/forensic-message-analyzer/{source_files,review,logs}
+mkdir -p ~/workspace/data/forensic-message-analyzer/source_files/{whatsapp,screenshots,email,microsoft_teams_personal}
+mkdir -p ~/workspace/output/forensic-message-analyzer
 
 # Copy and configure .env
-cp .env.example ~/workspace/data/forensic_message_analyzer/.env
+cp .env.example ~/workspace/data/forensic-message-analyzer/.env
 # Edit the .env file with your actual configuration
 ```
 
@@ -280,14 +284,14 @@ This executes Phases 1-4 (extraction through review):
    - Sentiment analysis (polarity and subjectivity)
    - YAML-based pattern analysis
    - Communication metrics
-3. **AI Batch Analysis**: Submits messages to Claude for classification (pre-review)
-4. **Manual Review**: Flags items from local and AI analysis for human review
+3. **Optional AI Pre-Screening**: If configured, submits messages to Claude to surface additional review candidates
+4. **Manual Review**: Examiner reviews and confirms every flagged item before it can appear in the final reports
 
 Then run `python3 run.py --finalize` for Phases 5-8 (post-review):
 5. **Behavioral Analysis**: Post-review behavioral pattern analysis
-6. **AI Executive Summary**: Generates narrative summary incorporating review decisions
+6. **Executive Summary**: Generates narrative summary from the reviewer-confirmed messages (uses Claude when configured; otherwise produces a deterministic statistical summary)
 7. **Report Generation**: Creates comprehensive reports
-   - Excel: Separate tabs per person with integrated threat/sentiment data, plus Findings Summary, Timeline, AI Analysis, Conversation Threads, and Third Party Contacts sheets
+   - Excel: Separate tabs per person with integrated threat/sentiment data, plus Findings Summary, Timeline, Conversation Threads, and Third Party Contacts sheets
    - Word: Complete analysis with all sections
    - PDF: Matches Word content for legal distribution
    - JSON: Raw data for additional processing
@@ -302,7 +306,7 @@ After completing manual review, generate reports and documentation:
 python3 run.py --finalize
 
 # Or specify a run directory explicitly
-python3 run.py --finalize ~/workspace/output/forensic_message_analyzer/run_20260304_120000
+python3 run.py --finalize ~/workspace/output/forensic-message-analyzer/run_20260304_120000
 ```
 
 To resume an interrupted review session:
@@ -321,12 +325,11 @@ python3 run.py --resume
 
 **Excel Report Structure:**
 ```
-forensic_message_analyzer/
+forensic-message-analyzer/
 └── output/
     └── report_YYYYMMDD_HHMMSS.xlsx
         ├── Overview (summary statistics)
-        ├── Findings Summary (confirmed threats, AI findings, patterns, recommendations)
-        ├── AI Analysis (risk indicators, AI-detected threats)
+        ├── Findings Summary (executive summary, confirmed threats, patterns, recommendations)
         ├── Timeline (chronological events: threats, SOS, patterns, emails, third-party emails)
         ├── Person 2 (filtered conversations with chat data)
         ├── Person 3 (filtered conversations with chat data)
@@ -401,7 +404,7 @@ writing custom extractors / reporters; end-users do not need it.
 
 ### Directory Structure
 ```
-forensic_message_analyzer/
+forensic-message-analyzer/
 ├── src/
 │   ├── extractors/              # Data extraction modules
 │   │   ├── data_extractor.py    # Unified extraction orchestrator
@@ -500,7 +503,7 @@ python3 check_readiness.py
 
 ## Output Files
 
-All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: `~/workspace/output/forensic_message_analyzer/`):
+All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: `~/workspace/output/forensic-message-analyzer/`):
 
 ### Analysis Outputs
 - `extracted_data_YYYYMMDD_HHMMSS.json` - Raw extracted messages with sender, recipient, content, timestamp
@@ -527,7 +530,7 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
     attorneys / paralegals can navigate without guessing
 
 - `forensic_report_YYYYMMDD_HHMMSS.docx` - Word document report with:
-  - Legal team summary (AI-generated narrative explaining findings and output files)
+  - Legal team summary (plain-language narrative explaining findings and output files)
   - Executive summary
   - Data extraction statistics (total messages, date range, sources, screenshots)
   - Threat analysis (count and high-priority examples)
@@ -550,7 +553,7 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
 - `forensic_analysis_YYYYMMDD_HHMMSS.html` - HTML report with inline images
   - Overview cards, per-person message tables, conversation threads
   - Inline base64 attachment images (iMessage and WhatsApp)
-  - Risk indicators, AI summary, legal compliance footer
+  - Risk indicators, executive summary, legal compliance footer
   - Legal appendices: Appendix A (Methodology), Appendix B (Completeness Validation), Appendix C (Limitations)
 
 - `forensic_analysis_YYYYMMDD_HHMMSS.pdf` - PDF conversion of HTML report (via WeasyPrint)
@@ -567,7 +570,7 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
   - Edit history display for edited messages (original text and intermediate edits)
   - Deleted message badges, URL preview blocks, shared location blocks
 
-- `legal_team_summary_YYYYMMDD_HHMMSS.docx` - AI-generated narrative summary for attorneys
+- `legal_team_summary_YYYYMMDD_HHMMSS.docx` - Narrative summary for attorneys
   - Explains key findings in plain language
   - Describes how to use each output file
   - Includes recommended next steps for the legal team
@@ -595,7 +598,7 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
   
 ### Example Output Structure
 ```
-~/workspace/output/forensic_message_analyzer/
+~/workspace/output/forensic-message-analyzer/
 ├── extracted_data_20251006_011535.json
 ├── analysis_results_20251006_011542.json
 ├── report_20251006_011549.xlsx

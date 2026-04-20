@@ -5,7 +5,7 @@ echo "=================================================="
 echo "Running Essential Tests for Forensic Message Analyzer"
 echo "=================================================="
 
-cd /Users/davidsnyder/workspace/repos/forensic_message_analyzer || { echo "Failed to change directory. Exiting."; exit 1; }
+cd "$(dirname "$0")/.." || { echo "Failed to change directory. Exiting."; exit 1; }
 
 echo ""
 echo "1. Testing imports and dependencies..."

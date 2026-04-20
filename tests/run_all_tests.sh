@@ -7,7 +7,7 @@ echo "=================================================="
 echo "Date: $(date)"
 echo ""
 
-cd /Users/davidsnyder/workspace/repos/forensic_message_analyzer || { echo "Failed to change directory"; exit 1; }
+cd "$(dirname "$0")/.." || { echo "Failed to change directory"; exit 1; }
 
 # Color codes for output
 GREEN='\033[0;32m'

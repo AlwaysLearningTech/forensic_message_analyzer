@@ -183,7 +183,7 @@ higher quality). The legacy single `AI_MODEL` env var was removed in v4.4.0.
 
 ### `ExcelReporter(forensic_recorder, config=None)`
 - `generate_report(extracted_data, analysis_results, review_decisions, output_path)` —
-  multi-sheet Excel: Overview, Findings Summary, AI Analysis, Timeline,
+  multi-sheet Excel: Overview, Findings Summary, Timeline,
   per-person sheets, Conversation Threads, Manual Review, Third Party Contacts.
 
 ### `HtmlReporter(forensic_recorder, config=None)`
@@ -251,10 +251,11 @@ Used by `TimelineGenerator` to group related messages into threads.
 
 ### `LegalComplianceManager(config)`
 The text generators behind every legal section of every report.
-- `generate_methodology_statement()` — ~9 KB plain-language walkthrough
-  of every phase, cross-referenced to FRE / Daubert factors. Used both
-  inline by HTML reports and as the body of the standalone Methodology
-  document emitted by `ForensicReporter`.
+
+- `generate_methodology_sections()` — plain-language walkthrough of every
+  phase, cross-referenced to FRE / Daubert factors, returned as a list of
+  structured section dicts (heading/level/blocks) so reporters can render
+  real headings instead of preformatted text.
 - `get_standards_compliance_statement()` — plain-language explanation of
   how each standard (FRE 901, FRE 1001-1008, FRE 803(6), FRE 106, Daubert,
   SWGDE, NIST SP 800-86) is satisfied.

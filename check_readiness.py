@@ -52,7 +52,7 @@ def check_configuration():
     checks = []
     
     # Check for .env file in data directory (correct location)
-    env_file_data = Path.home() / 'workspace/data/forensic_message_analyzer/.env'
+    env_file_data = Path.home() / 'workspace/data/forensic-message-analyzer/.env'
     checks.append(('.env file (data dir)', env_file_data.exists()))
     
     # Also check for local .env (for backward compatibility)
@@ -73,7 +73,7 @@ def check_configuration():
 def check_directories():
     """Check if required directories exist or can be created."""
     # Set DOTENV_PATH environment variable for Config to find the right .env
-    os.environ['DOTENV_PATH'] = str(Path.home() / 'workspace/data/forensic_message_analyzer/.env')
+    os.environ['DOTENV_PATH'] = str(Path.home() / 'workspace/data/forensic-message-analyzer/.env')
     
     from src.config import Config
     
@@ -154,9 +154,9 @@ def main():
     
     if not env_found:
         all_good = False
-        print("\nNote: .env file should be in ~/workspace/data/forensic_message_analyzer/")
+        print("\nNote: .env file should be in ~/workspace/data/forensic-message-analyzer/")
         print("If you need to create it:")
-        print("  cp .env.example ~/workspace/data/forensic_message_analyzer/.env")
+        print("  cp .env.example ~/workspace/data/forensic-message-analyzer/.env")
         print("  # Then edit it with your settings")
     print()
     

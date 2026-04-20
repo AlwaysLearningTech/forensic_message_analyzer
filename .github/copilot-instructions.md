@@ -126,7 +126,7 @@
   - Note: Files must exist to be added properly
 - **ExcelReporter(forensic_recorder, config=None)**: `src/reporters/excel_reporter.py` - Standalone Excel report generator
   - Method: `generate_report(extracted_data, analysis_results, review_decisions, output_path)` - Returns Path
-  - Sheets produced: Overview, Findings Summary, AI Analysis, Timeline, per-person chat tabs, Conversation Threads, Manual Review, Third Party Contacts
+  - Sheets produced: Overview, Findings Summary, Timeline, per-person chat tabs, Conversation Threads, Manual Review, Third Party Contacts
   - Note: Person1 does NOT get a per-person tab (every other tab already shows their conversations)
   - Note: All mapped persons get sheets even if they have zero messages (documents absence of communication)
   - Note: Timeline sheet includes email events labeled "Email" or "Third-Party Email"
@@ -196,7 +196,7 @@
 ## Data Separation Strategy
 ```
 Repository (code only)          Local Data Storage
-├── src/                        ~/workspace/data/forensic_message_analyzer/
+├── src/                        ~/workspace/data/forensic-message-analyzer/
 ├── tests/                      ├── .env (actual configuration)
 ├── patterns/                   │   Example:
 ├── .env.example               │   PERSON1_NAME="John Doe"
@@ -210,7 +210,7 @@ Repository (code only)          Local Data Storage
                                ├── review/
                                └── logs/
                                
-                               ~/workspace/output/forensic_message_analyzer/
+                               ~/workspace/output/forensic-message-analyzer/
                                └── [all analysis outputs]
 ```
 
@@ -252,7 +252,7 @@ Repository (code only)          Local Data Storage
 
 ## Common Issues and Solutions
 1. **Import errors**: Check that all required packages are installed
-2. **Config validation fails**: Ensure `.env` file exists with required settings in `~/workspace/data/forensic_message_analyzer/`
+2. **Config validation fails**: Ensure `.env` file exists with required settings in `~/workspace/data/forensic-message-analyzer/`
 3. **No data extracted**: Check source file paths in `.env`
 4. **Tests failing**: Run `pytest tests/test_imports.py` first to check dependencies
 5. **Method not found**: Look at the actual file - DON'T CREATE SCRIPTS!

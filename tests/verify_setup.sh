@@ -5,7 +5,7 @@ echo "=================================================="
 echo "Forensic Message Analyzer - Setup Verification"
 echo "=================================================="
 
-cd /Users/davidsnyder/workspace/repos/forensic_message_analyzer || { echo "Failed to change directory"; exit 1; }
+cd "$(dirname "$0")/.." || { echo "Failed to change directory"; exit 1; }
 
 # Check Python version
 echo ""

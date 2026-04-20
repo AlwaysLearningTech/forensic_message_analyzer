@@ -81,12 +81,6 @@ class ExcelReporter:
                     messages=extracted_data.get('messages', [])
                 )
 
-                # AI Analysis sheet (risk indicators + AI-detected threats)
-                ai_analysis = analysis_results.get('ai_analysis', {})
-                if ai_analysis and ai_analysis.get('conversation_summary') and \
-                   'not configured' not in ai_analysis.get('conversation_summary', '').lower():
-                    self._write_ai_analysis_sheet(writer, ai_analysis)
-
                 # Timeline of key events
                 self._write_timeline_sheet(
                     writer, extracted_data, analysis_results
@@ -386,7 +380,7 @@ class ExcelReporter:
                         'Review Decision': self._lookup_review_decision(review_id, review_decisions),
                     })
 
-            # --- Additional threats flagged by AI analysis ---
+            # --- Additional threats flagged by pre-review screening ---
             # Source labelling is intentionally consistent ("Threat") — all
             # flagged items go through the same manual review process and
             # the report addresses the review findings, not the source of
@@ -462,11 +456,11 @@ class ExcelReporter:
                         'Review Decision': '',
                     })
 
-            # --- AI Executive Summary ---
+            # --- Executive Summary ---
             conversation_summary = ai_analysis.get('conversation_summary', '')
             if conversation_summary and 'not configured' not in conversation_summary.lower():
                 rows.append({
-                    'Section': 'AI Executive Summary',
+                    'Section': 'Executive Summary',
                     'Timestamp': '',
                     'Sender': '',
                     'Content': conversation_summary,
@@ -657,66 +651,6 @@ class ExcelReporter:
 
         except Exception as e:
             logger.error(f"Failed to write Timeline sheet: {e}")
-
-    def _write_ai_analysis_sheet(self, writer, ai_analysis: Dict):
-        """
-        Write an 'AI Analysis' sheet with risk indicators and AI-detected threats.
-
-        Args:
-            writer: Active pd.ExcelWriter object.
-            ai_analysis: AI analysis results dictionary.
-        """
-        try:
-            rows = []
-
-            # Risk indicators
-            risk_indicators = ai_analysis.get('risk_indicators', [])
-            for risk in risk_indicators:
-                if isinstance(risk, dict):
-                    rows.append({
-                        'Category': 'Risk Indicator',
-                        'Severity': str(risk.get('severity', 'unknown')).upper(),
-                        'Description': risk.get('indicator', risk.get('description', risk.get('detail', ''))),
-                        'Recommended Action': risk.get('recommended_action', ''),
-                    })
-                else:
-                    rows.append({
-                        'Category': 'Risk Indicator',
-                        'Severity': '',
-                        'Description': str(risk),
-                        'Recommended Action': '',
-                    })
-
-            # AI-detected threats
-            threat_assessment = ai_analysis.get('threat_assessment', {})
-            if threat_assessment.get('found'):
-                for detail in threat_assessment.get('details', []):
-                    if isinstance(detail, dict):
-                        quote = detail.get('quote', '')
-                        description = detail.get('type', 'Unknown')
-                        if quote:
-                            description = f"{description} - \"{quote}\""
-                        rows.append({
-                            'Category': 'Threat',
-                            'Severity': str(detail.get('severity', 'unknown')).upper(),
-                            'Description': description,
-                            'Recommended Action': detail.get('recommended_action', ''),
-                        })
-                    else:
-                        rows.append({
-                            'Category': 'Threat',
-                            'Severity': '',
-                            'Description': str(detail),
-                            'Recommended Action': '',
-                        })
-
-            if rows:
-                df_ai = pd.DataFrame(rows)
-                df_ai.to_excel(writer, sheet_name='AI Analysis', index=False)
-                logger.info(f"Created 'AI Analysis' sheet with {len(rows)} rows")
-
-        except Exception as e:
-            logger.error(f"Failed to write AI Analysis sheet: {e}")
 
     def _write_third_party_contacts_sheet(self, writer, contacts: list):
         """

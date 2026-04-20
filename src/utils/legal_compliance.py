@@ -123,28 +123,26 @@ class LegalComplianceManager:
     # 1. Methodology Statement (Daubert Standard)
     # ------------------------------------------------------------------
 
-    def generate_methodology_statement(
+    def generate_methodology_sections(
         self,
         data_sources: Optional[List[str]] = None,
         analysis_methods: Optional[List[str]] = None,
-    ) -> str:
+    ) -> List[Dict[str, Any]]:
         """
-        Generate a Daubert-compliant methodology statement.
+        Generate a Daubert-compliant methodology statement as structured
+        sections so consumers can render real headings (Word Heading 1/2,
+        HTML <h2>/<h3>) instead of preformatted text.
 
-        The statement is written for a non-technical audience (judges,
-        opposing counsel, paralegals). It describes the tools, data sources,
-        analysis methods, standards followed, and examiner identification
-        in plain language so the methodology can be independently
-        reviewed and reproduced — and so the testifying party can speak
-        to it on the stand.
-
-        Args:
-            data_sources: List of data source descriptions examined.
-            analysis_methods: List of analysis methods applied.
-
-        Returns:
-            Multi-line methodology statement suitable for inclusion
-            in a forensic report.
+        Each section is a dict:
+            {
+                "heading": str,         # section heading text
+                "level": 1 | 2,         # 1 = top-level, 2 = sub-heading
+                "blocks": [             # ordered list of body blocks
+                    {"type": "paragraph", "text": "..."} or
+                    {"type": "bullets", "items": ["...", ...]} or
+                    {"type": "definition", "term": "...", "text": "..."},
+                ]
+            }
         """
         timestamp = self.format_timestamp()
         sources = data_sources or self._get_configured_sources()
@@ -153,294 +151,322 @@ class LegalComplianceManager:
         case_numbers = list(getattr(self.config, 'case_numbers', []) or [])
         if not case_numbers and self.config.case_number:
             case_numbers = [self.config.case_number]
-        case_number_block = (
-            "  - " + "\n  - ".join(case_numbers)
-            if case_numbers else "  - Not assigned"
-        )
 
-        lines: List[str] = []
-        lines.append("METHODOLOGY STATEMENT")
-        lines.append("=" * 60)
-        lines.append("")
-        lines.append("Plain-language guide for the legal team")
-        lines.append("-" * 60)
-        lines.append(
-            "This document explains, step by step, exactly what the analyzer "
-            "did with the source data, why each step was done, and how the "
-            "results can be independently reproduced. It is written for "
-            "judges, opposing counsel, and paralegals — no technical "
-            "background is assumed."
-        )
-        lines.append("")
+        sections: List[Dict[str, Any]] = []
 
-        # ---- Identification ----
-        lines.append("1. CASE IDENTIFICATION")
-        lines.append("-" * 60)
-        lines.append(f"Date of Analysis: {timestamp}")
-        lines.append(f"Examiner: {self.config.examiner_name or 'Not specified'}")
-        lines.append(f"Organization: {self.config.organization or 'Not specified'}")
-        lines.append("Case Number(s):")
-        lines.append(case_number_block)
-        lines.append(f"Case Name: {self.config.case_name or 'Not assigned'}")
-        lines.append("")
+        sections.append({
+            "heading": "Plain-Language Guide for the Legal Team",
+            "level": 1,
+            "blocks": [{
+                "type": "paragraph",
+                "text": (
+                    "This document explains, step by step, exactly what the "
+                    "analyzer did with the source data, why each step was "
+                    "done, and how the results can be independently "
+                    "reproduced. It is written for judges, opposing counsel, "
+                    "and paralegals — no technical background is assumed."
+                ),
+            }],
+        })
 
-        # ---- Tools ----
-        lines.append("2. TOOLS USED")
-        lines.append("-" * 60)
-        lines.append(f"  - Forensic Message Analyzer v{ANALYZER_VERSION} (open-source)")
-        lines.append(f"  - Python {sys.version.split()[0]} runtime")
-        lines.append(f"  - Operating system: {platform.system()} {platform.release()}")
-        lines.append(
-            "Open-source software allows opposing counsel and the court "
-            "to inspect every line of code that processed the evidence."
-        )
-        lines.append("")
+        case_blocks: List[Dict[str, Any]] = [
+            {"type": "definition", "term": "Date of Analysis", "text": timestamp},
+            {"type": "definition", "term": "Examiner",
+             "text": self.config.examiner_name or "Not specified"},
+            {"type": "definition", "term": "Organization",
+             "text": self.config.organization or "Not specified"},
+        ]
+        if case_numbers:
+            case_blocks.append({"type": "definition", "term": "Case Number(s)",
+                                "text": "; ".join(case_numbers)})
+        else:
+            case_blocks.append({"type": "definition", "term": "Case Number(s)",
+                                "text": "Not assigned"})
+        case_blocks.append({"type": "definition", "term": "Case Name",
+                            "text": self.config.case_name or "Not assigned"})
+        sections.append({
+            "heading": "1. Case Identification",
+            "level": 1,
+            "blocks": case_blocks,
+        })
 
-        # ---- Sources ----
-        lines.append("3. DATA SOURCES EXAMINED")
-        lines.append("-" * 60)
-        for src in sources:
-            lines.append(f"  - {src}")
-        lines.append(
-            "Each source file was hashed (SHA-256) before any processing "
-            "and the hash was recorded in the chain of custody log. The "
-            "originals are never opened for writing — only read."
-        )
-        lines.append("")
+        sections.append({
+            "heading": "2. Tools Used",
+            "level": 1,
+            "blocks": [
+                {"type": "bullets", "items": [
+                    f"Forensic Message Analyzer v{ANALYZER_VERSION} (open-source)",
+                    f"Python {sys.version.split()[0]} runtime",
+                    f"Operating system: {platform.system()} {platform.release()}",
+                ]},
+                {"type": "paragraph", "text": (
+                    "Open-source software allows opposing counsel and the "
+                    "court to inspect every line of code that processed the "
+                    "evidence."
+                )},
+            ],
+        })
 
-        # ---- Step-by-step pipeline ----
-        lines.append("4. STEP-BY-STEP ANALYSIS PIPELINE")
-        lines.append("-" * 60)
-        lines.append(
-            "The analyzer runs in eight numbered phases. Each phase is "
-            "logged with a UTC timestamp and an action description, and "
-            "every file produced is hashed."
-        )
-        lines.append("")
-        lines.append(
-            "  Phase 1 — Extraction. The analyzer reads each configured "
-            "source (iMessage SQLite database, WhatsApp text export, "
-            "email .eml/.mbox files, Microsoft Teams export, screenshot "
-            "directory) and converts every message into a uniform record "
-            "(sender, recipient, timestamp, content, source). For "
-            "iMessage, the modern attributedBody binary format is decoded; "
-            "edit history (iOS 16+), retracted/deleted messages, URL "
-            "previews, and shared locations are recovered from the BLOB "
-            "columns where present. Tapbacks and system messages are "
-            "filtered out."
-        )
-        lines.append("")
-        lines.append(
-            "  Phase 2 — Local analysis. Four independent automated "
-            "analyzers process the messages:"
-        )
-        lines.append(
-            "    (a) Threat detection — regular-expression matches against "
-            "        a published catalogue of physical-threat, stalking, "
-            "        harassment, intimidation, property-damage, and "
-            "        extortion phrases (see analysis_patterns.yaml in the "
-            "        source repository for the exact patterns and the "
-            "        empirical literature each is drawn from)."
-        )
-        lines.append(
-            "    (b) Sentiment analysis — TextBlob (a peer-reviewed "
-            "        natural-language toolkit, MIT-licensed) computes a "
-            "        polarity score (-1.0 negative … +1.0 positive) and a "
-            "        subjectivity score for each message."
-        )
-        lines.append(
-            "    (c) Behavioural pattern detection — additional regex "
-            "        families for emotional manipulation, gaslighting, "
-            "        controlling behaviour, isolation, and love-bombing, "
-            "        each tied to the empirical literature on "
-            "        intimate-partner coercive control (see "
-            "        analysis_patterns.yaml header notes)."
-        )
-        lines.append(
-            "    (d) Communication metrics — message volume, frequency, "
-            "        time-of-day distribution, and inter-message gap "
-            "        statistics computed by message and by participant."
-        )
-        lines.append(
-            "  These analyzers are intentionally tuned to over-flag "
-            "(high recall, low precision). False positives are expected "
-            "and are removed in the manual-review phase. The point of "
-            "these screens is to surface candidates a human can review "
-            "in minutes instead of having to read every message."
-        )
-        lines.append("")
-        lines.append(
-            "  Phase 3 — AI batch screening (optional). When an Anthropic "
-            "Claude API key is configured, the analyzer submits batches of "
-            "messages to Anthropic's batch API for a second opinion on "
-            "threats, coercive control, and risk indicators. The model "
-            "and prompt are recorded with the run. The AI is used as an "
-            "additional flagging mechanism only — every AI-flagged item "
-            "is submitted to the same manual-review process as items "
-            "flagged by the local analyzers, and only items confirmed "
-            "during review are reflected in the final findings."
-        )
-        lines.append("")
-        lines.append(
-            "  Phase 4 — Manual review. Every flagged item is presented "
-            "to a qualified reviewer through either a command-line or a "
-            "Flask-based web interface. The reviewer marks each item "
-            "Relevant, Not Relevant, or Uncertain and may add notes. "
-            "Decisions are written to disk as JSON immediately, so the "
-            "review can be paused and resumed without losing work."
-        )
-        lines.append("")
-        lines.append(
-            "  Phase 5 — Post-review behavioural analysis. Conversation-"
-            "level patterns (escalation timelines, response-latency "
-            "anomalies, unilateral monologue stretches) are computed "
-            "across the full message set, restricted to mapped persons "
-            "to avoid pulling in irrelevant third-party traffic."
-        )
-        lines.append("")
-        lines.append(
-            "  Phase 6 — Executive narrative. When AI is configured, a "
-            "single Anthropic Claude call produces a plain-language "
-            "narrative summary that the legal team can read first. The "
-            "narrative cites only items that survived manual review."
-        )
-        lines.append("")
-        lines.append(
-            "  Phase 7 — Report generation. The analyzer writes Excel, "
-            "Word, PDF, HTML, JSON, CSV, an iMessage-style chat-bubble "
-            "HTML, and an interactive timeline. Every output file is "
-            "hashed (SHA-256) and the hash is recorded in the chain of "
-            "custody log."
-        )
-        lines.append("")
-        lines.append(
-            "  Phase 8 — Documentation. The analyzer emits a chain-of-"
-            "custody JSON document covering every action taken during "
-            "the run, plus a run manifest listing every input file (with "
-            "hash) and every output file (with hash) and the exact "
-            "configuration used. The methodology statement (this "
-            "document) is also produced."
-        )
-        lines.append("")
+        sections.append({
+            "heading": "3. Data Sources Examined",
+            "level": 1,
+            "blocks": [
+                {"type": "bullets", "items": list(sources)},
+                {"type": "paragraph", "text": (
+                    "Each source file was hashed (SHA-256) before any "
+                    "processing and the hash was recorded in the chain of "
+                    "custody log. The originals are never opened for "
+                    "writing — only read."
+                )},
+            ],
+        })
 
-        # ---- Analysis methods (list form for quick reference) ----
-        lines.append("5. ANALYSIS METHODS APPLIED (quick reference)")
-        lines.append("-" * 60)
-        for method in methods:
-            lines.append(f"  - {method}")
-        lines.append("")
+        pipeline_blocks: List[Dict[str, Any]] = [
+            {"type": "paragraph", "text": (
+                "The analyzer runs in eight numbered phases. Each phase is "
+                "logged with a UTC timestamp and an action description, and "
+                "every file produced is hashed."
+            )},
+            {"type": "definition", "term": "Phase 1 — Extraction", "text": (
+                "Reads each configured source (iMessage SQLite database, "
+                "WhatsApp text export, email .eml/.mbox files, Microsoft "
+                "Teams export, screenshot directory) and converts every "
+                "message into a uniform record (sender, recipient, "
+                "timestamp, content, source). For iMessage, the modern "
+                "attributedBody binary format is decoded; edit history "
+                "(iOS 16+), retracted/deleted messages, URL previews, and "
+                "shared locations are recovered from the BLOB columns "
+                "where present. Tapbacks and system messages are filtered "
+                "out."
+            )},
+            {"type": "definition", "term": "Phase 2 — Local analysis", "text": (
+                "Four independent automated analyzers process the messages:"
+            )},
+            {"type": "bullets", "items": [
+                ("Threat detection — regular-expression matches against a "
+                 "published catalogue of physical-threat, stalking, "
+                 "harassment, intimidation, property-damage, and extortion "
+                 "phrases (see analysis_patterns.yaml in the source "
+                 "repository for the exact patterns and the empirical "
+                 "literature each is drawn from)."),
+                ("Sentiment analysis — TextBlob (a peer-reviewed natural-"
+                 "language toolkit, MIT-licensed) computes a polarity "
+                 "score (-1.0 negative … +1.0 positive) and a subjectivity "
+                 "score for each message."),
+                ("Behavioural pattern detection — additional regex families "
+                 "for emotional manipulation, gaslighting, controlling "
+                 "behaviour, isolation, and love-bombing, each tied to the "
+                 "empirical literature on intimate-partner coercive "
+                 "control (see analysis_patterns.yaml header notes)."),
+                ("Communication metrics — message volume, frequency, time-"
+                 "of-day distribution, and inter-message gap statistics "
+                 "computed by message and by participant."),
+            ]},
+            {"type": "paragraph", "text": (
+                "These analyzers are intentionally tuned to over-flag "
+                "(high recall, low precision). False positives are "
+                "expected and are removed in the manual-review phase. The "
+                "point of these screens is to surface candidates a human "
+                "can review in minutes instead of having to read every "
+                "message."
+            )},
+            {"type": "definition", "term": "Phase 3 — Pre-review screening (optional)", "text": (
+                "When an Anthropic Claude API key is configured, the "
+                "analyzer also submits batches of messages to Anthropic's "
+                "batch API for a second pass over threats, coercive "
+                "control, and risk indicators. This is one more "
+                "flagging mechanism alongside the local analyzers; the "
+                "model identifier, prompt, and token counts are recorded "
+                "with the run. Every flagged item — whether surfaced by a "
+                "local analyzer or by Claude — is submitted to the same "
+                "manual-review process, and only items confirmed during "
+                "review are reflected in the final findings."
+            )},
+            {"type": "definition", "term": "Phase 4 — Manual review", "text": (
+                "Every flagged item is presented to a qualified reviewer "
+                "through either a command-line or a Flask-based web "
+                "interface. The reviewer marks each item Relevant, Not "
+                "Relevant, or Uncertain and may add notes. Decisions are "
+                "written to disk as JSON immediately, so the review can "
+                "be paused and resumed without losing work."
+            )},
+            {"type": "definition", "term": "Phase 5 — Post-review behavioural analysis", "text": (
+                "Conversation-level patterns (escalation timelines, "
+                "response-latency anomalies, unilateral monologue "
+                "stretches) are computed across the full message set, "
+                "restricted to mapped persons to avoid pulling in "
+                "irrelevant third-party traffic."
+            )},
+            {"type": "definition", "term": "Phase 6 — Executive summary", "text": (
+                "Produces the plain-language narrative the legal team "
+                "reads first. When Claude is configured, the analyzer "
+                "uses a single API call against the messages the examiner "
+                "confirmed during manual review (the model identifier and "
+                "token counts are recorded with the run); when Claude is "
+                "not configured, a deterministic statistical summary is "
+                "produced from the same confirmed-message set. Either way, "
+                "the narrative cites only items that survived manual "
+                "review."
+            )},
+            {"type": "definition", "term": "Phase 7 — Report generation", "text": (
+                "The analyzer writes Excel, Word, PDF, HTML, JSON, CSV, "
+                "an iMessage-style chat-bubble HTML, and an interactive "
+                "timeline. Every output file is hashed (SHA-256) and the "
+                "hash is recorded in the chain of custody log."
+            )},
+            {"type": "definition", "term": "Phase 8 — Documentation", "text": (
+                "The analyzer emits a chain-of-custody JSON document "
+                "covering every action taken during the run, plus a run "
+                "manifest listing every input file (with hash) and every "
+                "output file (with hash) and the exact configuration "
+                "used. This methodology statement is also produced here."
+            )},
+        ]
+        sections.append({
+            "heading": "4. Step-by-Step Analysis Pipeline",
+            "level": 1,
+            "blocks": pipeline_blocks,
+        })
 
-        # ---- Standards ----
-        lines.append("6. LEGAL STANDARDS — HOW EACH IS SATISFIED")
-        lines.append("-" * 60)
-        lines.append(
-            "  FRE 901 (Authentication). Every source file was hashed "
-            "(SHA-256) on first read. The same hash can be re-computed at "
-            "any time to prove the evidence has not been altered. The "
-            "chain-of-custody log records each hash with a timestamp."
-        )
-        lines.append("")
-        lines.append(
-            "  FRE 1001-1008 (Best Evidence Rule). Source files are "
-            "opened read-only. When working copies are needed they are "
-            "hashed against the source. Original metadata "
-            "(timestamps, sender/recipient identifiers, attachment "
-            "references) is preserved in the extracted record."
-        )
-        lines.append("")
-        lines.append(
-            "  FRE 803(6) (Business Records Exception). Messages were "
-            "captured in the regular course of communication on the "
-            "device's normal messaging applications. The analyzer adds "
-            "no content; it only re-organises and indexes what was "
-            "already there."
-        )
-        lines.append("")
-        lines.append(
-            "  FRE 106 (Rule of Completeness). The completeness "
-            "validation step (recorded in this report) checks every "
-            "conversation for one-sided extraction and for >24-hour "
-            "gaps; flagged conversations are listed by ID with the "
-            "specific issue so the legal team can request supplemental "
-            "production if needed."
-        )
-        lines.append("")
-        lines.append(
-            "  Daubert (FRE 702). The methodology is testable (an open-"
-            "source test suite re-runs the entire pipeline against "
-            "synthetic data on every commit), has been peer-reviewed "
-            "(the libraries used — pandas, Pillow, TextBlob, openpyxl, "
-            "python-docx, reportlab, anthropic — are widely adopted), "
-            "has known and documented error characteristics (see "
-            "Limitations section of every report), follows published "
-            "standards (SWGDE, NIST SP 800-86), and is generally "
-            "accepted in digital-forensics practice."
-        )
-        lines.append("")
-        lines.append(
-            "  SWGDE Best Practices. The Scientific Working Group on "
-            "Digital Evidence's standards for handling, hashing, and "
-            "preserving digital evidence are followed throughout. See "
-            "https://www.swgde.org/documents for the published guidance."
-        )
-        lines.append("")
-        lines.append(
-            "  NIST SP 800-86. The National Institute of Standards and "
-            "Technology's guide to forensic-technique integration was "
-            "the procedural template for the eight-phase pipeline above."
-        )
-        lines.append("")
+        sections.append({
+            "heading": "5. Analysis Methods Applied (Quick Reference)",
+            "level": 1,
+            "blocks": [{"type": "bullets", "items": list(methods)}],
+        })
 
-        # ---- What this method does NOT do ----
-        lines.append("7. SCOPE LIMITATIONS")
-        lines.append("-" * 60)
-        lines.append(
-            "  - The automated screens are tuned for recall, not "
-            "    precision. False positives are expected. Every flagged "
-            "    item was manually reviewed; only confirmed items appear "
-            "    in the findings."
-        )
-        lines.append(
-            "  - The analyzer does not interpret intent, credibility, or "
-            "    truthfulness. Those are matters for the trier of fact."
-        )
-        lines.append(
-            "  - The analyzer cannot recover messages that were deleted "
-            "    before the source data was preserved, or messages "
-            "    exchanged on platforms not configured as a source."
-        )
-        lines.append(
-            "  - Sentiment analysis (TextBlob) is calibrated on general "
-            "    English text and may misclassify sarcasm, code-switching, "
-            "    or domain-specific vocabulary. It is provided as an "
-            "    additional indexing aid only."
-        )
-        lines.append("")
+        sections.append({
+            "heading": "6. Legal Standards — How Each Is Satisfied",
+            "level": 1,
+            "blocks": [
+                {"type": "definition", "term": "FRE 901 (Authentication)", "text": (
+                    "Every source file was hashed (SHA-256) on first read. "
+                    "The same hash can be re-computed at any time to prove "
+                    "the evidence has not been altered. The chain-of-"
+                    "custody log records each hash with a timestamp."
+                )},
+                {"type": "definition", "term": "FRE 1001-1008 (Best Evidence Rule)", "text": (
+                    "Source files are opened read-only. When working "
+                    "copies are needed they are hashed against the source. "
+                    "Original metadata (timestamps, sender/recipient "
+                    "identifiers, attachment references) is preserved in "
+                    "the extracted record."
+                )},
+                {"type": "definition", "term": "FRE 803(6) (Business Records Exception)", "text": (
+                    "Messages were captured in the regular course of "
+                    "communication on the device's normal messaging "
+                    "applications. The analyzer adds no content; it only "
+                    "re-organises and indexes what was already there."
+                )},
+                {"type": "definition", "term": "FRE 106 (Rule of Completeness)", "text": (
+                    "The completeness validation step (recorded in this "
+                    "report) checks every conversation for one-sided "
+                    "extraction and for >24-hour gaps; flagged "
+                    "conversations are listed by ID with the specific "
+                    "issue so the legal team can request supplemental "
+                    "production if needed."
+                )},
+                {"type": "definition", "term": "Daubert (FRE 702)", "text": (
+                    "The methodology is testable (an open-source test "
+                    "suite re-runs the entire pipeline against synthetic "
+                    "data on every commit), has been peer-reviewed (the "
+                    "libraries used — pandas, Pillow, TextBlob, openpyxl, "
+                    "python-docx, reportlab, anthropic — are widely "
+                    "adopted), has known and documented error "
+                    "characteristics (see Limitations section of every "
+                    "report), follows published standards (SWGDE, NIST SP "
+                    "800-86), and is generally accepted in digital-"
+                    "forensics practice."
+                )},
+                {"type": "definition", "term": "SWGDE Best Practices", "text": (
+                    "The Scientific Working Group on Digital Evidence's "
+                    "standards for handling, hashing, and preserving "
+                    "digital evidence are followed throughout. See "
+                    "https://www.swgde.org/documents for the published "
+                    "guidance."
+                )},
+                {"type": "definition", "term": "NIST SP 800-86", "text": (
+                    "The National Institute of Standards and Technology's "
+                    "guide to forensic-technique integration was the "
+                    "procedural template for the eight-phase pipeline "
+                    "above."
+                )},
+            ],
+        })
 
-        # ---- Reproducibility ----
-        lines.append("8. REPRODUCIBILITY")
-        lines.append("-" * 60)
-        lines.append(
-            "Given the same source files (verified by SHA-256 hash) and "
-            "the same configuration (preserved in the run manifest), "
-            "running the analyzer again will produce byte-identical "
-            "extraction output. The local analyzers are deterministic. "
-            "AI calls are non-deterministic by design but the model name, "
-            "prompt, and token counts are recorded so the call can be "
-            "audited; the AI is never the sole basis for any finding "
-            "(see Phase 3 above)."
-        )
-        lines.append("")
-        lines.append("END OF METHODOLOGY STATEMENT")
+        sections.append({
+            "heading": "7. Scope Limitations",
+            "level": 1,
+            "blocks": [{"type": "bullets", "items": [
+                ("The automated screens are tuned for recall, not "
+                 "precision. False positives are expected. Every flagged "
+                 "item was manually reviewed; only confirmed items appear "
+                 "in the findings."),
+                ("The analyzer does not interpret intent, credibility, or "
+                 "truthfulness. Those are matters for the trier of fact."),
+                ("The analyzer cannot recover messages that were deleted "
+                 "before the source data was preserved, or messages "
+                 "exchanged on platforms not configured as a source."),
+                ("Sentiment analysis (TextBlob) is calibrated on general "
+                 "English text and may misclassify sarcasm, code-"
+                 "switching, or domain-specific vocabulary. It is "
+                 "provided as an additional indexing aid only."),
+            ]}],
+        })
 
-        statement = "\n".join(lines)
+        sections.append({
+            "heading": "8. Reproducibility",
+            "level": 1,
+            "blocks": [{"type": "paragraph", "text": (
+                "Given the same source files (verified by SHA-256 hash) "
+                "and the same configuration (preserved in the run "
+                "manifest), running the analyzer again will produce byte-"
+                "identical extraction output. The local analyzers are "
+                "deterministic. When AI is configured for pre-review "
+                "screening or the executive summary, calls to the model "
+                "are non-deterministic by design but the model name, "
+                "prompt, and token counts are recorded so the call can be "
+                "audited; AI is never the sole basis for any finding (see "
+                "Phases 3, 4 and 6 above)."
+            )}],
+        })
 
         self.forensic.record_action(
             "methodology_statement_generated",
             f"Generated methodology statement at {timestamp}",
         )
 
-        return statement
+        return sections
+
+    def generate_methodology_statement(
+        self,
+        data_sources: Optional[List[str]] = None,
+        analysis_methods: Optional[List[str]] = None,
+    ) -> str:
+        """
+        Plain-text rendering of generate_methodology_sections() for
+        callers that need the legacy single-string form (e.g. the AI
+        prompt context, JSON exports). Renderers that produce real
+        documents should use generate_methodology_sections() directly.
+        """
+        sections = self.generate_methodology_sections(
+            data_sources=data_sources,
+            analysis_methods=analysis_methods,
+        )
+        lines: List[str] = ["METHODOLOGY STATEMENT", ""]
+        for section in sections:
+            lines.append(section["heading"].upper())
+            for block in section["blocks"]:
+                btype = block["type"]
+                if btype == "paragraph":
+                    lines.append(block["text"])
+                elif btype == "bullets":
+                    for item in block["items"]:
+                        lines.append(f"  - {item}")
+                elif btype == "definition":
+                    lines.append(f"{block['term']}: {block['text']}")
+                lines.append("")
+        lines.append("END OF METHODOLOGY STATEMENT")
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # 2. Completeness Validation (FRE 106)

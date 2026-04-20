@@ -83,6 +83,49 @@ class ForensicReporter:
         """Match an AI-identified quote to its source message via substring matching."""
         return match_quote_to_message(quote, messages)
 
+    @staticmethod
+    def _render_methodology_to_docx(doc, sections, base_level: int = 1) -> None:
+        """Render structured methodology sections into a python-docx document."""
+        for section in sections:
+            doc.add_heading(section['heading'], level=base_level)
+            for block in section['blocks']:
+                btype = block['type']
+                if btype == 'paragraph':
+                    doc.add_paragraph(block['text'])
+                elif btype == 'bullets':
+                    for item in block['items']:
+                        doc.add_paragraph(item, style='List Bullet')
+                elif btype == 'definition':
+                    para = doc.add_paragraph()
+                    run = para.add_run(f"{block['term']}. ")
+                    run.bold = True
+                    para.add_run(block['text'])
+
+    @staticmethod
+    def _render_methodology_to_reportlab(elements, sections, styles) -> None:
+        """Render structured methodology sections into a reportlab story."""
+        for section in sections:
+            elements.append(Paragraph(html_module.escape(section['heading']),
+                                      styles['Heading2']))
+            for block in section['blocks']:
+                btype = block['type']
+                if btype == 'paragraph':
+                    elements.append(Paragraph(html_module.escape(block['text']),
+                                              styles['Normal']))
+                elif btype == 'bullets':
+                    for item in block['items']:
+                        elements.append(Paragraph(
+                            f"• {html_module.escape(item)}", styles['Normal']
+                        ))
+                elif btype == 'definition':
+                    elements.append(Paragraph(
+                        f"<b>{html_module.escape(block['term'])}.</b> "
+                        f"{html_module.escape(block['text'])}",
+                        styles['Normal']
+                    ))
+                elements.append(Spacer(1, 4))
+            elements.append(Spacer(1, 8))
+
     def generate_comprehensive_report(self, 
                                      extracted_data: Dict,
                                      analysis_results: Dict,
@@ -190,7 +233,7 @@ class ForensicReporter:
         Separate from the findings report so the legal team (and the
         court) can read the methodology without having to navigate
         case-specific results. Contents are produced by
-        LegalComplianceManager.generate_methodology_statement(), which
+        LegalComplianceManager.generate_methodology_sections(), which
         is plain-language and tied to FRE / Daubert factors point by
         point.
         """
@@ -214,25 +257,9 @@ class ForensicReporter:
         doc.add_paragraph(f"Generated: {header['date_of_examination']}")
         doc.add_paragraph('')
 
-        # Methodology body — heading-aware rendering
-        methodology = self.compliance.generate_methodology_statement()
-        for line in methodology.split('\n'):
-            stripped = line.rstrip()
-            if not stripped:
-                doc.add_paragraph('')
-                continue
-            # Section divider lines like "=" * 60 or "-" * 60
-            if set(stripped) <= {'=', '-'}:
-                continue
-            # Numbered top-level headings like "1. CASE IDENTIFICATION"
-            if re.match(r'^\d+\.\s+[A-Z]', stripped):
-                doc.add_heading(stripped, level=1)
-                continue
-            # Bullets
-            if stripped.lstrip().startswith('- '):
-                doc.add_paragraph(stripped.lstrip()[2:], style='List Bullet')
-                continue
-            doc.add_paragraph(stripped)
+        # Methodology body — structured sections render as real headings
+        sections = self.compliance.generate_methodology_sections()
+        self._render_methodology_to_docx(doc, sections, base_level=1)
 
         # Standards compliance
         doc.add_page_break()
@@ -414,7 +441,7 @@ class ForensicReporter:
                 'If you want to sort, filter, or query the data yourself',
                 excel_name,
                 'Multi-sheet Excel workbook: per-person message tabs, '
-                'findings summary, AI analysis, timeline, conversation '
+                'findings summary, timeline, conversation '
                 'threads, manual-review decisions, and third-party contacts.'
             ))
         if html_name:
@@ -508,10 +535,8 @@ class ForensicReporter:
 
         # Methodology Statement
         doc.add_heading('Methodology', 1)
-        methodology = self.compliance.generate_methodology_statement()
-        for line in methodology.split('\n'):
-            if line.strip():
-                doc.add_paragraph(line)
+        sections = self.compliance.generate_methodology_sections()
+        self._render_methodology_to_docx(doc, sections, base_level=2)
 
         # Standards Compliance Statement
         doc.add_heading('Standards Compliance', 1)
@@ -556,7 +581,7 @@ class ForensicReporter:
                 'in the threat counts below.'
             )
 
-            # AI Executive Summary
+            # Executive Summary
             doc.add_heading('Analysis Overview', 2)
             doc.add_paragraph(ai_analysis.get('conversation_summary', 'Not available'))
 
@@ -685,7 +710,7 @@ class ForensicReporter:
             if shifts:
                 doc.add_heading('Emotional Escalation Patterns', 2)
                 doc.add_paragraph(
-                    'The following emotional shifts were detected by AI analysis, '
+                    'The following emotional shifts were detected during pre-review screening, '
                     'indicating potential escalation patterns:'
                 )
                 for shift in shifts:
@@ -815,11 +840,8 @@ class ForensicReporter:
 
         # Methodology Statement
         elements.append(Paragraph("Methodology", styles['Heading1']))
-        methodology = self.compliance.generate_methodology_statement()
-        for line in methodology.split('\n'):
-            stripped = line.strip()
-            if stripped and stripped != '=' * len(stripped):
-                elements.append(Paragraph(stripped, styles['Normal']))
+        sections = self.compliance.generate_methodology_sections()
+        self._render_methodology_to_reportlab(elements, sections, styles)
         elements.append(Spacer(1, 12))
 
         # Standards Compliance Statement
@@ -846,7 +868,7 @@ class ForensicReporter:
             ))
             elements.append(Spacer(1, 12))
 
-            # AI Executive Summary
+            # Executive Summary
             elements.append(Paragraph("Analysis Overview", styles['Heading2']))
             elements.append(Paragraph(
                 self._esc(ai_analysis.get('conversation_summary', 'Not available')), styles['Normal']
@@ -998,7 +1020,7 @@ class ForensicReporter:
             if shifts:
                 elements.append(Paragraph("Emotional Escalation Patterns", styles['Heading2']))
                 elements.append(Paragraph(
-                    'The following emotional shifts were detected by AI analysis, '
+                    'The following emotional shifts were detected during pre-review screening, '
                     'indicating potential escalation patterns:',
                     styles['Normal']
                 ))
@@ -1125,12 +1147,12 @@ class ForensicReporter:
                                       reports: Dict[str, Any] = None):
         """Generate a formatted Word document from the legal team summary text.
 
-        Parses the AI-generated narrative and produces a professional document
-        with case header, formatted paragraphs, an output file reference table,
-        and a compliance footer.
+        Parses the narrative and produces a professional document with case
+        header, formatted paragraphs, an output file reference table, and a
+        compliance footer.
 
         Args:
-            legal_summary: Plain text narrative from Claude.
+            legal_summary: Plain text narrative.
             output_path: Path for the output .docx file.
             reports: Dict mapping report type keys to file paths. Used to build
                      the output file reference table with actual filenames.
@@ -1162,7 +1184,7 @@ class ForensicReporter:
             doc.add_paragraph(f"Examiner: {header['examiner_name']}")
         doc.add_paragraph('')  # spacer
 
-        # Body -- parse markdown formatting from AI-generated text
+        # Body -- parse markdown formatting
         markdown_to_docx(doc, legal_summary)
 
         # Output file reference table
@@ -1180,7 +1202,7 @@ class ForensicReporter:
                     'Excel Report',
                     'Start here. Contains per-person tabs with messages, integrated '
                     'threat/sentiment columns, a Findings Summary sheet, Timeline, '
-                    'AI Analysis, Conversation Threads, and Third Party Contacts. '
+                    'Conversation Threads, and Third Party Contacts. '
                     'Use filters and search to locate specific conversations.'
                 ),
                 'word': (
@@ -1367,7 +1389,7 @@ class ForensicReporter:
                 if pol in sentiment_dist:
                     sentiment_dist[pol] += 1
 
-        # AI analysis stats
+        # Pre-review screening stats
         ai_analysis = analysis_results.get('ai_analysis', {})
         risk_indicators = ai_analysis.get('risk_indicators', [])
         ai_threat_severity = ai_analysis.get('threat_assessment', {}).get('severity', 'none')

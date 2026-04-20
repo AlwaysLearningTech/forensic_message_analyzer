@@ -583,14 +583,14 @@ class ForensicAnalyzer:
             AI batch results dict (without summary), or empty dict on skip/error.
         """
         print("\n" + "="*60)
-        print("PHASE 3: AI BATCH ANALYSIS (PRE-REVIEW)")
+        print("PHASE 3: PRE-REVIEW SCREENING")
         print("="*60)
 
         try:
             from src.analyzers.ai_analyzer import AIAnalyzer
             ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic, config=self.config)
             if not ai_analyzer.client:
-                print("    AI analysis skipped - not configured")
+                print("    Pre-review screening skipped - AI not configured")
                 return ai_analyzer._empty_analysis()
 
             messages = extracted_data.get('messages', [])
@@ -1358,14 +1358,14 @@ class ForensicAnalyzer:
                 for src, count in tp_summary['by_source'].items():
                     print(f"    {src}: {count}")
 
-            # Phase 6: AI Executive Summary (post-review)
+            # Phase 6: Executive Summary (post-review)
             # Batch results already exist from Phase 3 (pre-review).
             # Now generate summary, risks, and recommendations using the
             # summary model, incorporating the actual conversation messages.
             ai_results = analysis_results.get('ai_analysis', {})
             if ai_results and ai_results.get('total_messages', 0) > 0:
                 print("\n" + "="*60)
-                print("PHASE 6: AI EXECUTIVE SUMMARY (POST-REVIEW)")
+                print("PHASE 6: EXECUTIVE SUMMARY (POST-REVIEW)")
                 print("="*60)
                 try:
                     from src.analyzers.ai_analyzer import AIAnalyzer
@@ -1428,11 +1428,11 @@ class ForensicAnalyzer:
                         else:
                             print("    Executive summary skipped (user aborted)")
                     else:
-                        print("    AI summary skipped — not configured")
+                        print("    Executive summary skipped — AI not configured")
                 except Exception as e:
-                    print(f"    AI summary error (non-fatal): {e}")
+                    print(f"    Executive summary error (non-fatal): {e}")
             else:
-                print("\n[*] No AI batch results found — skipping executive summary")
+                print("\n[*] No pre-screening results found — skipping executive summary")
 
             # Phase 7: Reporting
             reports = self.run_reporting_phase(extracted_data, analysis_results, review_results)

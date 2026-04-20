@@ -96,7 +96,7 @@ REPORT_TEMPLATE = """\
 </div>
 
 {% if ai_summary %}
-<h2>AI Executive Summary</h2>
+<h2>Executive Summary</h2>
 <p>{{ ai_summary }}</p>
 {% endif %}
 
@@ -234,10 +234,23 @@ REPORT_TEMPLATE = """\
 </table>
 {% endif %}
 
-{% if methodology %}
+{% if methodology_sections %}
 <div class="page-break">
 <h2>Appendix A: Methodology Statement</h2>
-<pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.5;">{{ methodology }}</pre>
+{% for section in methodology_sections %}
+<h3>{{ section.heading }}</h3>
+{% for block in section.blocks %}
+{% if block.type == 'paragraph' %}
+<p>{{ block.text }}</p>
+{% elif block.type == 'bullets' %}
+<ul>
+  {% for item in block['items'] %}<li>{{ item }}</li>{% endfor %}
+</ul>
+{% elif block.type == 'definition' %}
+<p><strong>{{ block.term }}.</strong> {{ block.text }}</p>
+{% endif %}
+{% endfor %}
+{% endfor %}
 </div>
 {% endif %}
 
@@ -439,7 +452,7 @@ class HtmlReporter:
             })
 
         # --- legal appendices ---
-        methodology = compliance.generate_methodology_statement()
+        methodology_sections = compliance.generate_methodology_sections()
         completeness = compliance.validate_completeness(messages)
         limitations = self._generate_limitations(analysis_results)
 
@@ -459,7 +472,7 @@ class HtmlReporter:
             'threads': threads,
             'review_decisions': reviews,
             'third_party_contacts': tp_rows,
-            'methodology': methodology,
+            'methodology_sections': methodology_sections,
             'completeness': completeness,
             'limitations': limitations,
             'version': __version__,

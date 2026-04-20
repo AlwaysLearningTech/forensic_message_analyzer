@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).parent))
 
 # Load API key from the same .env the real pipeline uses
-_env_path = Path.home() / "workspace" / "data" / "forensic_message_analyzer" / ".env"
+_env_path = Path.home() / "workspace" / "data" / "forensic-message-analyzer" / ".env"
 if _env_path.exists():
     load_dotenv(_env_path, override=True)
 

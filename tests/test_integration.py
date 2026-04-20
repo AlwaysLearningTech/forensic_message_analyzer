@@ -1362,26 +1362,24 @@ class TestSystemIntegration:
         assert 'Section' in findings_headers, (
             f"Findings Summary should have 'Section' column, has: {findings_headers}"
         )
-        # Should have at least one confirmed threat row
+        # Should have at least one threat row
         findings_rows = list(findings_ws.iter_rows(min_row=2, values_only=True))
         findings_sections = [row[0] for row in findings_rows if row[0]]
-        assert 'Confirmed Threat' in findings_sections, (
-            f"Findings Summary should contain 'Confirmed Threat' rows, has sections: {findings_sections}"
+        assert 'Threat' in findings_sections, (
+            f"Findings Summary should contain 'Threat' rows, has sections: {findings_sections}"
         )
 
-        # Verify AI-Identified Threat rows now have timestamps (quote matching)
+        # Verify Threat rows have timestamps
         section_col = findings_headers.index('Section')
         timestamp_col = findings_headers.index('Timestamp')
         sender_col = findings_headers.index('Sender')
         content_col = findings_headers.index('Content')
-        ai_threat_rows = [row for row in findings_rows
-                          if row[section_col] == 'AI-Identified Threat']
-        assert len(ai_threat_rows) >= 1, "Should have AI-Identified Threat rows"
-        # At least some should have timestamps (quotes that match messages)
-        ai_rows_with_ts = [r for r in ai_threat_rows if r[timestamp_col]]
-        assert len(ai_rows_with_ts) >= 1, (
-            f"AI-Identified Threat rows should have timestamps after quote matching, "
-            f"got {len(ai_rows_with_ts)} of {len(ai_threat_rows)} with timestamps"
+        threat_rows = [row for row in findings_rows if row[section_col] == 'Threat']
+        assert len(threat_rows) >= 1, "Should have Threat rows"
+        threat_rows_with_ts = [r for r in threat_rows if r[timestamp_col]]
+        assert len(threat_rows_with_ts) >= 1, (
+            f"Threat rows should have timestamps, "
+            f"got {len(threat_rows_with_ts)} of {len(threat_rows)} with timestamps"
         )
 
         # Verify Risk Indicator rows have non-empty content
