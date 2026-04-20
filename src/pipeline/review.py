@@ -34,12 +34,13 @@ def run(analyzer, analysis_results: Dict, extracted_data: Dict, resume_session_i
         f"(local threats + AI threats + AI coercive control + emails)"
     )
 
+    # Terminal review walks sequentially, so it needs the already-reviewed items stripped out. Web review keeps the full list (existing-review badges + auto-advance to first unreviewed handle the rest).
+    items_for_terminal = items_for_review
     if already_reviewed:
-        total_flagged = len(items_for_review)
-        items_for_review = [i for i in items_for_review if i["id"] not in already_reviewed]
-        skipped = total_flagged - len(items_for_review)
+        items_for_terminal = [i for i in items_for_review if i["id"] not in already_reviewed]
+        skipped = len(items_for_review) - len(items_for_terminal)
         if skipped:
-            logger.info(f"    Resuming: {skipped} already reviewed, {len(items_for_review)} remaining")
+            logger.info(f"    Resuming: {skipped} already reviewed, {len(items_for_terminal)} remaining (terminal mode)")
 
     analyzer._save_pipeline_state(review_session_id=manager.session_id)
 
@@ -68,10 +69,10 @@ def run(analyzer, analysis_results: Dict, extracted_data: Dict, resume_session_i
         except ImportError:
             logger.info("    Flask not installed. Falling back to terminal review.")
             from ..review.interactive_review import InteractiveReview
-            InteractiveReview(manager, config=analyzer.config).review_flagged_items(messages, items_for_review)
+            InteractiveReview(manager, config=analyzer.config).review_flagged_items(messages, items_for_terminal)
     else:
         from ..review.interactive_review import InteractiveReview
-        InteractiveReview(manager, config=analyzer.config).review_flagged_items(messages, items_for_review)
+        InteractiveReview(manager, config=analyzer.config).review_flagged_items(messages, items_for_terminal)
 
     relevant = manager.get_reviews_by_decision("relevant")
     not_relevant = manager.get_reviews_by_decision("not_relevant")

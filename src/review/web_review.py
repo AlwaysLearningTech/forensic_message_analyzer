@@ -288,6 +288,13 @@ class WebReview:
         self.flagged_items = flagged_items
         self.screenshots = screenshots or []
 
+        # Seed reviewed_indices from prior session so progress/badges reflect existing decisions on resume.
+        already_reviewed_ids = self.review_manager.reviewed_item_ids
+        if already_reviewed_ids:
+            for i, item in enumerate(self.flagged_items):
+                if item.get("id", f"item_{i}") in already_reviewed_ids:
+                    self.reviewed_indices.add(i)
+
         if self.forensic:
             self.forensic.record_action(
                 "web_review_started",
@@ -527,15 +534,23 @@ class WebReview:
 
         Surfaces prior wording so the examiner can reuse a phrase in one click — speeds up review and keeps language consistent across findings in the same case.
         """
-        counts: Dict[str, int] = {}
+        # Dedupe on a normalized key (lowercased, whitespace-collapsed) so "Discussing other people" and "discussing other people" coalesce into one chip. Keep the most-used original casing as the displayed label.
+        groups: Dict[str, Dict] = {}
         for record in self.review_manager.reviews:
             if record.get("superseded_by"):
                 continue
             note = (record.get("notes") or "").strip()
             if not note:
                 continue
-            counts[note] = counts.get(note, 0) + 1
-        ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
+            key = " ".join(note.lower().split())
+            entry = groups.setdefault(key, {"variants": {}, "count": 0})
+            entry["count"] += 1
+            entry["variants"][note] = entry["variants"].get(note, 0) + 1
+        ordered = []
+        for key, entry in groups.items():
+            display = max(entry["variants"].items(), key=lambda kv: (kv[1], kv[0]))[0]
+            ordered.append((display, entry["count"]))
+        ordered.sort(key=lambda kv: (-kv[1], kv[0].lower()))
         suggestions = [{"text": text, "count": count} for text, count in ordered[:40]]
         return {"suggestions": suggestions}
 
