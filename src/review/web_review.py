@@ -64,8 +64,37 @@ class WebReview:
         self._shutdown_event = threading.Event()
         self._conversation_cache = None
 
-        # Build Flask app
+        # Build Flask app. Harden cookies defensively even though the server
+        # binds to localhost: Strict SameSite blocks cross-site submissions,
+        # HttpOnly prevents any cookie JS access, and a per-session secret
+        # key keeps Flask from falling back to a fixed dev value.
         self.app = Flask(__name__)
+        self.app.config.update(
+            SECRET_KEY=os.urandom(32),
+            SESSION_COOKIE_HTTPONLY=True,
+            SESSION_COOKIE_SAMESITE="Strict",
+        )
+
+        # Allowed base directories for attachment serving. Files requested
+        # through /attachments/... must resolve underneath one of these, in
+        # addition to appearing in the per-request allowlist built from
+        # loaded messages.
+        self._attachment_bases: List[Path] = []
+        for base in (
+            getattr(self.config, "whatsapp_source_dir", None),
+            getattr(self.config, "screenshot_source_dir", None),
+            getattr(self.config, "output_dir", None),
+            Path.home() / "Library" / "Messages" / "Attachments",
+        ):
+            if not base:
+                continue
+            try:
+                resolved = Path(base).expanduser().resolve()
+            except (ValueError, OSError):
+                continue
+            if resolved.is_dir():
+                self._attachment_bases.append(resolved)
+
         self._register_routes()
 
     def _register_routes(self):
@@ -97,38 +126,28 @@ class WebReview:
 
         @self.app.route("/attachments/<path:filename>")
         def serve_attachment(filename):
-            """Serve message attachment files (WhatsApp photos, iMessage images, etc.)."""
-            # Security: only serve files that are actual message attachments.
-            # Build allowlist from loaded messages to prevent path traversal.
-            allowed_paths = set()
-            for msg in self.messages:
-                att = msg.get('attachment')
-                if att:
-                    try:
-                        allowed_paths.add(str(Path(att).resolve()))
-                    except (ValueError, OSError):
-                        pass
+            """Serve message attachment files (WhatsApp photos, iMessage images, etc.).
 
-            # Try absolute path first (iMessage attachments use full paths)
-            abs_path = Path("/") / filename
-            try:
-                resolved = str(abs_path.resolve())
-            except (ValueError, OSError):
-                return ("Attachment not found", 404)
-            if resolved in allowed_paths and abs_path.is_file():
-                return send_from_directory(str(abs_path.parent), abs_path.name)
+            Defense-in-depth:
+              1. The resolved path must live under one of the configured
+                 attachment base directories (never an arbitrary filesystem
+                 location, even if something in `self.messages` points there).
+              2. The resolved path must also appear in the per-request
+                 allowlist built from loaded messages.
+            """
+            allowed_paths = self._build_attachment_allowlist()
+            candidates = self._candidate_attachment_paths(filename)
 
-            # Search WhatsApp source directories
-            wa_dir = self.config.whatsapp_source_dir
-            if wa_dir:
-                wa_path = Path(wa_dir)
-                for candidate in [wa_path / filename]:
-                    try:
-                        candidate_resolved = str(candidate.resolve())
-                    except (ValueError, OSError):
-                        continue
-                    if candidate_resolved in allowed_paths and candidate.is_file():
-                        return send_from_directory(str(candidate.parent), candidate.name)
+            for candidate in candidates:
+                resolved = self._safe_resolve_under_bases(candidate)
+                if resolved is None:
+                    continue
+                if str(resolved) not in allowed_paths:
+                    continue
+                if not resolved.is_file():
+                    continue
+                return send_from_directory(str(resolved.parent), resolved.name)
+
             return ("Attachment not found", 404)
 
         @self.app.route("/api/conversations")
@@ -223,6 +242,50 @@ class WebReview:
             self._shutdown_event.wait()
         except KeyboardInterrupt:
             pass
+
+    # ------------------------------------------------------------------
+    # Attachment path safety
+    # ------------------------------------------------------------------
+
+    def _build_attachment_allowlist(self) -> set:
+        """Resolve every attachment path referenced by loaded messages."""
+        allowed = set()
+        for msg in self.messages:
+            att = msg.get("attachment")
+            if not att:
+                continue
+            try:
+                allowed.add(str(Path(att).resolve()))
+            except (ValueError, OSError):
+                pass
+        return allowed
+
+    def _candidate_attachment_paths(self, filename: str) -> List[Path]:
+        """Candidate paths to try for a requested attachment filename."""
+        candidates: List[Path] = []
+        # iMessage uses absolute paths (URL-encoded with leading slash).
+        candidates.append(Path("/") / filename)
+        # Each allowed base can host a file by that relative name.
+        for base in self._attachment_bases:
+            candidates.append(base / filename)
+        return candidates
+
+    def _safe_resolve_under_bases(self, candidate: Path) -> Optional[Path]:
+        """Resolve ``candidate`` and confirm it lives under an allowed base.
+
+        Returns the resolved Path or None if it escapes every base.
+        """
+        try:
+            resolved = candidate.resolve()
+        except (ValueError, OSError):
+            return None
+        for base in self._attachment_bases:
+            try:
+                resolved.relative_to(base)
+                return resolved
+            except ValueError:
+                continue
+        return None
 
     # ------------------------------------------------------------------
     # Private helpers
