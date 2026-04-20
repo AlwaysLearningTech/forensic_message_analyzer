@@ -534,7 +534,7 @@ class WebReview:
 
         Surfaces prior wording so the examiner can reuse a phrase in one click — speeds up review and keeps language consistent across findings in the same case.
         """
-        # Dedupe on a normalized key (lowercased, whitespace-collapsed) so "Discussing other people" and "discussing other people" coalesce into one chip. Keep the most-used original casing as the displayed label.
+        # Dedupe on a normalized key (lowercased, whitespace-collapsed) so "Discussing other people" and "discussing other people" coalesce into one chip. Display uses sentence case of the longest variant for consistency.
         groups: Dict[str, Dict] = {}
         for record in self.review_manager.reviews:
             if record.get("superseded_by"):
@@ -548,7 +548,10 @@ class WebReview:
             entry["variants"][note] = entry["variants"].get(note, 0) + 1
         ordered = []
         for key, entry in groups.items():
-            display = max(entry["variants"].items(), key=lambda kv: (kv[1], kv[0]))[0]
+            # Prefer the longest variant (more verbose), then highest count as tiebreaker
+            display = max(entry["variants"].items(), key=lambda kv: (len(kv[0]), kv[1]))[0]
+            # Normalize to sentence case: uppercase first char, rest as-is
+            display = display[0].upper() + display[1:] if display else display
             ordered.append((display, entry["count"]))
         ordered.sort(key=lambda kv: (-kv[1], kv[0].lower()))
         suggestions = [{"text": text, "count": count} for text, count in ordered[:40]]
