@@ -273,6 +273,98 @@ class ForensicAnalyzer:
         print(f"    Preserved {preserved_count} source files → {zip_path.name}")
 
     # ------------------------------------------------------------------
+    # Working-copy routing (FRE 1002 — Best Evidence Rule)
+    # ------------------------------------------------------------------
+
+    def _route_sources_to_working_copies(self):
+        """Repoint every configured source path at a hash-verified working copy.
+
+        Why: the extractors should never read originals. _preserve_source_files archives them for chain of custody; this method creates a parallel read path inside the run folder and rewrites the config so each extractor pulls from the copy. Originals remain untouched; if a copy fails to verify, that source is skipped and the failure is recorded.
+
+        Directory sources copy files recursively; single-file sources (iMessage DB plus its WAL/SHM companions) copy the file plus any siblings in the same directory that share the base name.
+        """
+        run_dir = Path(self.config.output_dir)
+        working_root = run_dir / "working_copies"
+        working_root.mkdir(parents=True, exist_ok=True)
+        print("\n[*] Creating working copies for extraction (originals will not be read)...")
+
+        def _copy_file(src: Path, dest_parent: Path) -> Optional[Path]:
+            """Copy one file with hash verification; return the copy path or None."""
+            if not src.exists() or not src.is_file():
+                return None
+            dest_parent.mkdir(parents=True, exist_ok=True)
+            dest = dest_parent / src.name
+            try:
+                shutil.copy2(src, dest)
+            except Exception as exc:
+                self.forensic.record_error(
+                    "working_copy_failed",
+                    f"Failed to copy {src} -> {dest}: {exc}",
+                    {"source": str(src)},
+                )
+                return None
+            src_hash = self.forensic.compute_hash(src)
+            dest_hash = self.forensic.compute_hash(dest)
+            if src_hash != dest_hash:
+                self.forensic.record_error(
+                    "working_copy_hash_mismatch",
+                    f"Working copy hash mismatch for {src}",
+                    {"source": str(src), "src_hash": src_hash, "dest_hash": dest_hash},
+                )
+                dest.unlink(missing_ok=True)
+                return None
+            self.forensic.record_action(
+                "working_copy_created",
+                f"Working copy verified for {src.name}",
+                {"source": str(src), "copy": str(dest), "hash": src_hash},
+            )
+            return dest
+
+        def _copy_dir(src: Path, dest_parent: Path) -> Optional[Path]:
+            if not src.exists() or not src.is_dir():
+                return None
+            dest_parent.mkdir(parents=True, exist_ok=True)
+            dest_root = dest_parent / src.name
+            count = 0
+            for f in src.rglob("*"):
+                if not f.is_file():
+                    continue
+                rel = f.relative_to(src)
+                copied = _copy_file(f, dest_root / rel.parent)
+                if copied is not None:
+                    count += 1
+            return dest_root if count > 0 else None
+
+        # iMessage database + WAL/SHM companions
+        imessage_parent = working_root / "imessage"
+        for attr in ("messages_db_path", "messages_db_wal", "messages_db_shm"):
+            val = getattr(self.config, attr, None)
+            if not val:
+                continue
+            src = Path(val).expanduser()
+            copied = _copy_file(src, imessage_parent)
+            if copied is not None:
+                setattr(self.config, attr, str(copied))
+
+        # Directory-based sources: email, Teams, WhatsApp, screenshots, counseling.
+        for attr, subdir in (
+            ("email_source_dir", "email"),
+            ("teams_source_dir", "teams"),
+            ("whatsapp_source_dir", "whatsapp"),
+            ("screenshot_source_dir", "screenshots"),
+            ("counseling_source_dir", "counseling"),
+        ):
+            val = getattr(self.config, attr, None)
+            if not val:
+                continue
+            src = Path(val).expanduser()
+            copied = _copy_dir(src, working_root / subdir) if src.is_dir() else _copy_file(src, working_root / subdir)
+            if copied is not None:
+                setattr(self.config, attr, str(copied))
+
+        print(f"    Working copies routed under {working_root}")
+
+    # ------------------------------------------------------------------
     # Attachment preservation (FRE 1002 — Best Evidence Rule)
     # ------------------------------------------------------------------
 
@@ -416,6 +508,9 @@ class ForensicAnalyzer:
 
         # Archive source evidence into the run folder (before extraction)
         self._preserve_source_files()
+
+        # Route every extractor through working copies so originals are never read during analysis (FRE 1002 best-evidence + Daubert reliability). Repoint config paths to the copies so extractors remain unchanged.
+        self._route_sources_to_working_copies()
 
         extractor = DataExtractor(self.forensic, third_party_registry=self.third_party_registry, config=self.config)
         
