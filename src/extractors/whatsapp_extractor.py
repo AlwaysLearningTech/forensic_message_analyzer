@@ -96,9 +96,7 @@ class WhatsAppExtractor:
         
         return all_messages
     
-    # Hard caps for untrusted ZIP archives. Anything larger than these limits
-    # is rejected before any file is written to disk, guarding against
-    # decompression bombs and path-traversal ("zip-slip") attacks.
+    # Hard caps for untrusted ZIP archives. Anything larger than these limits is rejected before any file is written to disk, guarding against decompression bombs and path-traversal ("zip-slip") attacks.
     _MAX_UNCOMPRESSED_BYTES = 5 * 1024 ** 3   # 5 GB total uncompressed
     _MAX_COMPRESSION_RATIO = 200              # per-member ratio ceiling
     _MAX_MEMBERS = 100_000                    # total member count
@@ -152,9 +150,7 @@ class WhatsAppExtractor:
         """Extract a ZIP archive with bounds and path-containment checks.
 
         Raises:
-            ValueError if the archive appears to be a decompression bomb,
-            contains absolute/traversing paths ("zip-slip"), or exceeds
-            the member count cap.
+            ValueError if the archive appears to be a decompression bomb, contains absolute/traversing paths ("zip-slip"), or exceeds the member count cap.
         """
         extract_root = extract_dir.resolve()
 

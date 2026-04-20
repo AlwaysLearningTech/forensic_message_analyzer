@@ -64,10 +64,7 @@ class WebReview:
         self._shutdown_event = threading.Event()
         self._conversation_cache = None
 
-        # Build Flask app. Harden cookies defensively even though the server
-        # binds to localhost: Strict SameSite blocks cross-site submissions,
-        # HttpOnly prevents any cookie JS access, and a per-session secret
-        # key keeps Flask from falling back to a fixed dev value.
+        # Build Flask app. Harden cookies defensively even though the server binds to localhost: Strict SameSite blocks cross-site submissions, HttpOnly prevents any cookie JS access, and a per-session secret key keeps Flask from falling back to a fixed dev value.
         self.app = Flask(__name__)
         self.app.config.update(
             SECRET_KEY=os.urandom(32),
@@ -75,10 +72,7 @@ class WebReview:
             SESSION_COOKIE_SAMESITE="Strict",
         )
 
-        # Allowed base directories for attachment serving. Files requested
-        # through /attachments/... must resolve underneath one of these, in
-        # addition to appearing in the per-request allowlist built from
-        # loaded messages.
+        # Allowed base directories for attachment serving. Files requested through /attachments/... must resolve underneath one of these, in addition to appearing in the per-request allowlist built from loaded messages.
         self._attachment_bases: List[Path] = []
         for base in (
             getattr(self.config, "whatsapp_source_dir", None),
@@ -129,11 +123,8 @@ class WebReview:
             """Serve message attachment files (WhatsApp photos, iMessage images, etc.).
 
             Defense-in-depth:
-              1. The resolved path must live under one of the configured
-                 attachment base directories (never an arbitrary filesystem
-                 location, even if something in `self.messages` points there).
-              2. The resolved path must also appear in the per-request
-                 allowlist built from loaded messages.
+              1. The resolved path must live under one of the configured attachment base directories (never an arbitrary filesystem location, even if something in `self.messages` points there).
+              2. The resolved path must also appear in the per-request allowlist built from loaded messages.
             """
             allowed_paths = self._build_attachment_allowlist()
             candidates = self._candidate_attachment_paths(filename)

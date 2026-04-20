@@ -229,9 +229,7 @@ class IMessageExtractor:
     # Schema discovery
     # ------------------------------------------------------------------
 
-    # Whitelist of chat.db tables this extractor is allowed to introspect.
-    # PRAGMA does not accept bound parameters, so we validate the table name
-    # against this set before interpolating it into the SQL statement.
+    # Whitelist of chat.db tables this extractor is allowed to introspect. PRAGMA does not accept bound parameters, so we validate the table name against this set before interpolating it into the SQL statement.
     _ALLOWED_SCHEMA_TABLES = frozenset({
         "message",
         "handle",
@@ -248,9 +246,7 @@ class IMessageExtractor:
     def _discover_columns(cls, cursor, table_name):
         """Return set of column names available in a table.
 
-        Why: PRAGMA statements cannot use bound parameters, so we reject
-        any table name not in the known chat.db schema to keep the f-string
-        interpolation safe.
+        Why: PRAGMA statements cannot use bound parameters, so we reject any table name not in the known chat.db schema to keep the f-string interpolation safe.
         """
         if table_name not in cls._ALLOWED_SCHEMA_TABLES:
             raise ValueError(f"Refusing to introspect unknown table: {table_name!r}")

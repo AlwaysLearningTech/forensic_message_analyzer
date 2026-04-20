@@ -78,8 +78,7 @@ def _extract_json(text: str) -> dict:
 def _sanitize_endpoint(endpoint: Optional[str]) -> str:
     """Return an endpoint safe to write to forensic logs.
 
-    Strips embedded userinfo (``https://user:token@host``) and any query
-    string that might carry credentials, leaving scheme + host + path.
+    Strips embedded userinfo (``https://user:token@host``) and any query string that might carry credentials, leaving scheme + host + path.
     """
     if not endpoint:
         return "api.anthropic.com"
