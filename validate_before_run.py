@@ -96,7 +96,7 @@ def main():
     third_party = ThirdPartyRegistry(forensic, config)
 
     from src.extractors.data_extractor import DataExtractor
-    extractor = DataExtractor(forensic, third_party_registry=third_party)
+    extractor = DataExtractor(forensic, third_party_registry=third_party, config=config)
     # extract_all() returns a list of message dicts directly
     messages = extractor.extract_all()
     print(f"  Total messages extracted: {len(messages):,}")
@@ -425,7 +425,7 @@ def main():
         print(f"\n[7/8] AI test ({sample_size} messages — ~$0.29)...")
         try:
             from src.analyzers.ai_analyzer import AIAnalyzer
-            ai_test = AIAnalyzer(forensic_recorder=forensic)
+            ai_test = AIAnalyzer(forensic_recorder=forensic, config=config)
 
             if not ai_test.client:
                 print("  SKIP: No API key configured")
