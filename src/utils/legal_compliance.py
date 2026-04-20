@@ -394,23 +394,37 @@ class LegalComplianceManager:
         })
 
         sections.append({
-            "heading": "7. Scope Limitations",
+            "heading": "7. Scope Limitations and Known Error Characteristics",
             "level": 1,
-            "blocks": [{"type": "bullets", "items": [
-                ("The automated screens are tuned for recall, not "
-                 "precision. False positives are expected. Every flagged "
-                 "item was manually reviewed; only confirmed items appear "
-                 "in the findings."),
-                ("The analyzer does not interpret intent, credibility, or "
-                 "truthfulness. Those are matters for the trier of fact."),
-                ("The analyzer cannot recover messages that were deleted "
-                 "before the source data was preserved, or messages "
-                 "exchanged on platforms not configured as a source."),
-                ("Sentiment analysis (TextBlob) is calibrated on general "
-                 "English text and may misclassify sarcasm, code-"
-                 "switching, or domain-specific vocabulary. It is "
-                 "provided as an additional indexing aid only."),
-            ]}],
+            "blocks": [
+                {"type": "paragraph", "text": (
+                    "Daubert requires that the methodology's known or potential error rate be disclosed. The analyzer distinguishes deterministic components (whose output is identical run to run given the same input) from non-deterministic components (where the output may vary and the exact prompt is logged). Error characteristics for each component follow; when an empirical rate is not yet published against a validated corpus, the component's behavior under adversarial inputs is described instead, so opposing counsel can inspect the mechanism rather than relying on the analyzer's word."
+                )},
+                {"type": "definition", "term": "Pattern matching (deterministic)", "text": (
+                    "The YAML pattern library in patterns/analysis_patterns.yaml is pure regular expression matching. Given the same input messages and the same pattern file (whose SHA-256 hash is recorded in the run manifest), the same set of flags is produced every time. Precision is intentionally low — the library is tuned for recall — and false positives are the expected mode of failure; these are filtered by manual review. Known failure modes: (a) extremely short messages with incidental keyword matches ('I'll kill for that last cookie'); (b) paraphrased threats that avoid the listed vocabulary; (c) non-English or code-switched messages for which no patterns exist."
+                )},
+                {"type": "definition", "term": "Sentiment analysis (deterministic, library-based)", "text": (
+                    "TextBlob's sentiment polarity/subjectivity is a deterministic function of the input text, implemented on a general-English training corpus. Documented miscalibration modes: sarcasm inversion, domain-specific vocabulary, emoji-heavy text, and non-English content. Sentiment scores are indexing aids, not evidence of intent; no finding rests on a sentiment score alone."
+                )},
+                {"type": "definition", "term": "attributedBody decoding (iMessage)", "text": (
+                    "iMessage stores rich text as a binary NSKeyedArchiver blob. The analyzer attempts three decoders in order: pytypedstream (full typedstream deserialization), a streamtyped byte-pattern heuristic, and a printable-text heuristic. The first decoder that yields non-empty text wins; if all three fail, the message text is left empty and the failure is recorded in the forensic log. Known failure mode: extremely short attributedBody blobs (single-emoji tapbacks) may be silently skipped by all three decoders; the tapback is still recorded via the associated_message_type column."
+                )},
+                {"type": "definition", "term": "OCR (screenshot analyzer)", "text": (
+                    "Tesseract (via pytesseract) is used when ENABLE_OCR=true. Tesseract's accuracy is publicly documented; the analyzer does not publish an independent F1 score. OCR output is labeled as such in any reports that include it, so a reviewer can weigh the literal screenshot text against the OCR transcription."
+                )},
+                {"type": "definition", "term": "EXIF/metadata extraction (attachment processor)", "text": (
+                    "Pillow's getexif() is a pass-through of what the image file itself reports. A photo with stripped EXIF returns an 'exif_stripped' anomaly but nothing about why; a photo with a Software tag naming a raster editor returns an 'edited_by:' anomaly without asserting that the edit was substantive. These anomalies are flags for human review, not conclusions."
+                )},
+                {"type": "definition", "term": "AI screening (non-deterministic)", "text": (
+                    "The Anthropic Claude batch API is used when AI_API_KEY is configured. The model, prompt, token counts, batch ID, and sample output are recorded with each run. The analyzer does not treat AI output as evidentiary: every AI-flagged item is routed through the same manual-review process as a pattern-matched item, and only items confirmed by a named reviewer appear in the final report. Known limitations of large language models — hallucination, sensitivity to prompt phrasing, and the lack of peer-reviewed forensic validation — are acknowledged; the source field on each finding marks its origin ('ai_screened' vs 'pattern_matched') so reports and reviewers can weight them appropriately."
+                )},
+                {"type": "bullets", "items": [
+                    ("The analyzer does not interpret intent, credibility, or truthfulness. Those are matters for the trier of fact."),
+                    ("The analyzer cannot recover messages that were deleted before the source data was preserved, or messages exchanged on platforms not configured as a source."),
+                    ("Completeness validation flags one-sided conversations and multi-day gaps so the legal team can pursue supplemental production; it does not prove that no deletion occurred."),
+                    ("Every flagged item was manually reviewed; only confirmed items appear in the findings. A reviewer's 'not relevant' decision requires written justification and is recorded in the chain of custody."),
+                ]},
+            ],
         })
 
         sections.append({
