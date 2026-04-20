@@ -111,10 +111,10 @@ class WhatsAppExtractor:
         if not zip_files:
             return
 
-        # Guard: warn if output_dir is not inside a run subfolder
+        # Guard: warn if output_dir is not inside a run subfolder (skip during validation)
         output_dir = Path(self.config.output_dir)
-        if not re.search(r'run_\d{8}_\d{6}', output_dir.name):
-            logger.warning(
+        if not re.search(r'(run|validate)_\d{8}_\d{6}', str(output_dir)):
+            logger.debug(
                 "output_dir does not look like a run subfolder: %s. "
                 "WhatsApp extracted files may be misplaced.", output_dir
             )
