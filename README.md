@@ -77,7 +77,7 @@ AI is one tool in the workflow; nothing reaches a final report without human con
 
 ### Legal Compliance
 - **Chain of Custody**: Complete audit trail with SHA-256 hashing; forensic JSONL log is HMAC-chained (`seq` + `prev_hmac` + `hmac` on every record) so edits, deletions, or reorders break the chain. Per-session HMAC key written to a `0600` sidecar file for independent verification.
-- **Evidence Integrity**: Every source is copied to `run_dir/working_copies/` with hash verification before extraction reads it. Originals are never opened during analysis.
+- **Evidence Integrity**: Every source is SHA-256 hashed, archived into `preserved_sources.zip`, and copied to `run_dir/working_copies/` with hash verification — all before any extractor reads a file. Extractors only open the working copies; originals are never touched during analysis.
 - **Signed outputs**: Manifest, chain of custody, and every final report get detached Ed25519 signatures (`<file>.sig` + `<file>.sig.pub`). Set `EXAMINER_SIGNING_KEY` for a long-lived examiner key, or let the analyzer generate a per-run ephemeral key.
 - **Reviewer accountability**: Manual review requires a named reviewer (configurable via `EXAMINER_NAME`); rejections and uncertainty decisions require explanatory notes; prior decisions are append-only (amendments preserve the original record).
 - **Source provenance on every finding**: Reports stamp each item with `source` in {`pattern_matched`, `ai_screened`, `extracted`, `derived`} and a `method` label so readers can distinguish deterministic findings from AI-screened ones.
@@ -302,7 +302,12 @@ python3 run.py --env /path/to/.env
 ```
 
 This executes Phases 1-4 (extraction through review):
-1. **Data Extraction**: Collects messages from all sources (iMessage, WhatsApp, email, Teams, screenshots)
+1. **Data Extraction**: Before any source file is read, the pipeline runs three evidence-preservation steps:
+   - **Hash sources** — SHA-256 of every configured source file, recorded in the forensic log
+   - **Preserve sources** — copies all source files into `preserved_sources.zip` inside the run directory (the archival copy for chain of custody)
+   - **Working copies** — copies each source into `run_dir/working_copies/` and repoints the config so extractors never open the originals. Each copy is hash-verified against the original; mismatches are rejected.
+   
+   Then extraction runs against the working copies:
    - Automatically extracts ZIP files (e.g., WhatsApp_SourceFiles.zip) and TAR archives (Teams exports)
    - Decodes modern iMessage binary format (attributedBody)
    - Parses email MIME format (.eml, .mbox) with header extraction
