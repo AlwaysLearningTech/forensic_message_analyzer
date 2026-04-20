@@ -56,6 +56,10 @@ class ForensicAnalyzer:
         self.integrity = ForensicIntegrity(self.forensic)
         self.manifest = RunManifest(self.forensic, config=self.config)
         self.third_party_registry = ThirdPartyRegistry(self.forensic, self.config)
+
+        # Evidence preservation (hashing, archive, working copies, contact auto-map) is delegated to a dedicated helper so this orchestrator is not also an archive manager. The helper reads+writes the same config and forensic recorder.
+        from .utils.evidence_preserver import EvidencePreserver
+        self.evidence = EvidencePreserver(self.config, self.forensic, self.integrity, self.manifest)
         
         # Record session start
         self.forensic.record_action("session_start", "Forensic analysis session initialized")
@@ -67,213 +71,16 @@ class ForensicAnalyzer:
     # ------------------------------------------------------------------
 
     def _hash_source_files(self):
-        """Hash all source files before extraction to establish chain of custody."""
-        logger.info("\n[*] Hashing source files for chain of custody...")
-        hashed = 0
-
-        # iMessage database
-        if self.config.messages_db_path:
-            db_path = Path(self.config.messages_db_path).expanduser()
-            if db_path.exists():
-                h = self.forensic.compute_hash(db_path)
-                self.forensic.record_action(
-                    "source_file_hashed", f"Pre-extraction hash of iMessage database",
-                    {"file": str(db_path), "hash": h}
-                )
-                hashed += 1
-
-        # WhatsApp source files
-        wa_dir = self.config.whatsapp_source_dir
-        if wa_dir:
-            wa_path = Path(wa_dir).expanduser()
-            if wa_path.is_dir():
-                for f in sorted(wa_path.rglob("*")):
-                    if f.is_file():
-                        h = self.forensic.compute_hash(f)
-                        self.forensic.record_action(
-                            "source_file_hashed", f"Pre-extraction hash of WhatsApp file",
-                            {"file": str(f), "hash": h}
-                        )
-                        hashed += 1
-
-        # Email source files
-        email_dir = self.config.email_source_dir
-        if email_dir:
-            email_path = Path(email_dir).expanduser()
-            if email_path.is_dir():
-                for f in sorted(email_path.rglob("*")):
-                    if f.is_file():
-                        h = self.forensic.compute_hash(f)
-                        self.forensic.record_action(
-                            "source_file_hashed", f"Pre-extraction hash of email file",
-                            {"file": str(f), "hash": h}
-                        )
-                        hashed += 1
-
-        # Teams source files
-        teams_dir = self.config.teams_source_dir
-        if teams_dir:
-            teams_path = Path(teams_dir).expanduser()
-            if teams_path.is_dir():
-                for f in sorted(teams_path.rglob("*")):
-                    if f.is_file():
-                        h = self.forensic.compute_hash(f)
-                        self.forensic.record_action(
-                            "source_file_hashed", f"Pre-extraction hash of Teams file",
-                            {"file": str(f), "hash": h}
-                        )
-                        hashed += 1
-
-        # Screenshot source files (hashed individually during extraction,
-        # but record them here too for completeness)
-        ss_dir = self.config.screenshot_source_dir
-        if ss_dir:
-            ss_path = Path(ss_dir).expanduser()
-            if ss_path.is_dir():
-                for f in sorted(ss_path.iterdir()):
-                    if f.is_file():
-                        h = self.forensic.compute_hash(f)
-                        self.forensic.record_action(
-                            "source_file_hashed", f"Pre-extraction hash of screenshot",
-                            {"file": str(f), "hash": h}
-                        )
-                        hashed += 1
-
-        # Counseling source files (YAML + PDFs)
-        counseling_dir = self.config.counseling_source_dir
-        if counseling_dir:
-            counseling_path = Path(counseling_dir).expanduser()
-            if counseling_path.is_dir():
-                for f in sorted(counseling_path.rglob("*")):
-                    if f.is_file():
-                        h = self.forensic.compute_hash(f)
-                        self.forensic.record_action(
-                            "source_file_hashed", f"Pre-extraction hash of counseling file",
-                            {"file": str(f), "hash": h}
-                        )
-                        hashed += 1
-
-        logger.info(f"    Hashed {hashed} source files")
+        """Hash all source files before extraction. Delegates to EvidencePreserver."""
+        self.evidence.hash_sources()
 
     # ------------------------------------------------------------------
     # Source file preservation (forensic archive)
     # ------------------------------------------------------------------
 
     def _preserve_source_files(self):
-        """Create a zipped archive of all source evidence files.
-
-        Copies every configured source file into a temporary
-        ``preserved_sources/`` tree inside the run folder, computes
-        SHA-256 hashes (cross-validated against the hashes already
-        recorded by ``_hash_source_files``), zips the tree into
-        ``preserved_sources.zip``, and removes the temporary tree.
-
-        The originals are **never** modified or deleted.
-        """
-        run_dir = Path(self.config.output_dir)
-        staging = run_dir / "preserved_sources"
-        staging.mkdir(parents=True, exist_ok=True)
-        preserved_count = 0
-
-        logger.info("\n[*] Preserving source evidence files...")
-
-        def _copy_and_hash(src: Path, dest: Path, label: str):
-            """Copy a single file and record its hash."""
-            nonlocal preserved_count
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
-            h = self.forensic.compute_hash(dest)
-            self.forensic.record_action(
-                "source_preserved",
-                f"Preserved {label}: {src.name}",
-                {"original": str(src), "preserved": str(dest), "hash": h},
-            )
-            preserved_count += 1
-
-        # --- iMessage database files ---
-        for attr in ("messages_db_path", "messages_db_wal", "messages_db_shm"):
-            val = getattr(self.config, attr, None)
-            if val:
-                p = Path(val).expanduser()
-                if p.is_file():
-                    _copy_and_hash(p, staging / "imessage" / p.name, "iMessage DB")
-
-        # --- WhatsApp: only .zip files (not extracted dirs/media) ---
-        wa_dir = self.config.whatsapp_source_dir
-        if wa_dir:
-            wa_path = Path(wa_dir).expanduser()
-            if wa_path.is_dir():
-                for f in sorted(wa_path.glob("*.zip")):
-                    if f.is_file():
-                        _copy_and_hash(f, staging / "whatsapp" / f.name, "WhatsApp ZIP")
-
-        # --- Email ---
-        email_dir = self.config.email_source_dir
-        if email_dir:
-            email_path = Path(email_dir).expanduser()
-            if email_path.is_dir():
-                for f in sorted(email_path.rglob("*")):
-                    if f.is_file():
-                        rel = f.relative_to(email_path)
-                        _copy_and_hash(f, staging / "email" / rel, "email")
-
-        # --- Microsoft Teams ---
-        teams_dir = self.config.teams_source_dir
-        if teams_dir:
-            teams_path = Path(teams_dir).expanduser()
-            if teams_path.is_dir():
-                for f in sorted(teams_path.rglob("*")):
-                    if f.is_file():
-                        rel = f.relative_to(teams_path)
-                        _copy_and_hash(f, staging / "teams" / rel, "Teams")
-
-        # --- Screenshots ---
-        ss_dir = self.config.screenshot_source_dir
-        if ss_dir:
-            ss_path = Path(ss_dir).expanduser()
-            if ss_path.is_dir():
-                for f in sorted(ss_path.iterdir()):
-                    if f.is_file():
-                        _copy_and_hash(f, staging / "screenshots" / f.name, "screenshot")
-
-        # --- Counseling records ---
-        counseling_dir = self.config.counseling_source_dir
-        if counseling_dir:
-            counseling_path = Path(counseling_dir).expanduser()
-            if counseling_path.is_dir():
-                for f in sorted(counseling_path.rglob("*")):
-                    if f.is_file():
-                        rel = f.relative_to(counseling_path)
-                        _copy_and_hash(f, staging / "counseling" / rel, "counseling")
-
-        if preserved_count == 0:
-            logger.info("    No source files found to preserve")
-            # Clean up empty staging dir
-            if staging.exists():
-                shutil.rmtree(staging)
-            return
-
-        # --- Zip the staging tree ---
-        zip_path = run_dir / "preserved_sources.zip"
-        logger.info(f"    Archiving {preserved_count} source files...")
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for f in sorted(staging.rglob("*")):
-                if f.is_file():
-                    zf.write(f, f.relative_to(staging))
-
-        # Hash the archive itself
-        archive_hash = self.forensic.compute_hash(zip_path)
-        self.forensic.record_action(
-            "source_archive_created",
-            f"Created source evidence archive with {preserved_count} files",
-            {"archive": str(zip_path), "hash": archive_hash, "file_count": preserved_count},
-        )
-        self.manifest.add_output_file(zip_path)
-
-        # Remove unzipped staging tree (originals are untouched)
-        shutil.rmtree(staging)
-
-        logger.info(f"    Preserved {preserved_count} source files → {zip_path.name}")
+        """Archive every configured source file into preserved_sources.zip. Delegates to EvidencePreserver."""
+        self.evidence.preserve_sources()
 
     # ------------------------------------------------------------------
     # Redaction application
@@ -362,124 +169,16 @@ class ForensicAnalyzer:
     # ------------------------------------------------------------------
 
     def _apply_contact_automapping(self):
-        """Merge any vCard-derived contacts into config.contact_mappings.
-
-        Opt-in via CONTACTS_VCARD_DIR. Every merged entry is logged to the forensic chain so the provenance of an auto-mapped display name is auditable — a reviewer can later see that 'Alice Baker' came from /path/to/contacts/baker.vcf rather than being hand-typed.
-        """
-        vcard_dir = getattr(self.config, "contacts_vcard_dir", None)
-        if not vcard_dir:
-            return
-
-        from .utils.contact_automapper import load_vcards_from_dir, merge_into_config
-
-        mapping = load_vcards_from_dir(Path(vcard_dir))
-        if not mapping:
-            self.forensic.record_action(
-                "contact_automap_skipped",
-                f"No vCards found under {vcard_dir}",
-                {"dir": vcard_dir},
-            )
-            return
-
-        added = merge_into_config(self.config, mapping)
-        self.forensic.record_action(
-            "contact_automap_applied",
-            f"Auto-mapped {len(added)} contact(s) from vCards under {vcard_dir}",
-            {"dir": vcard_dir, "entries": {k: v for k, v in added.items()}},
-        )
-        logger.info(f"\n[*] Auto-mapped {len(added)} contact(s) from vCards")
+        """Merge vCard-derived contacts into config.contact_mappings. Delegates to EvidencePreserver."""
+        self.evidence.apply_contact_automapping()
 
     # ------------------------------------------------------------------
     # Working-copy routing (FRE 1002 — Best Evidence Rule)
     # ------------------------------------------------------------------
 
     def _route_sources_to_working_copies(self):
-        """Repoint every configured source path at a hash-verified working copy.
-
-        Why: the extractors should never read originals. _preserve_source_files archives them for chain of custody; this method creates a parallel read path inside the run folder and rewrites the config so each extractor pulls from the copy. Originals remain untouched; if a copy fails to verify, that source is skipped and the failure is recorded.
-
-        Directory sources copy files recursively; single-file sources (iMessage DB plus its WAL/SHM companions) copy the file plus any siblings in the same directory that share the base name.
-        """
-        run_dir = Path(self.config.output_dir)
-        working_root = run_dir / "working_copies"
-        working_root.mkdir(parents=True, exist_ok=True)
-        logger.info("\n[*] Creating working copies for extraction (originals will not be read)...")
-
-        def _copy_file(src: Path, dest_parent: Path) -> Optional[Path]:
-            """Copy one file with hash verification; return the copy path or None."""
-            if not src.exists() or not src.is_file():
-                return None
-            dest_parent.mkdir(parents=True, exist_ok=True)
-            dest = dest_parent / src.name
-            try:
-                shutil.copy2(src, dest)
-            except Exception as exc:
-                self.forensic.record_error(
-                    "working_copy_failed",
-                    f"Failed to copy {src} -> {dest}: {exc}",
-                    {"source": str(src)},
-                )
-                return None
-            src_hash = self.forensic.compute_hash(src)
-            dest_hash = self.forensic.compute_hash(dest)
-            if src_hash != dest_hash:
-                self.forensic.record_error(
-                    "working_copy_hash_mismatch",
-                    f"Working copy hash mismatch for {src}",
-                    {"source": str(src), "src_hash": src_hash, "dest_hash": dest_hash},
-                )
-                dest.unlink(missing_ok=True)
-                return None
-            self.forensic.record_action(
-                "working_copy_created",
-                f"Working copy verified for {src.name}",
-                {"source": str(src), "copy": str(dest), "hash": src_hash},
-            )
-            return dest
-
-        def _copy_dir(src: Path, dest_parent: Path) -> Optional[Path]:
-            if not src.exists() or not src.is_dir():
-                return None
-            dest_parent.mkdir(parents=True, exist_ok=True)
-            dest_root = dest_parent / src.name
-            count = 0
-            for f in src.rglob("*"):
-                if not f.is_file():
-                    continue
-                rel = f.relative_to(src)
-                copied = _copy_file(f, dest_root / rel.parent)
-                if copied is not None:
-                    count += 1
-            return dest_root if count > 0 else None
-
-        # iMessage database + WAL/SHM companions
-        imessage_parent = working_root / "imessage"
-        for attr in ("messages_db_path", "messages_db_wal", "messages_db_shm"):
-            val = getattr(self.config, attr, None)
-            if not val:
-                continue
-            src = Path(val).expanduser()
-            copied = _copy_file(src, imessage_parent)
-            if copied is not None:
-                setattr(self.config, attr, str(copied))
-
-        # Directory-based sources: email, Teams, WhatsApp, screenshots, counseling.
-        for attr, subdir in (
-            ("email_source_dir", "email"),
-            ("teams_source_dir", "teams"),
-            ("whatsapp_source_dir", "whatsapp"),
-            ("screenshot_source_dir", "screenshots"),
-            ("counseling_source_dir", "counseling"),
-        ):
-            val = getattr(self.config, attr, None)
-            if not val:
-                continue
-            src = Path(val).expanduser()
-            copied = _copy_dir(src, working_root / subdir) if src.is_dir() else _copy_file(src, working_root / subdir)
-            if copied is not None:
-                setattr(self.config, attr, str(copied))
-
-        logger.info(f"    Working copies routed under {working_root}")
+        """Copy each source into run_dir/working_copies and repoint the config. Delegates to EvidencePreserver."""
+        self.evidence.route_to_working_copies()
 
     # ------------------------------------------------------------------
     # Attachment preservation (FRE 1002 — Best Evidence Rule)
