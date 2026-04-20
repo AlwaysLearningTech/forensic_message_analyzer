@@ -16,6 +16,39 @@ from .. import __version__
 from ..forensic_utils import ForensicRecorder
 
 
+def _sign_if_possible(file_path: Path, forensic: ForensicRecorder):
+    """Best-effort signing hook used by the manifest and final reports.
+
+    Skips silently (logging an info-level note) if cryptography is not installed or the examiner key cannot be loaded. That way signing is opt-in in practice — it improves defensibility when available and never breaks the run when not.
+    """
+    try:
+        from ..config import Config
+        from .signing import Signer
+        cfg = Config()
+        key_path = getattr(cfg, "examiner_signing_key", None)
+        run_dir = file_path.parent
+        signer = Signer(key_path=Path(key_path) if key_path else None, run_dir=run_dir)
+        sig_path, pub_path = signer.sign_file(file_path)
+        forensic.record_action(
+            "artifact_signed",
+            f"Signed {file_path.name} with {'ephemeral run key' if signer.is_ephemeral else 'configured examiner key'}",
+            {
+                "file": str(file_path),
+                "sig": str(sig_path),
+                "public_key": str(pub_path),
+                "ephemeral_key": signer.is_ephemeral,
+            },
+        )
+        return sig_path
+    except Exception as exc:
+        forensic.record_action(
+            "artifact_sign_skipped",
+            f"Could not sign {file_path.name}: {exc}",
+            {"file": str(file_path), "error": str(exc)},
+        )
+        return None
+
+
 class RunManifest:
     """
     Generates run manifest documenting all forensic analysis operations.
@@ -302,17 +335,21 @@ class RunManifest:
         # the manifest file itself, which would invalidate the hash.
         manifest_hash = self.forensic.compute_hash(output_path)
 
+        # Detached signature: a sibling .sig (raw Ed25519) + .sig.pub (PEM). Hashing alone does not resist an attacker with write access to the output directory; a signature tied to an examiner key does.
+        sig_path = _sign_if_possible(output_path, self.forensic)
+
         self.forensic.record_action(
             "manifest_generated",
             f"Generated run manifest with {len(self.manifest_data['operations'])} operations",
             {
                 "output_path": str(output_path),
                 "hash": manifest_hash,
+                "signature": str(sig_path) if sig_path else None,
                 "input_files": len(self.manifest_data["input_files"]),
                 "output_files": len(self.manifest_data["output_files"])
             }
         )
-        
+
         return output_path
     
     def add_extraction_summary(self, source: str, message_count: int, 

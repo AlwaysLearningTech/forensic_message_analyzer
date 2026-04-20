@@ -167,6 +167,9 @@ class Config:
 
         # Optional: directory of vCard (.vcf) exports to auto-merge into contact_mappings before extraction. Reduces the "Unknown" surface area and auto-labels third-party identifiers with their actual names.
         self.contacts_vcard_dir = self._expand_path(os.getenv('CONTACTS_VCARD_DIR'))
+
+        # Optional: path to a long-lived examiner Ed25519 private key (PEM). When set, signed outputs chain back to the examiner's published public key. When unset, a per-run ephemeral key is generated in run_dir/keys/ — still tamper-evident within the run, but not anchored to an external identity.
+        self.examiner_signing_key = self._expand_path(os.getenv('EXAMINER_SIGNING_KEY'))
         
         # Ensure critical directories exist
         self._ensure_directories()

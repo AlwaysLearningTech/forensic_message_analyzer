@@ -276,6 +276,34 @@ class ForensicAnalyzer:
         logger.info(f"    Preserved {preserved_count} source files → {zip_path.name}")
 
     # ------------------------------------------------------------------
+    # Output signing (detached Ed25519)
+    # ------------------------------------------------------------------
+
+    def _sign_artifact(self, path: Path):
+        """Sign a final artifact if a signer can be built. Errors are non-fatal."""
+        if path is None or not Path(path).is_file():
+            return
+        try:
+            from .utils.signing import Signer
+            key_path = getattr(self.config, "examiner_signing_key", None)
+            signer = Signer(
+                key_path=Path(key_path) if key_path else None,
+                run_dir=Path(self.config.output_dir),
+            )
+            sig, pub = signer.sign_file(Path(path))
+            self.forensic.record_action(
+                "artifact_signed",
+                f"Signed {Path(path).name} ({'ephemeral key' if signer.is_ephemeral else 'configured key'})",
+                {"file": str(path), "sig": str(sig), "public_key": str(pub), "ephemeral_key": signer.is_ephemeral},
+            )
+        except Exception as exc:
+            self.forensic.record_action(
+                "artifact_sign_skipped",
+                f"Could not sign {Path(path).name}: {exc}",
+                {"file": str(path), "error": str(exc)},
+            )
+
+    # ------------------------------------------------------------------
     # Contact auto-mapping from vCard exports
     # ------------------------------------------------------------------
 
@@ -1182,6 +1210,10 @@ class ForensicAnalyzer:
             except Exception as e:
                 logger.info(f"    Error generating JSON report: {e}")
 
+        # Sign every report file that was successfully produced. Each gets a <file>.sig + <file>.sig.pub sibling so a verifier can confirm provenance without holding the whole output directory.
+        for fmt, path in list(reports.items()):
+            self._sign_artifact(Path(path))
+
         # Generate legal team summary docx (after all reports so file table is complete)
         legal_text = getattr(forensic_reporter, '_legal_summary_text', None)
         if legal_text:
@@ -1230,11 +1262,12 @@ class ForensicAnalyzer:
         logger.info("PHASE 8: DOCUMENTATION")
         logger.info("="*60)
         
-        # Generate chain of custody
+        # Generate chain of custody (and sign it)
         logger.info("\n[*] Generating chain of custody...")
         chain_path = self.forensic.generate_chain_of_custody()
         if chain_path:
             logger.info(f"    Saved to {chain_path}")
+            self._sign_artifact(Path(chain_path))
         else:
             logger.info("    WARNING: Chain of custody generation failed")
         
