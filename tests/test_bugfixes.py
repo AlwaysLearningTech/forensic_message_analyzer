@@ -67,15 +67,6 @@ class TestLimitationsReporting:
         limitations = generate_limitations(mock_config, {"ai_analysis": {"conversation_summary": "Some summary"}})
         assert not any("Sentiment analysis was disabled" in l for l in limitations)
 
-    def test_missing_sources_appear(self, mock_config):
-        from src.reporters.report_utils import generate_limitations
-
-        mock_config.messages_db_path = None
-        mock_config.whatsapp_source_dir = None
-        limitations = generate_limitations(mock_config, {"ai_analysis": {}})
-        assert any("iMessage" in l for l in limitations)
-        assert any("WhatsApp" in l for l in limitations)
-
 
 class TestJsonReportMessageCount:
     """Verify forensic reporter JSON output has correct total_messages."""
@@ -117,12 +108,6 @@ class TestReportUtils:
 
     def test_generate_limitations_no_limitations(self, mock_config):
         from src.reporters.report_utils import generate_limitations
-        # Set all sources as configured
-        mock_config.messages_db_path = "/some/path"
-        mock_config.whatsapp_source_dir = "/some/path"
-        mock_config.email_source_dir = "/some/path"
-        mock_config.teams_source_dir = "/some/path"
-        mock_config.screenshot_source_dir = "/some/path"
         mock_config.enable_sentiment = True
         mock_config.enable_image_analysis = True
         mock_config.enable_ocr = True

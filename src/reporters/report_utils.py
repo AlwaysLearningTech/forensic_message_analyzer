@@ -91,27 +91,6 @@ def generate_limitations(config, analysis_results: Dict) -> List[str]:
     """
     limitations = []
 
-    if not getattr(config, 'messages_db_path', None):
-        limitations.append(
-            "iMessage database was not configured — iMessage conversations are not included."
-        )
-    if not getattr(config, 'whatsapp_source_dir', None):
-        limitations.append(
-            "WhatsApp export directory was not configured — WhatsApp messages are not included."
-        )
-    if not getattr(config, 'email_source_dir', None):
-        limitations.append(
-            "Email source directory was not configured — email messages are not included."
-        )
-    if not getattr(config, 'teams_source_dir', None):
-        limitations.append(
-            "Microsoft Teams export directory was not configured — Teams messages are not included."
-        )
-    if not getattr(config, 'screenshot_source_dir', None):
-        limitations.append(
-            "Screenshot directory was not configured — screenshot OCR analysis was not performed."
-        )
-
     if not getattr(config, 'enable_sentiment', True):
         limitations.append("Sentiment analysis was disabled for this run.")
     if not getattr(config, 'enable_image_analysis', True):
