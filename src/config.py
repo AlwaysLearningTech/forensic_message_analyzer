@@ -167,7 +167,6 @@ class Config:
 
         # Logging
         self.log_level = os.getenv('LOG_LEVEL', 'INFO')
-        self.content_filter_log = self._expand_path(os.getenv('CONTENT_FILTER_LOG'))
 
         # Optional: directory of vCard (.vcf) exports to auto-merge into contact_mappings before extraction. Reduces the "Unknown" surface area and auto-labels third-party identifiers with their actual names.
         self.contacts_vcard_dir = self._expand_path(os.getenv('CONTACTS_VCARD_DIR'))
@@ -262,7 +261,6 @@ class Config:
             "paths": {
                 "output_dir": self.output_dir,
                 "review_dir": self.review_dir,
-                "content_filter_log": self.content_filter_log,
             },
         }
 
