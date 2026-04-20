@@ -36,7 +36,7 @@ def run(analyzer) -> Dict:
             {"original_output_dir": str(output_dir), "run_dir": str(run_dir)},
         )
         analyzer.config.output_dir = str(run_dir)
-        analyzer.forensic = ForensicRecorder(run_dir)
+        analyzer.forensic = ForensicRecorder(run_dir, config=analyzer.config)
         analyzer.integrity = ForensicIntegrity(analyzer.forensic)
         analyzer.manifest = RunManifest(analyzer.forensic, config=analyzer.config)
         # Re-bind the evidence helper so it uses the refreshed recorder/integrity/manifest.

@@ -106,10 +106,10 @@ def main():
     # extract_all() returns a list of message dicts directly
     messages = extractor.extract_all()
 
-    # Restore real output_dir and clean up temp extraction artifacts
+    # Restore real output_dir and clean up temp extraction artifacts.
+    # Keep _validation_log_dir alive — the forensic recorder is reused by later tests.
     config.output_dir = _real_output_dir
     shutil.rmtree(_validation_extract_dir, ignore_errors=True)
-    shutil.rmtree(_validation_log_dir, ignore_errors=True)
 
     print(f"  Total messages extracted: {len(messages):,}")
 
@@ -499,7 +499,7 @@ def main():
             from src.reporters.forensic_reporter import ForensicReporter
 
             # Create a config with output_dir pointing to temp dir for validation
-            val_config = Config()
+            val_config = Config(env_path=args.env)
             val_config.output_dir = temp_dir
 
             # Build extracted_data from the FULL message set (Test 3 output).
@@ -569,7 +569,7 @@ def main():
 
             # Auto-review with mixed decisions
             review_dir = Path(temp_dir) / "reviews"
-            manager = ManualReviewManager(review_dir=review_dir, forensic_recorder=analyzer.forensic)
+            manager = ManualReviewManager(review_dir=review_dir, forensic_recorder=analyzer.forensic, config=val_config)
             decision_cycle = ['relevant', 'not_relevant', 'uncertain']
             for i, item in enumerate(items_for_review):
                 decision = decision_cycle[i % 3]
@@ -662,6 +662,9 @@ def main():
     # ---------------------------------------------------------------
     # Summary
     # ---------------------------------------------------------------
+    # Clean up the validation forensic log dir (kept alive for tests 5-7)
+    shutil.rmtree(_validation_log_dir, ignore_errors=True)
+
     print("\n" + "=" * 80)
     print(f" VALIDATION SUMMARY: {passed} passed, {failed} failed, {warnings} warnings")
     print("=" * 80)

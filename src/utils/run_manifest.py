@@ -16,16 +16,17 @@ from .. import __version__
 from ..forensic_utils import ForensicRecorder
 
 
-def _sign_if_possible(file_path: Path, forensic: ForensicRecorder):
+def _sign_if_possible(file_path: Path, forensic: ForensicRecorder, config=None):
     """Best-effort signing hook used by the manifest and final reports.
 
     Skips silently (logging an info-level note) if cryptography is not installed or the examiner key cannot be loaded. That way signing is opt-in in practice — it improves defensibility when available and never breaks the run when not.
     """
     try:
-        from ..config import Config
         from .signing import Signer
-        cfg = Config()
-        key_path = getattr(cfg, "examiner_signing_key", None)
+        if config is None:
+            from ..config import Config
+            config = Config()
+        key_path = getattr(config, "examiner_signing_key", None)
         run_dir = file_path.parent
         signer = Signer(key_path=Path(key_path) if key_path else None, run_dir=run_dir)
         sig_path, pub_path = signer.sign_file(file_path)
@@ -64,6 +65,7 @@ class RunManifest:
             config: Optional Config instance; when provided, its snapshot() is embedded in the manifest so the exact run configuration can be reproduced.
         """
         self.forensic = forensic_recorder or ForensicRecorder()
+        self._config = config
         self.manifest_data = {
             "created_at": datetime.now().isoformat(),
             "system_info": self._get_system_info(),
@@ -334,7 +336,7 @@ class RunManifest:
         manifest_hash = self.forensic.compute_hash(output_path)
 
         # Detached signature: a sibling .sig (raw Ed25519) + .sig.pub (PEM). Hashing alone does not resist an attacker with write access to the output directory; a signature tied to an examiner key does.
-        sig_path = _sign_if_possible(output_path, self.forensic)
+        sig_path = _sign_if_possible(output_path, self.forensic, config=self._config)
 
         self.forensic.record_action(
             "manifest_generated",

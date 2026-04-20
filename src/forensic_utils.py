@@ -25,13 +25,15 @@ class ForensicRecorder:
     Satisfies FRE 901 authentication requirements by tracking all operations with timestamps and hashes.
     """
     
-    def __init__(self, output_dir: Optional[Path] = None):
+    def __init__(self, output_dir: Optional[Path] = None, config=None):
         """
         Initialize the forensic recorder.
-        
+
         Args:
             output_dir: Directory for output files. Uses config if not specified.
+            config: Optional Config instance; avoids creating a fresh Config() when case metadata is needed (e.g. chain of custody).
         """
+        self._config = config
         if output_dir:
             self.output_dir = Path(output_dir)
         else:
@@ -228,8 +230,10 @@ class ForensicRecorder:
         organization = ""
         tz_name = "America/Los_Angeles"
         try:
-            from src.config import Config
-            cfg = Config()
+            cfg = self._config
+            if cfg is None:
+                from src.config import Config
+                cfg = Config()
             case_number = cfg.case_number
             case_numbers = list(getattr(cfg, 'case_numbers', []) or [])
             examiner_name = cfg.examiner_name

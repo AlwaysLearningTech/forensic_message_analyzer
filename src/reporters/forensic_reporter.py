@@ -1218,7 +1218,6 @@ class ForensicReporter:
                     "cache_control": {"type": "ephemeral"},
                 }],
                 messages=[{"role": "user", "content": context}],
-                temperature=0.3,
                 max_tokens=2048,
             )
             result = response.content[0].text

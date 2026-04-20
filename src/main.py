@@ -36,7 +36,7 @@ class ForensicAnalyzer:
                     to the desired run-specific directory (see run.py).
         """
         self.config = config if config is not None else Config()
-        self.forensic = ForensicRecorder(Path(self.config.output_dir))
+        self.forensic = ForensicRecorder(Path(self.config.output_dir), config=self.config)
         self.integrity = ForensicIntegrity(self.forensic)
         self.manifest = RunManifest(self.forensic, config=self.config)
         self.third_party_registry = ThirdPartyRegistry(self.forensic, self.config)

@@ -444,7 +444,6 @@ class AIAnalyzer:
                     "model": self.batch_model,
                     "system": self._cached_system_prompt(),
                     "messages": [{"role": "user", "content": batch_text}],
-                    "temperature": 0.3,
                     "max_tokens": self.max_tokens_per_request,
                 },
             })
@@ -844,7 +843,6 @@ class AIAnalyzer:
                 model=self.model,
                 system=self._cached_system_prompt(),
                 messages=[{"role": "user", "content": batch_text}],
-                temperature=0.3,
                 max_tokens=self.max_tokens_per_request,
             )
 
@@ -1066,7 +1064,6 @@ class AIAnalyzer:
                     "cache_control": {"type": "ephemeral"},
                 }],
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
                 max_tokens=4096,
             )
 
@@ -1275,7 +1272,6 @@ class AIAnalyzer:
                 model=self.model,
                 system="You are a threat assessment system. Be objective and precise.",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
                 max_tokens=256,
             )
 
