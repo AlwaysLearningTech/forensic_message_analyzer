@@ -43,6 +43,22 @@
 #       — Defines gaslighting through reality-denial linguistic patterns
 #         (e.g., "that didn't happen", "you're imagining things") used to
 #         construct the threat-pattern catalogue below.
+#   Abramson, K. (2014). Turning Up the Lights on Gaslighting.
+#       Philosophical Perspectives, 28(1), 1-30.
+#       — Philosophical account distinguishing gaslighting from ordinary
+#         disagreement or mistaken belief attribution.
+#
+# DARVO (Deny, Attack, Reverse Victim and Offender):
+#   Freyd, J. J. (1997). Violations of Power, Adaptive Blindness, and
+#       Betrayal Trauma Theory. Feminism & Psychology, 7(1), 22-32.
+#       — Original formulation of the DARVO response pattern used by
+#         perpetrators when confronted with abusive behavior.
+#   Harsey, S. & Freyd, J. J. (2020). Deny, Attack, and Reverse Victim
+#       and Offender (DARVO): What Is the Influence on Perceived
+#       Perpetrator and Victim Credibility? Journal of Aggression,
+#       Maltreatment & Trauma, 29(8), 897-916.
+#       — Empirical study of DARVO's effect on credibility judgements;
+#         provides the basis for flagging its three phases separately.
 #
 # Lethality / risk assessment:
 #   Campbell, J. C. (2003). Danger Assessment instrument; Campbell, J. C.
@@ -160,6 +176,55 @@ behavioral_patterns:
     weight: 0.8
     description: "Attempts to isolate from support network"
     citation: "Johnson (2008) Typology, Ch. 3"
+
+  # DARVO — Deny, Attack, Reverse Victim and Offender (Freyd 1997). A well-documented perpetrator response pattern where the accused denies wrongdoing, attacks the accuser's credibility, and recasts themselves as the real victim. Each of the three sub-patterns flags a component of the pattern; analysts correlate across a conversation to identify full DARVO sequences.
+  darvo_deny:
+    patterns:
+      - "\\b(i never did that|i didn't do (it|that|anything)|that never happened|that's not true|you're lying)\\b"
+      - "\\b(i would never|that's absurd|i have no idea what you('re| are) talking about)\\b"
+    weight: 0.8
+    description: "DARVO Phase 1: deny the behavior"
+    citation: "Freyd (1997); Harsey & Freyd (2020) J. of Aggression, Maltreatment & Trauma 29(8):897-916"
+
+  darvo_attack:
+    patterns:
+      - "\\b(you're (crazy|insane|unhinged|hysterical|jealous|paranoid|toxic|obsessed))\\b"
+      - "\\b(nobody believes you|everyone thinks you're|no one will listen to you)\\b"
+      - "\\b(you always (overreact|exaggerate|twist (my words|everything)))\\b"
+    weight: 0.85
+    description: "DARVO Phase 2: attack the accuser's credibility or character"
+    citation: "Freyd (1997); Harsey & Freyd (2020)"
+
+  darvo_reverse:
+    patterns:
+      - "\\b(i'm the real victim|you('re| are) the one (abusing|hurting|attacking) me)\\b"
+      - "\\b(you made me do (it|this)|look what you made me do|this is all your fault)\\b"
+      - "\\b(i'm being (harassed|stalked|threatened) by you)\\b"
+    weight: 0.9
+    description: "DARVO Phase 3: reverse victim and offender roles"
+    citation: "Freyd (1997); Harsey & Freyd (2020)"
+
+  # Gaslighting expansion (beyond the core Sweet 2019 categories above) — memory-rewriting and reality-distortion phrasings frequently missed by the base gaslighting pattern. Kept separate so analysts can tune confidence independently.
+  gaslighting_extended:
+    patterns:
+      - "\\b(that's not what i said|you misheard|you misunderstood|you're putting words in my mouth)\\b"
+      - "\\b(you're making (this|it) up|you('re| are) inventing|stop being so dramatic)\\b"
+      - "\\b(you always do this|you never listen|why do you always)\\b"
+      - "\\b(you need (help|therapy|meds|to see someone))\\b"
+      - "\\b(it was just a joke|can't you take a joke|lighten up|you're too sensitive)\\b"
+    weight: 0.75
+    description: "Extended gaslighting: memory rewriting, minimization, dismissal"
+    citation: "Sweet (2019) ASR 84(5); Abramson (2014) Philosophical Perspectives 28(1)"
+
+  # Minimization / DARVO-adjacent dismissal. Not strictly DARVO but frequently co-occurs with the deny phase.
+  minimization:
+    patterns:
+      - "\\b(it wasn't (that bad|a big deal)|you're blowing this out of proportion)\\b"
+      - "\\b(everyone does this|it's not like i|at least i didn't)\\b"
+      - "\\b(you're making (a big deal|a scene|mountains out))\\b"
+    weight: 0.7
+    description: "Minimization of harm or severity"
+    citation: "Sweet (2019); Stark (2007) Ch. 6"
 
   # Love-bombing as control onset — see Strutzenberg et al. (2017),
   # "Love-bombing: A Narcissistic Approach to Relationship Formation",
