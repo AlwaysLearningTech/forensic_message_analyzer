@@ -363,6 +363,8 @@ class WebReview:
         self.flagged_items = flagged_items
         self.screenshots = screenshots or []
 
+        logger.info(f"    Web review loaded: {len(self.messages)} messages, {len(self.flagged_items)} flagged items, {len(self.screenshots)} screenshots")
+
         # Seed reviewed_indices from prior session so progress/badges reflect existing decisions on resume.
         already_reviewed_ids = self.review_manager.reviewed_item_ids
         if already_reviewed_ids:

@@ -49,6 +49,17 @@ def run(analyzer, analysis_results: Dict, extracted_data: Dict, resume_session_i
     messages = [m for m in all_messages if _is_mapped(analyzer, m)]
     screenshots = extracted_data.get("screenshots", [])
 
+    logger.info(f"    {len(all_messages)} total messages, {len(messages)} from mapped contacts, {len(screenshots)} screenshots")
+    if all_messages and not messages:
+        # Every message filtered out — surface the contact config so the examiner can diagnose immediately.
+        senders = {m.get("sender", "?") for m in all_messages[:200]}
+        recipients = {m.get("recipient", "?") for m in all_messages[:200]}
+        logger.warning(
+            f"    [!] All messages filtered by contact mapping. "
+            f"Senders seen: {sorted(senders)[:10]}, Recipients seen: {sorted(recipients)[:10]}, "
+            f"ai_contacts: {sorted(analyzer.config.ai_contacts)[:10]}"
+        )
+
     review_mode = analyzer.config.review_mode  # "web" (default) or "terminal" via REVIEW_MODE in .env
 
     if review_mode == "web" and items_for_review:
