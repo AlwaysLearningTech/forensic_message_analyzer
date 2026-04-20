@@ -385,169 +385,149 @@ class ForensicReporter:
         )
         return output_path
 
-    def generate_cover_sheet(self, reports: Dict[str, Any], timestamp: str) -> Path:
-        """Generate a one-page READ ME FIRST cover sheet for the legal team.
+    def _build_cover_sheet_content(self, reports: Dict[str, Any], timestamp: str) -> Dict[str, Any]:
+        """Return the structured content of the READ ME FIRST cover sheet.
 
-        Tells a non-technical reader, in one page, which document in the
-        report package answers which question — methodology challenges,
-        plain-English findings, full record, conversation transcripts,
-        timeline, and chain of custody.
-
-        Called after every other report has been written so the file
-        list it points at is accurate. Filenames in `reports` may be
-        either str or Path; both are accepted.
-
-        Args:
-            reports: Mapping of report-format keys (e.g. 'methodology',
-                'legal_summary', 'pdf', 'word', 'chat', 'timeline',
-                'html') to file paths.
-            timestamp: Run timestamp used for the cover-sheet filename.
-
-        Returns:
-            Path to the written cover-sheet docx.
+        Shared by the DOCX and PDF renderers so both formats emit identical text. Returns a dict with ``header`` (list of label/value pairs), ``intro`` (paragraph), ``guide`` (list of (question, filename, description) tuples), and ``footer`` (italic paragraph).
         """
         def _name(key: str) -> str:
-            """Return just the filename for a report path, or '' if missing."""
             value = reports.get(key)
-            if not value:
-                return ''
-            return Path(str(value)).name
+            return Path(str(value)).name if value else ''
 
         methodology_name = _name('methodology')
         legal_summary_name = _name('legal_summary')
-        # Prefer PDF for the "full record" pointer; fall back to docx
         full_report_name = _name('pdf') or _name('word')
         chat_name = _name('chat') or _name('chat_html')
+        events_timeline_name = _name('events_timeline')
         timeline_name = _name('timeline')
         html_name = _name('html')
         excel_name = _name('excel')
 
-        doc = Document()
+        header_meta = self.compliance.generate_report_header()
+        case_numbers = header_meta.get('case_numbers') or [header_meta['case_number']]
+        header_rows = [
+            ('Case Number(s)', '; '.join(case_numbers)),
+        ]
+        if header_meta['case_name'] and header_meta['case_name'] != 'Not assigned':
+            header_rows.append(('Case Name', header_meta['case_name']))
+        header_rows.append(('Generated', header_meta['date_of_examination']))
+        if header_meta.get('examiner_name') and header_meta['examiner_name'] != 'Not specified':
+            header_rows.append(('Examiner', header_meta['examiner_name']))
 
-        # Tighter margins so everything fits on one page
+        guide: list = []
+        if methodology_name:
+            guide.append((
+                'If anyone challenges the methods or the science',
+                methodology_name,
+                'Plain-language, judge-readable walkthrough of every step the analyzer took, with an explicit point-by-point map of how each Federal Rule of Evidence and Daubert factor was satisfied. Includes empirical citations for every pattern used to flag a message. Read this first if methodology is questioned.'
+            ))
+        if legal_summary_name:
+            guide.append((
+                'If you want the plain-English findings',
+                legal_summary_name,
+                'AI-assisted narrative summary written for attorneys: what was found, what it appears to mean, what to do next, and a guide to the rest of the files in this package.'
+            ))
+        if full_report_name:
+            guide.append((
+                'If you want the full record for filing or distribution',
+                full_report_name,
+                'Comprehensive forensic report: case information, findings summary, threat analysis, sentiment analysis, manual-review breakdown, and chain-of-custody reference. The authoritative document for the case file.'
+            ))
+        if events_timeline_name:
+            guide.append((
+                'If you want the big-picture chronology of the case',
+                events_timeline_name,
+                'Sparse, court-facing timeline showing only reviewer-confirmed events — confirmed threats, coercive-control pattern clusters, and tone shifts — with category badges. Open in a web browser.'
+            ))
+        if chat_name:
+            guide.append((
+                'If you want to read the conversations themselves',
+                chat_name,
+                'iMessage-style chat-bubble HTML transcript of the relevant conversations, with inline images, edit history, and deletion / URL-preview / shared-location markers. Open in a web browser.'
+            ))
+        if timeline_name:
+            guide.append((
+                'If you want a minute-level message-by-message timeline',
+                timeline_name,
+                'Detailed chronological view with every flagged event and all email communications; for analyst drill-down rather than legal-team reading.'
+            ))
+        if excel_name:
+            guide.append((
+                'If you want to sort, filter, or query the data yourself',
+                excel_name,
+                'Multi-sheet Excel workbook: per-person message tabs, findings summary, timeline, conversation threads, manual-review decisions, and third-party contacts.'
+            ))
+        if html_name:
+            guide.append((
+                'If you want a printable visual report with attachments',
+                html_name,
+                'HTML report with inline base64 attachment images and the three legal appendices (Methodology, Completeness Validation, Limitations).'
+            ))
+        guide.append((
+            'If you need the technical audit trail (for a forensics expert)',
+            f'chain_of_custody_{timestamp}.json',
+            'Timestamped audit trail of every operation performed during the run, with SHA-256 hashes of every input and output file. This is for a digital-forensics expert; the methodology document above is what to give a judge or attorney.'
+        ))
+
+        return {
+            'title': 'READ ME FIRST',
+            'subtitle': 'Forensic Analysis Report Package — Reading Guide',
+            'header_rows': header_rows,
+            'intro': (
+                'This package contains several documents. Each one answers a different question. '
+                'Open the document below that matches what you need; every document references the '
+                'others by filename so you can navigate between them.'
+            ),
+            'guide': guide,
+            'footer': (
+                'All files in this package were produced by the same analysis run and are forensically '
+                'linked through SHA-256 hashes recorded in the chain of custody. Every artifact is signed '
+                'with a detached Ed25519 signature; see the accompanying .sig and .sig.pub files.'
+            ),
+        }
+
+    def generate_cover_sheet(self, reports: Dict[str, Any], timestamp: str) -> Dict[str, Path]:
+        """Generate the READ ME FIRST cover sheet in both DOCX and PDF form.
+
+        Args:
+            reports: Mapping of report-format keys to file paths.
+            timestamp: Run timestamp used for the filenames.
+
+        Returns:
+            Dict with ``docx`` and ``pdf`` keys pointing at the two written files.
+        """
+        content = self._build_cover_sheet_content(reports, timestamp)
+        docx_path = self._render_cover_sheet_docx(content, timestamp)
+        pdf_path = self._render_cover_sheet_pdf(content, timestamp)
+        return {'docx': docx_path, 'pdf': pdf_path}
+
+    def _render_cover_sheet_docx(self, content: Dict[str, Any], timestamp: str) -> Path:
+        """Render the cover-sheet content dict to a Word document."""
+
+        doc = Document()
         for section in doc.sections:
             section.top_margin = Inches(0.7)
             section.bottom_margin = Inches(0.7)
             section.left_margin = Inches(0.8)
             section.right_margin = Inches(0.8)
 
-        # Title
-        title = doc.add_heading('READ ME FIRST', 0)
+        title = doc.add_heading(content['title'], 0)
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
         subtitle = doc.add_paragraph()
         subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        subtitle_run = subtitle.add_run('Forensic Analysis Report Package — Reading Guide')
+        subtitle_run = subtitle.add_run(content['subtitle'])
         subtitle_run.italic = True
         subtitle_run.font.size = Pt(12)
 
-        # Case info (compact)
-        header = self.compliance.generate_report_header()
-        case_numbers = header.get('case_numbers') or [header['case_number']]
+        for label, value in content['header_rows']:
+            line = doc.add_paragraph()
+            line.add_run(f'{label}: ').bold = True
+            line.add_run(str(value))
 
-        case_line = doc.add_paragraph()
-        case_line.add_run('Case Number(s): ').bold = True
-        case_line.add_run('; '.join(case_numbers))
-
-        if header['case_name'] and header['case_name'] != 'Not assigned':
-            name_line = doc.add_paragraph()
-            name_line.add_run('Case Name: ').bold = True
-            name_line.add_run(header['case_name'])
-
-        gen_line = doc.add_paragraph()
-        gen_line.add_run('Generated: ').bold = True
-        gen_line.add_run(header['date_of_examination'])
-
-        if header.get('examiner_name') and header['examiner_name'] != 'Not specified':
-            ex_line = doc.add_paragraph()
-            ex_line.add_run('Examiner: ').bold = True
-            ex_line.add_run(header['examiner_name'])
-
-        # Intro
-        intro = doc.add_paragraph()
-        intro.add_run(
-            'This package contains several documents. Each one answers a '
-            'different question. Open the document below that matches what '
-            'you need; every document references the others by filename so '
-            'you can navigate between them.'
-        )
-
+        doc.add_paragraph(content['intro'])
         doc.add_heading('Where to start', level=1)
 
-        # The guide entries — only render entries whose target file exists
-        guide: list = []
-        if methodology_name:
-            guide.append((
-                'If anyone challenges the methods or the science',
-                methodology_name,
-                'Plain-language, judge-readable walkthrough of every step the '
-                'analyzer took, with an explicit point-by-point map of how '
-                'each Federal Rule of Evidence and Daubert factor was '
-                'satisfied. Includes empirical citations for every pattern '
-                'used to flag a message. Read this first if methodology is '
-                'questioned.'
-            ))
-        if legal_summary_name:
-            guide.append((
-                'If you want the plain-English findings',
-                legal_summary_name,
-                'AI-assisted narrative summary written for attorneys: what '
-                'was found, what it appears to mean, what to do next, and a '
-                'guide to the rest of the files in this package.'
-            ))
-        if full_report_name:
-            guide.append((
-                'If you want the full record for filing or distribution',
-                full_report_name,
-                'Comprehensive forensic report: case information, findings '
-                'summary, threat analysis, sentiment analysis, manual-review '
-                'breakdown, and chain-of-custody reference. The authoritative '
-                'document for the case file.'
-            ))
-        if chat_name:
-            guide.append((
-                'If you want to read the conversations themselves',
-                chat_name,
-                'iMessage-style chat-bubble HTML transcript of the relevant '
-                'conversations, with inline images, edit history, and '
-                'deletion / URL-preview / shared-location markers. Open in '
-                'a web browser.'
-            ))
-        if timeline_name:
-            guide.append((
-                'If you want a chronological view of the case',
-                timeline_name,
-                'Interactive timeline of flagged events and email '
-                'communications with filtering. Open in a web browser.'
-            ))
-        if excel_name:
-            guide.append((
-                'If you want to sort, filter, or query the data yourself',
-                excel_name,
-                'Multi-sheet Excel workbook: per-person message tabs, '
-                'findings summary, timeline, conversation '
-                'threads, manual-review decisions, and third-party contacts.'
-            ))
-        if html_name:
-            guide.append((
-                'If you want a printable visual report with attachments',
-                html_name,
-                'HTML report with inline base64 attachment images and the '
-                'three legal appendices (Methodology, Completeness '
-                'Validation, Limitations).'
-            ))
-        # Always include chain of custody pointer (the JSON file is produced
-        # in the documentation phase; we name the convention even if the
-        # file path was not passed in)
-        guide.append((
-            'If you need the technical audit trail (for a forensics expert)',
-            f'chain_of_custody_{timestamp}.json',
-            'Timestamped audit trail of every operation performed during '
-            'the run, with SHA-256 hashes of every input and output file. '
-            'This is for a digital-forensics expert; the methodology '
-            'document above is what to give a judge or attorney.'
-        ))
-
-        for question, filename, description in guide:
+        for question, filename, description in content['guide']:
             q_para = doc.add_paragraph()
             q_run = q_para.add_run(f'{question}:')
             q_run.bold = True
@@ -564,14 +544,9 @@ class ForensicReporter:
             d_run = d_para.add_run(description)
             d_run.font.size = Pt(10)
 
-        # Footer note
         footer = doc.add_paragraph()
         footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        footer_run = footer.add_run(
-            'All files in this package were produced by the same analysis run '
-            'and are forensically linked through SHA-256 hashes recorded in '
-            'the chain of custody.'
-        )
+        footer_run = footer.add_run(content['footer'])
         footer_run.italic = True
         footer_run.font.size = Pt(9)
 
@@ -581,7 +556,52 @@ class ForensicReporter:
         file_hash = self.forensic.compute_hash(output_path)
         self.forensic.record_action(
             "cover_sheet_generated",
-            f"Generated READ ME FIRST cover sheet with hash {file_hash}",
+            f"Generated READ ME FIRST cover sheet (docx) with hash {file_hash}",
+            {"path": str(output_path), "hash": file_hash}
+        )
+        return output_path
+
+    def _render_cover_sheet_pdf(self, content: Dict[str, Any], timestamp: str) -> Path:
+        """Render the same cover-sheet content as a PDF via reportlab."""
+        output_path = self.output_dir / f"READ_ME_FIRST_{timestamp}.pdf"
+        doc = SimpleDocTemplate(
+            str(output_path),
+            pagesize=letter,
+            title=content['title'],
+            author=getattr(self.config, "examiner_name", "") or "Forensic Analyzer",
+            leftMargin=0.8 * inch, rightMargin=0.8 * inch,
+            topMargin=0.7 * inch, bottomMargin=0.7 * inch,
+        )
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle('CoverTitle', parent=styles['Title'], alignment=1, spaceAfter=6)
+        subtitle_style = ParagraphStyle('CoverSubtitle', parent=styles['Normal'], alignment=1, fontName='Helvetica-Oblique', fontSize=12, spaceAfter=18)
+        question_style = ParagraphStyle('CoverQ', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, spaceBefore=10, spaceAfter=2)
+        filename_style = ParagraphStyle('CoverFilename', parent=styles['Normal'], fontName='Courier', fontSize=10, leftIndent=18, spaceAfter=2, textColor=colors.HexColor('#1f4e79'))
+        description_style = ParagraphStyle('CoverDesc', parent=styles['Normal'], fontSize=10, leftIndent=18, spaceAfter=6)
+        footer_style = ParagraphStyle('CoverFooter', parent=styles['Normal'], alignment=1, fontName='Helvetica-Oblique', fontSize=9, textColor=colors.grey, spaceBefore=18)
+
+        story = [Paragraph(html_module.escape(content['title']), title_style),
+                 Paragraph(html_module.escape(content['subtitle']), subtitle_style)]
+
+        for label, value in content['header_rows']:
+            story.append(Paragraph(f"<b>{html_module.escape(label)}:</b> {html_module.escape(str(value))}", styles['Normal']))
+        story.append(Spacer(1, 8))
+        story.append(Paragraph(html_module.escape(content['intro']), styles['Normal']))
+        story.append(Spacer(1, 6))
+        story.append(Paragraph('Where to start', styles['Heading2']))
+
+        for question, filename, description in content['guide']:
+            story.append(Paragraph(f'{html_module.escape(question)}:', question_style))
+            story.append(Paragraph(f'→ Open  {html_module.escape(filename)}', filename_style))
+            story.append(Paragraph(html_module.escape(description), description_style))
+
+        story.append(Paragraph(html_module.escape(content['footer']), footer_style))
+        doc.build(story)
+
+        file_hash = self.forensic.compute_hash(output_path)
+        self.forensic.record_action(
+            "cover_sheet_pdf_generated",
+            f"Generated READ ME FIRST cover sheet (pdf) with hash {file_hash}",
             {"path": str(output_path), "hash": file_hash}
         )
         return output_path
@@ -1421,6 +1441,144 @@ class ForensicReporter:
         footer_run.font.italic = True
 
         doc.save(str(output_path))
+
+    def _generate_legal_summary_pdf(self, legal_summary: str, output_path: Path,
+                                     reports: Dict[str, Any] = None):
+        """Render the legal-team summary to PDF via reportlab.
+
+        Shares the same narrative text and report-pointer table as the DOCX version so the two artifacts are content-identical.
+        """
+        doc = SimpleDocTemplate(
+            str(output_path),
+            pagesize=letter,
+            title="Legal Team Summary",
+            author=getattr(self.config, "examiner_name", "") or "Forensic Analyzer",
+        )
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle("LegalTitle", parent=styles["Title"], alignment=1, spaceAfter=18)
+        body_style = ParagraphStyle("LegalBody", parent=styles["Normal"], fontSize=11, leading=14, spaceAfter=6)
+        h2_style = ParagraphStyle("LegalH2", parent=styles["Heading2"], spaceBefore=14, spaceAfter=6)
+        note_style = ParagraphStyle("LegalNote", parent=styles["Normal"], fontSize=9, fontName="Helvetica-Oblique", spaceBefore=6)
+        footer_style = ParagraphStyle("LegalFooter", parent=styles["Normal"], fontSize=9, fontName="Helvetica-Oblique", spaceBefore=18, textColor=colors.grey)
+
+        story = [Paragraph("Legal Team Summary", title_style)]
+
+        header = self.compliance.generate_report_header()
+        case_numbers = header.get("case_numbers") or [header["case_number"]]
+        if len(case_numbers) > 1:
+            story.append(Paragraph("<b>Case Numbers:</b>", body_style))
+            for cn in case_numbers:
+                story.append(Paragraph(f"• {html_module.escape(str(cn))}", body_style))
+        else:
+            story.append(Paragraph(f"<b>Case Number:</b> {html_module.escape(str(case_numbers[0]))}", body_style))
+        if header.get("case_name") and header["case_name"] != "Not assigned":
+            story.append(Paragraph(f"<b>Case Name:</b> {html_module.escape(str(header['case_name']))}", body_style))
+        story.append(Paragraph(f"<b>Generated:</b> {html_module.escape(str(header['date_of_examination']))}", body_style))
+        if header.get("examiner_name") and header["examiner_name"] != "Not specified":
+            story.append(Paragraph(f"<b>Examiner:</b> {html_module.escape(str(header['examiner_name']))}", body_style))
+        story.append(Spacer(1, 10))
+
+        # Body — render the same markdown-style narrative.
+        for para in self._markdown_to_paragraphs(legal_summary or "", body_style, h2_style):
+            story.append(para)
+
+        if reports:
+            story.append(Paragraph("Output File Reference", h2_style))
+            story.append(Paragraph(
+                "The following files were generated alongside this summary. All files are in the same output directory.",
+                body_style,
+            ))
+            rows = self._legal_summary_report_rows(reports)
+            table_data = [["Filename", "Type", "Guidance"]] + rows
+            tbl = Table(table_data, colWidths=[2.5 * inch, 1.3 * inch, 3.4 * inch])
+            tbl.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f4e79")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#cccccc")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f7f7f7")]),
+                ("TEXTCOLOR", (0, 1), (0, -1), colors.HexColor("#1f4e79")),
+                ("FONTNAME", (0, 1), (0, -1), "Courier-Bold"),
+            ]))
+            story.append(tbl)
+            story.append(Paragraph(
+                "Note: The interactive timeline, chain of custody, and run manifest are generated after this summary and will also be present in the output directory.",
+                note_style,
+            ))
+
+        tools = header.get("tools_used", "")
+        version_frag = tools.split("v")[-1] if "v" in tools else "N/A"
+        story.append(Paragraph(
+            f"This summary was generated by the Forensic Message Analyzer v{html_module.escape(version_frag)} "
+            "using AI-assisted analysis. Findings are supplementary and should be validated against the "
+            "underlying evidence and accompanying forensic reports.",
+            footer_style,
+        ))
+
+        doc.build(story)
+
+    @staticmethod
+    def _markdown_to_paragraphs(text: str, body_style, h2_style):
+        """Convert a simple markdown subset (headings, paragraphs, bold, italics, bullets) to reportlab Paragraphs."""
+        paragraphs = []
+        buffer: list = []
+
+        def _flush():
+            if buffer:
+                joined = " ".join(buffer).strip()
+                if joined:
+                    # Convert **bold** and *italic* to reportlab inline markup.
+                    rendered = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", html_module.escape(joined))
+                    rendered = re.sub(r"(?<!\*)\*(.+?)\*(?!\*)", r"<i>\1</i>", rendered)
+                    paragraphs.append(Paragraph(rendered, body_style))
+                buffer.clear()
+
+        for raw_line in (text or "").splitlines():
+            line = raw_line.rstrip()
+            if not line:
+                _flush()
+                continue
+            if line.startswith("## "):
+                _flush()
+                paragraphs.append(Paragraph(html_module.escape(line[3:].strip()), h2_style))
+                continue
+            if line.startswith("- ") or line.startswith("* "):
+                _flush()
+                item = html_module.escape(line[2:].strip())
+                item = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", item)
+                paragraphs.append(Paragraph(f"• {item}", body_style))
+                continue
+            buffer.append(line)
+
+        _flush()
+        return paragraphs
+
+    def _legal_summary_report_rows(self, reports: Dict[str, Any]) -> list:
+        """Build [(filename, type_label, guidance), ...] rows for the legal-summary report table in either format."""
+        file_info = {
+            'excel': ('Excel Report', 'Start here. Per-person tabs, findings summary, timeline, conversation threads, manual-review decisions, and third-party contacts.'),
+            'word': ('Word Report', 'Comprehensive narrative report with case information, findings summary, threat analysis, sentiment analysis, and chain-of-custody reference. Suitable for court filing.'),
+            'methodology': ('Methodology Statement', 'Standalone document explaining every step of the pipeline and how each FRE / Daubert factor was satisfied. Read this first if anyone questions the methodology.'),
+            'methodology_pdf': ('Methodology PDF', 'PDF version of the Methodology Statement for court exhibits.'),
+            'pdf': ('PDF Report', 'Same content as the Word report, formatted for distribution and printing. Use this for court submission.'),
+            'html': ('HTML Report', 'HTML with inline attachment images; legal appendices for Methodology, Completeness Validation, Limitations.'),
+            'html_pdf': ('HTML → PDF', 'PDF rendering of the HTML report (via WeasyPrint).'),
+            'chat': ('Chat Report', 'iMessage-style chat-bubble transcript; open in a browser.'),
+            'chat_html': ('Chat HTML', 'iMessage-style chat-bubble transcript; open in a browser.'),
+            'events_timeline': ('Events Timeline', 'Sparse court-facing chronology of the moments the case turns on.'),
+            'timeline': ('Detailed Timeline', 'Minute-level chronological view for analyst drill-down.'),
+            'json': ('JSON Report', 'Machine-readable raw analysis output.'),
+        }
+        rows = []
+        for key, path in reports.items():
+            if key == 'legal_summary':
+                continue
+            filename = Path(str(path)).name
+            label, guidance = file_info.get(key, (key.replace('_', ' ').title(), ''))
+            rows.append([filename, label, guidance])
+        return rows
 
     def _generate_legal_team_summary(self, extracted_data: Dict,
                                      analysis_results: Dict,

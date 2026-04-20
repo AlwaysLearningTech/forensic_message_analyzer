@@ -235,12 +235,26 @@ def main():
     excel_reporter.generate_report(extracted_data, analysis_results, review_decisions, excel_path)
     print(f"  excel: {excel_path.name}")
 
-    # HTML report
-    print("Generating HTML report...")
+    # HTML report (with PDF)
+    print("Generating HTML + HTML-PDF report...")
     html_reporter = HtmlReporter(recorder, config=config)
     html_base = output_dir / f"report_{timestamp}"
-    html_paths = html_reporter.generate_report(extracted_data, analysis_results, review_decisions, html_base, pdf=False)
+    # pdf=True requires WeasyPrint; fall back to HTML-only when weasyprint can't load system libs on the sample environment.
+    try:
+        html_paths = html_reporter.generate_report(extracted_data, analysis_results, review_decisions, html_base, pdf=True)
+    except Exception as exc:
+        print(f"  (HTML-PDF render failed: {exc}; emitting HTML only)")
+        html_paths = html_reporter.generate_report(extracted_data, analysis_results, review_decisions, html_base, pdf=False)
     for fmt, path in html_paths.items():
+        print(f"  {fmt}: {Path(path).name}")
+
+    # Chat-bubble HTML report — iMessage-style transcript
+    print("Generating chat-bubble HTML report...")
+    from src.reporters.chat_reporter import ChatReporter
+    chat_reporter = ChatReporter(recorder, config=config)
+    chat_base = output_dir / f"report_{timestamp}"
+    chat_paths = chat_reporter.generate_report(extracted_data, analysis_results, review_decisions, chat_base)
+    for fmt, path in chat_paths.items():
         print(f"  {fmt}: {Path(path).name}")
 
     # JSON analysis report
@@ -250,12 +264,62 @@ def main():
     json_reporter.generate_report(extracted_data, analysis_results, review_decisions, json_path)
     print(f"  json: {json_path.name}")
 
-    # Chain of custody
-    print("Generating chain of custody...")
-    chain_path = recorder.generate_chain_of_custody()
-    print(f"  chain: {Path(chain_path).name}")
+    # All-messages CSV + XLSX — unedited forensic export (usually built inside ForensicReporter; emit a faithful stand-in here so the sample reflects the same files a real run produces)
+    print("Generating all-messages export (CSV + XLSX)...")
+    import pandas as pd
+    all_msgs_df = pd.DataFrame(messages)
+    csv_path = output_dir / f"all_messages_{timestamp}.csv"
+    xlsx_path = output_dir / f"all_messages_{timestamp}.xlsx"
+    all_msgs_df.to_csv(csv_path, index=False)
+    all_msgs_df.to_excel(xlsx_path, index=False, sheet_name="All Messages")
+    print(f"  all_messages.csv: {csv_path.name}")
+    print(f"  all_messages.xlsx: {xlsx_path.name}")
 
-    # Events timeline — sparse, big-picture chronology showing only the moments the case turns on. The older per-message timeline is kept in the codebase for analysts who need drill-down, but this is what a judge or opposing counsel actually wants to see.
+    # Build the bundled reports dict the cover-sheet + legal summary need. Include what we've produced so each entry's filename is accurate.
+    bundle = {
+        "excel": str(excel_path),
+        "word": str(fr_reports.get("word")) if fr_reports.get("word") else None,
+        "methodology": str(fr_reports.get("methodology")) if fr_reports.get("methodology") else None,
+        "methodology_pdf": str(fr_reports.get("methodology_pdf")) if fr_reports.get("methodology_pdf") else None,
+        "pdf": str(fr_reports.get("pdf")) if fr_reports.get("pdf") else None,
+        "json": str(json_path),
+        "chat": str(chat_paths.get("chat")) if chat_paths.get("chat") else None,
+        "chat_html": str(chat_paths.get("chat_html")) if chat_paths.get("chat_html") else None,
+        **{k: str(v) for k, v in html_paths.items()},
+    }
+    bundle = {k: v for k, v in bundle.items() if v}
+
+    # Legal team summary (DOCX + PDF). Skip gracefully if no AI-generated narrative is present in the sample analysis.
+    sample_legal_text = (
+        "## Overview\n\n"
+        "This sample run covers 25 messages between Alex Morgan and Jordan Rivera over seven days in September 2025. "
+        "The conversation shows a repeating arc: routine scheduling talk that escalates into a dispute, produces one "
+        "veiled threat on September 4, and then de-escalates through counselor-mediated apology by September 5.\n\n"
+        "## Key findings\n\n"
+        "- **Confirmed threat (September 4):** 'You'll regret pushing me on this. I'm done being reasonable.' Flagged "
+        "by the AI-screening pass and confirmed during manual review. Severity marked moderate; no explicit reference "
+        "to weapons or location.\n"
+        "- **Unilateral schedule change attempted** on September 4 — 'I'm keeping the kids this weekend. I don't care "
+        "what the schedule says.' Pattern-matched under custody_interference; confirmed during review.\n"
+        "- **De-escalation (September 5):** 'I spoke with my counselor. I'm sorry about yesterday. Can we reset?' "
+        "Notable for its direct acknowledgment of the prior day's conduct.\n\n"
+        "## Recommended next steps\n\n"
+        "- Document the September 4 exchange for the legal team as potential evidence of intimidation.\n"
+        "- Monitor for future unilateral schedule changes as a pattern of non-compliance.\n"
+        "- Note the constructive patterns (Sep 5 apology, Sep 3 resolution) as evidence of capacity for "
+        "co-parenting when supported."
+    )
+    print("Generating legal team summary (DOCX + PDF)...")
+    legal_docx = output_dir / f"legal_team_summary_{timestamp}.docx"
+    legal_pdf = output_dir / f"legal_team_summary_{timestamp}.pdf"
+    fr._generate_legal_summary_docx(sample_legal_text, legal_docx, bundle)
+    fr._generate_legal_summary_pdf(sample_legal_text, legal_pdf, bundle)
+    print(f"  legal_summary.docx: {legal_docx.name}")
+    print(f"  legal_summary.pdf:  {legal_pdf.name}")
+    bundle["legal_summary"] = str(legal_docx)
+    bundle["legal_summary_pdf"] = str(legal_pdf)
+
+    # Events timeline — the court-facing chronology of reviewer-confirmed turning points.
     print("Generating events timeline (big-picture view)...")
     from src.utils.events_timeline import collect_events, render_events_timeline
     events = collect_events(extracted_data, analysis_results, review_decisions)
@@ -268,6 +332,34 @@ def main():
         case_number=config.case_number,
     )
     print(f"  events_timeline: {events_path.name} ({len(events)} events)")
+    bundle["events_timeline"] = str(events_path)
+
+    # Detailed minute-level timeline (analyst drill-down). Present in real runs; mirrored here for parity.
+    print("Generating detailed minute-level timeline...")
+    import pandas as pd  # already imported above; harmless re-import
+    from src.utils.timeline_generator import TimelineGenerator
+    timeline_path = output_dir / f"timeline_{timestamp}.html"
+    timeline_df = pd.DataFrame(messages)
+    threat_details = analysis_results["threats"]["details"]
+    if isinstance(threat_details, list) and threat_details:
+        threats_df = pd.DataFrame(threat_details)
+        merge_cols = [c for c in ("threat_detected", "threat_categories", "threat_confidence") if c in threats_df.columns and c not in timeline_df.columns]
+        if merge_cols and "message_id" in timeline_df.columns and "message_id" in threats_df.columns:
+            timeline_df = timeline_df.merge(threats_df[["message_id"] + merge_cols], on="message_id", how="left")
+    TimelineGenerator(recorder, config=config).create_timeline(timeline_df, timeline_path, extracted_data=extracted_data)
+    print(f"  timeline: {timeline_path.name}")
+    bundle["timeline"] = str(timeline_path)
+
+    # READ ME FIRST cover sheet (DOCX + PDF). Generated last so it can point at every other file in the bundle.
+    print("Generating READ ME FIRST cover sheet (DOCX + PDF)...")
+    cover = fr.generate_cover_sheet(bundle, timestamp)
+    print(f"  cover_sheet.docx: {cover['docx'].name}")
+    print(f"  cover_sheet.pdf:  {cover['pdf'].name}")
+
+    # Chain of custody — near the end so it captures every prior action
+    print("Generating chain of custody...")
+    chain_path = recorder.generate_chain_of_custody()
+    print(f"  chain: {Path(chain_path).name}")
 
     # Run manifest — uses a real Config() here (not the MagicMock) so the snapshot + pattern-hash structure matches what a real run emits. The mock elsewhere is fine because reporters only read specific attributes; RunManifest.snapshot() walks the full Config object.
     print("Generating run manifest...")
@@ -282,6 +374,33 @@ def main():
     manifest.add_operation("sample_extraction", "success", {"message_count": len(messages)})
     manifest_path = manifest.generate_manifest(output_path=output_dir / f"run_manifest_{timestamp}.json")
     print(f"  manifest: {manifest_path.name}")
+
+    # Sign every emitted artifact so the sample folder mirrors a real run's .sig + .sig.pub pattern.
+    print("Signing artifacts with per-run ephemeral Ed25519 key...")
+    from src.utils.signing import Signer
+    signer = Signer(run_dir=output_dir)
+    artifacts_to_sign = [
+        Path(p) for p in [
+            *bundle.values(),
+            chain_path,
+            manifest_path,
+            cover["docx"], cover["pdf"],
+            csv_path, xlsx_path,
+            excel_path,
+        ]
+    ]
+    # De-dup before signing so we don't double-sign files shared across bundles.
+    seen = set()
+    for artifact in artifacts_to_sign:
+        artifact = Path(artifact)
+        if not artifact.is_file() or str(artifact) in seen:
+            continue
+        seen.add(str(artifact))
+        try:
+            signer.sign_file(artifact)
+        except Exception as exc:
+            print(f"  sign failed for {artifact.name}: {exc}")
+    print(f"  signed {len(seen)} artifact(s); public key in keys/examiner_ed25519.pem")
 
     # Clean up scratch dir
     shutil.rmtree("/tmp/fma_sample_scratch", ignore_errors=True)

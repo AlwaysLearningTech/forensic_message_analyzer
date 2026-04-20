@@ -91,27 +91,36 @@ def run(analyzer, data: Dict, analysis: Dict, review: Dict) -> Dict:
 
     legal_text = getattr(forensic_reporter, "_legal_summary_text", None)
     if legal_text:
-        logger.info("\n[*] Generating legal team summary document...")
+        logger.info("\n[*] Generating legal team summary document (DOCX + PDF)...")
         try:
-            summary_path = Path(analyzer.config.output_dir) / f"legal_team_summary_{timestamp}.docx"
-            forensic_reporter._generate_legal_summary_docx(legal_text, summary_path, reports)
-            reports["legal_summary"] = str(summary_path)
-            file_hash = analyzer.forensic.compute_hash(summary_path)
+            summary_docx = Path(analyzer.config.output_dir) / f"legal_team_summary_{timestamp}.docx"
+            summary_pdf = Path(analyzer.config.output_dir) / f"legal_team_summary_{timestamp}.pdf"
+            forensic_reporter._generate_legal_summary_docx(legal_text, summary_docx, reports)
+            forensic_reporter._generate_legal_summary_pdf(legal_text, summary_pdf, reports)
+            reports["legal_summary"] = str(summary_docx)
+            reports["legal_summary_pdf"] = str(summary_pdf)
+            docx_hash = analyzer.forensic.compute_hash(summary_docx)
+            pdf_hash = analyzer.forensic.compute_hash(summary_pdf)
             analyzer.forensic.record_action(
                 "legal_summary_generated",
-                f"Generated legal team summary with hash {file_hash}",
-                {"path": str(summary_path), "hash": file_hash},
+                f"Generated legal team summary (DOCX {docx_hash[:12]}, PDF {pdf_hash[:12]})",
+                {"docx": str(summary_docx), "pdf": str(summary_pdf), "docx_hash": docx_hash, "pdf_hash": pdf_hash},
             )
-            logger.info(f"    Saved to {summary_path.name}")
+            analyzer._sign_artifact(summary_docx)
+            analyzer._sign_artifact(summary_pdf)
+            logger.info(f"    Saved {summary_docx.name} and {summary_pdf.name}")
         except Exception as e:
             logger.info(f"    Error generating legal team summary: {e}")
             traceback.print_exc()
 
     logger.info("\n[*] Generating READ ME FIRST cover sheet...")
     try:
-        cover_path = forensic_reporter.generate_cover_sheet(reports, timestamp)
-        reports["cover_sheet"] = str(cover_path)
-        logger.info(f"    Saved to {cover_path.name}")
+        cover = forensic_reporter.generate_cover_sheet(reports, timestamp)
+        reports["cover_sheet"] = str(cover["docx"])
+        reports["cover_sheet_pdf"] = str(cover["pdf"])
+        analyzer._sign_artifact(cover["docx"])
+        analyzer._sign_artifact(cover["pdf"])
+        logger.info(f"    Saved to {cover['docx'].name} (+ PDF)")
     except Exception as e:
         logger.info(f"    Error generating cover sheet: {e}")
         traceback.print_exc()
