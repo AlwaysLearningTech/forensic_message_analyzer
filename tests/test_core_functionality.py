@@ -200,12 +200,13 @@ class TestCoreComponents:
         review_dir = tmp_path / "reviews"
         manager = ManualReviewManager(review_dir=review_dir, forensic_recorder=recorder)
 
-        # Test adding a review - add_review doesn't return anything
+        # add_review now requires a named reviewer (forensic defensibility).
         manager.add_review(
             'msg_001',
             'message',
             'relevant',
-            'This message contains threats'
+            notes='This message contains threats',
+            reviewer='Test Examiner',
         )
 
         # Verify the review was added
