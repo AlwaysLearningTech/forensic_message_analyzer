@@ -5,6 +5,25 @@ All notable changes to the Forensic Message Analyzer will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.6.0] - 2026-04-19
+
+Event-span UI, paired DOCX/PDF for every document, app-directory .env default.
+
+### Added
+- **Examiner-authored event timeline UI.** New `src/review/event_manager.py` persists named incidents that span a message range (start_message_id → end_message_id) with title, category, severity, description, and examiner. Append-only semantics: edits and removals write new records; prior records keep their state plus `superseded_by` / `removed_at` markers so the audit trail survives. Categories: `incident`, `threat`, `escalation`, `de_escalation`, `pattern`, `milestone`.
+- **Web review Events tab.** `/api/events` GET/POST/PUT/DELETE endpoints in `src/review/web_review.py` with a dedicated "Events Timeline" tab (inline form for add/edit, per-row edit/remove buttons, reason required on edits + removals, category-color badges matching the events_timeline renderer).
+- **Events timeline merges manual events with auto-detected findings.** `collect_events()` takes an optional `manual_events=` list; rendered items with `authored_by_examiner` get a purple "NAMED BY EXAMINER" badge and show the full `msg-xxx → msg-yyy` range.
+- **`tests/test_event_manager.py`** — 5 tests covering add / list / edit / remove, mandatory reason on edits, category + severity validation, and examiner-identity enforcement.
+- **Paired DOCX + PDF for every document.** `READ_ME_FIRST` and `legal_team_summary` now emit both formats from a shared content source. `_build_cover_sheet_content` is consumed by both `_render_cover_sheet_docx` and `_render_cover_sheet_pdf`; `_generate_legal_summary_pdf` renders the narrative via reportlab using `_markdown_to_paragraphs` and `_legal_summary_report_rows` helpers shared with the DOCX version.
+- **`--env PATH` CLI flag on `run.py`.** Config now accepts `env_path=` and searches `explicit-arg → DOTENV_PATH → project-root .env → cwd .env`. The project-root `.env` is the new default; users keep a per-case `.env` elsewhere with `--env`.
+- **README signing-key section.** Step-by-step OpenSSL commands for generating the examiner Ed25519 keypair, exporting the public half, wiring `EXAMINER_SIGNING_KEY`, and verifying signatures.
+
+### Changed
+- **README trimmed.** Testing section, verbose directory tree, and the developer-API pointer moved to `DEVELOPER.md` (which now hosts Directory Structure, Data Flow, Testing, and System Readiness). README lists each document once as "`*` (.docx / .pdf)" instead of split entries.
+- **Stale dated model IDs replaced with API aliases.** README, `forensic_reporter.py`, and `test_bugfixes.py` now reference `claude-haiku-4-5` and `claude-sonnet-4-6` instead of `claude-haiku-4-20250506` / `claude-sonnet-4-20250514`.
+- **`generate_cover_sheet` returns `{'docx': Path, 'pdf': Path}`** instead of a single Path. Pipeline caller updated.
+- **`generate_sample_output.py` mirrors a real run.** Produces events timeline + manual event, detailed timeline, legal summary (DOCX + PDF), READ ME FIRST (DOCX + PDF), chat-bubble HTML, all-messages CSV + XLSX, run manifest + signed artifacts — 18 signed files, all with `.sig` + `.sig.pub` siblings.
+
 ## [4.5.0] - 2026-04-19
 
 Security, legal-defensibility, and feature-breadth push.

@@ -127,6 +127,13 @@ These are confirmed by reading the source — do not guess.
   - `redact(message_id, reason, authority, examiner=None, span=None, pattern=None, replacement=None)` — `reason` and `authority` (order/agreement citation) are required; pass either `span=(start,end)` or a regex `pattern`
   - `revoke(message_id, reason, examiner=None)` — appends a new record; prior redaction keeps `revoked_at`/`revoked_by` fields so the audit trail survives
   - `apply(message_id, content)` — returns content with active span redactions + regex redactions applied; called by `ForensicAnalyzer._apply_redactions_to_messages` before reporters render
+- **`EventManager(review_dir=None, session_id=None, config=None, forensic_recorder=None)`** — `src/review/event_manager.py`
+  - Examiner-authored events that span a message range (`start_message_id` → `end_message_id`). Categories: `incident`, `threat`, `escalation`, `de_escalation`, `pattern`, `milestone`.
+  - `add_event(title, start_message_id, end_message_id, category='incident', severity='medium', description='', start_timestamp=None, end_timestamp=None, examiner=None)` → record dict; `title` + both message_ids required; `examiner` falls back to `config.examiner_name`.
+  - `edit_event(event_id, *, title=..., category=..., severity=..., description=..., start_message_id=..., end_message_id=..., reason='', examiner=None)` — append-only; `reason` mandatory; prior record keeps `superseded_by` set.
+  - `remove_event(event_id, reason, examiner=None)` — append-only; `reason` mandatory; prior record keeps `removed_at` set.
+  - `active_events()` — most-recent non-removed record per event_id; used by `collect_events(manual_events=...)` in the events timeline.
+  - `all_records()` — full append-only history, including superseded and removed entries (for auditors).
 - **`InteractiveReview(review_manager, config=None)`** — prompts for reviewer name when `EXAMINER_NAME` is unset; prompts for a reason on every rejection
 - **`WebReview(review_manager, forensic_recorder=None, config=None)`** — runs Flask in daemon thread; shutdown via `threading.Event`, NOT `os.kill(SIGINT)`. `SESSION_COOKIE_SAMESITE=Strict`, HttpOnly cookies, per-session random secret key. Attachment serving is constrained to `_attachment_bases` resolved paths plus a per-request allowlist from loaded messages.
 

@@ -6,10 +6,10 @@ Deferred work captured so it isn't lost. No commitments on ordering or timing.
 
 Backend is complete. `src/review/redaction_manager.py` tracks append-only redactions with required reason, authority, examiner, and either a span or a regex pattern. Redactions are applied to message content at render time in `ForensicAnalyzer.run_reporting_phase`. Revokes append a new record; prior redactions are preserved in the audit trail.
 
-What's missing is the reviewer-facing UI:
+What's missing is the reviewer-facing UI (mirror the Events tab shape that shipped in 4.6.0):
 
 - **CLI** (`src/review/interactive_review.py`). Add a post-decision prompt on any `relevant` decision: "Redact any portion? [y/N]". When yes, show the content and collect `span` offsets or a regex, plus reason and authority. Store via `RedactionManager.redact()`.
-- **Web review** (`src/review/web_review.py`). Add a "Redact selection" control in the item detail panel. Use the browser's text-selection API to capture the span in the content string, prompt for reason + authority, POST to a new `/api/redact` endpoint that calls `RedactionManager.redact()`. Badge any already-redacted item so the reviewer can see existing redactions and issue revokes.
+- **Web review** (`src/review/web_review.py`). Add a "Redact selection" control in the item detail panel. Use the browser's text-selection API to capture the span in the content string, prompt for reason + authority, POST to a new `/api/redact` endpoint that calls `RedactionManager.redact()`. Badge any already-redacted item so the reviewer can see existing redactions and issue revokes. Use the existing `/api/events` endpoint pattern as a template.
 - **Review summary** should list redactions alongside decisions so the legal team can audit them before the report is finalized.
 
 Without the UI, redactions are Python-only — a reviewer has to issue them programmatically, which isn't realistic in a case.

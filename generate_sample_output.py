@@ -319,10 +319,31 @@ def main():
     bundle["legal_summary"] = str(legal_docx)
     bundle["legal_summary_pdf"] = str(legal_pdf)
 
+    # Examiner-authored manual event — illustrate the timeline UI's output. A real reviewer enters these in the web UI; here we synthesize one so the sample reflects what a real run looks like after the examiner names the key incidents.
+    print("Synthesizing one examiner-authored event for the sample...")
+    from src.review.event_manager import EventManager
+    em = EventManager(session_id=f"sample_{timestamp}", config=config, forensic_recorder=recorder)
+    em.add_event(
+        title="September 4 custody dispute",
+        start_message_id="msg-017",
+        end_message_id="msg-020",
+        category="incident",
+        severity="high",
+        description=(
+            "Three-message arc on September 4: Jordan declares an unilateral schedule change, Alex pushes back, "
+            "Jordan issues a veiled threat ('You'll regret pushing me on this'). Named by the examiner because "
+            "these four messages function as a single incident."
+        ),
+        start_timestamp=next((m["timestamp"] for m in messages if m.get("message_id") == "msg-017"), None),
+        end_timestamp=next((m["timestamp"] for m in messages if m.get("message_id") == "msg-020"), None),
+        examiner=config.examiner_name,
+    )
+    manual_events = em.active_events()
+
     # Events timeline — the court-facing chronology of reviewer-confirmed turning points.
     print("Generating events timeline (big-picture view)...")
     from src.utils.events_timeline import collect_events, render_events_timeline
-    events = collect_events(extracted_data, analysis_results, review_decisions)
+    events = collect_events(extracted_data, analysis_results, review_decisions, manual_events=manual_events)
     events_path = output_dir / f"events_timeline_{timestamp}.html"
     render_events_timeline(
         events,

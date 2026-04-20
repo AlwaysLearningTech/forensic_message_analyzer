@@ -64,6 +64,14 @@ class WebReview:
         self._shutdown_event = threading.Event()
         self._conversation_cache = None
 
+        # EventManager shares the review session so manual events persist alongside review decisions.
+        from .event_manager import EventManager
+        self.event_manager = EventManager(
+            session_id=getattr(review_manager, "session_id", None),
+            config=self.config,
+            forensic_recorder=forensic_recorder,
+        )
+
         # Build Flask app. Harden cookies defensively even though the server binds to localhost: Strict SameSite blocks cross-site submissions, HttpOnly prevents any cookie JS access, and a per-session secret key keeps Flask from falling back to a fixed dev value.
         self.app = Flask(__name__)
         self.app.config.update(
@@ -166,6 +174,57 @@ class WebReview:
             page = request.args.get('page', 0, type=int)
             page_size = request.args.get('page_size', 50, type=int)
             return jsonify(self._search_messages(q, sender, date_from, date_to, page, page_size))
+
+        @self.app.route("/api/events", methods=["GET"])
+        def list_events():
+            return jsonify({"events": [self._serialize_event(e) for e in self.event_manager.active_events()]})
+
+        @self.app.route("/api/events", methods=["POST"])
+        def add_event():
+            data = request.get_json(force=True) or {}
+            try:
+                record = self.event_manager.add_event(
+                    title=data.get("title", ""),
+                    start_message_id=data.get("start_message_id", ""),
+                    end_message_id=data.get("end_message_id", ""),
+                    category=data.get("category", "incident"),
+                    severity=data.get("severity", "medium"),
+                    description=data.get("description", ""),
+                    start_timestamp=self._lookup_ts(data.get("start_message_id")),
+                    end_timestamp=self._lookup_ts(data.get("end_message_id")),
+                )
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 400
+            return jsonify({"status": "ok", "event": self._serialize_event(record)})
+
+        @self.app.route("/api/events/<event_id>", methods=["PUT", "PATCH"])
+        def edit_event(event_id):
+            data = request.get_json(force=True) or {}
+            try:
+                record = self.event_manager.edit_event(
+                    event_id,
+                    title=data.get("title"),
+                    category=data.get("category"),
+                    severity=data.get("severity"),
+                    description=data.get("description"),
+                    start_message_id=data.get("start_message_id"),
+                    end_message_id=data.get("end_message_id"),
+                    start_timestamp=self._lookup_ts(data.get("start_message_id")),
+                    end_timestamp=self._lookup_ts(data.get("end_message_id")),
+                    reason=data.get("reason", ""),
+                )
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 400
+            return jsonify({"status": "ok", "event": self._serialize_event(record)})
+
+        @self.app.route("/api/events/<event_id>", methods=["DELETE"])
+        def remove_event(event_id):
+            data = request.get_json(force=True, silent=True) or {}
+            try:
+                self.event_manager.remove_event(event_id, reason=data.get("reason", ""))
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 400
+            return jsonify({"status": "ok"})
 
         @self.app.route("/api/complete", methods=["POST"])
         def complete_review():
@@ -613,6 +672,32 @@ class WebReview:
 
         return associated
 
+    def _lookup_ts(self, message_id: Optional[str]) -> Optional[str]:
+        """Look up the ISO timestamp of a message by id. Returns None when unknown."""
+        if not message_id:
+            return None
+        for m in self.messages:
+            if m.get("message_id") == message_id:
+                return m.get("timestamp")
+        return None
+
+    def _serialize_event(self, event: Dict) -> Dict:
+        """JSON-safe projection of a manual event, with both raw and display timestamps."""
+        return {
+            "event_id": event.get("event_id"),
+            "title": event.get("title"),
+            "category": event.get("category"),
+            "severity": event.get("severity"),
+            "description": event.get("description", ""),
+            "start_message_id": event.get("start_message_id"),
+            "end_message_id": event.get("end_message_id"),
+            "start_timestamp": self._format_local_ts(event.get("start_timestamp")),
+            "end_timestamp": self._format_local_ts(event.get("end_timestamp")),
+            "examiner": event.get("examiner"),
+            "timestamp": event.get("timestamp"),
+            "amended": event.get("amended", False),
+        }
+
     def _format_local_ts(self, ts) -> str:
         """Convert a UTC timestamp to local timezone string for display."""
         if ts is None or (isinstance(ts, str) and not ts.strip()):
@@ -838,6 +923,9 @@ class WebReview:
   <button class="tab" id="tabBrowse" onclick="switchTab('browse')">
     Browse All Messages
   </button>
+  <button class="tab" id="tabEvents" onclick="switchTab('events')">
+    Events Timeline
+  </button>
 </div>
 
 <div class="container" id="flaggedContainer">
@@ -905,6 +993,75 @@ class WebReview:
       <p style="color:#999; padding:40px; text-align:center;">Select a conversation or search</p>
     </div>
     <div class="browse-pagination" id="browsePagination"></div>
+  </div>
+</div>
+
+<!-- Events tab: examiner-authored named incidents spanning a message range -->
+<div id="eventsContainer" style="display:none; padding: 20px 24px; max-width: 900px; margin: 0 auto;">
+  <h2 style="margin:0 0 6px;">Named events</h2>
+  <p style="color:#666; font-size: 13px; margin: 0 0 20px;">
+    Name the incidents that span multiple messages — a fight that starts Friday night and trails into Sunday morning is one event, not twenty. Each event points at a start and end message; edits and removals append new records rather than mutating prior ones so the audit trail survives.
+  </p>
+
+  <div id="eventForm" style="background:#fff; border:1px solid #ddd; border-radius:8px; padding:16px; margin-bottom:24px;">
+    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+      <div style="flex:2 1 240px;">
+        <label style="font-size:12px;font-weight:600;">Title <span style="color:#c62828;">*</span></label>
+        <input type="text" id="evtTitle" placeholder="e.g. September 4 custody dispute" style="width:100%; padding:7px; border:1px solid #ccc; border-radius:4px;">
+      </div>
+      <div style="flex:1 1 120px;">
+        <label style="font-size:12px;font-weight:600;">Category</label>
+        <select id="evtCategory" style="width:100%; padding:7px; border:1px solid #ccc; border-radius:4px;">
+          <option value="incident">Incident</option>
+          <option value="threat">Threat</option>
+          <option value="escalation">Escalation</option>
+          <option value="de_escalation">De-escalation</option>
+          <option value="pattern">Pattern</option>
+          <option value="milestone">Milestone</option>
+        </select>
+      </div>
+      <div style="flex:1 1 100px;">
+        <label style="font-size:12px;font-weight:600;">Severity</label>
+        <select id="evtSeverity" style="width:100%; padding:7px; border:1px solid #ccc; border-radius:4px;">
+          <option value="high">High</option>
+          <option value="medium" selected>Medium</option>
+          <option value="low">Low</option>
+          <option value="info">Info</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:12px; margin-top:10px; flex-wrap:wrap;">
+      <div style="flex:1 1 220px;">
+        <label style="font-size:12px;font-weight:600;">Start message_id <span style="color:#c62828;">*</span></label>
+        <input type="text" id="evtStart" placeholder="e.g. msg-017" style="width:100%; padding:7px; border:1px solid #ccc; border-radius:4px; font-family: Consolas, monospace;">
+        <small style="color:#999; font-size:11px;">Use the Flag button in Browse to capture a message_id.</small>
+      </div>
+      <div style="flex:1 1 220px;">
+        <label style="font-size:12px;font-weight:600;">End message_id <span style="color:#c62828;">*</span></label>
+        <input type="text" id="evtEnd" placeholder="e.g. msg-020" style="width:100%; padding:7px; border:1px solid #ccc; border-radius:4px; font-family: Consolas, monospace;">
+      </div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <label style="font-size:12px;font-weight:600;">Description (optional)</label>
+      <textarea id="evtDescription" placeholder="Short context: what the examiner is asserting this range represents" style="width:100%; height:60px; padding:7px; border:1px solid #ccc; border-radius:4px; font-size:13px; resize:vertical;"></textarea>
+    </div>
+
+    <div id="evtEditReasonRow" style="display:none; margin-top:10px;">
+      <label style="font-size:12px;font-weight:600;">Reason for edit <span style="color:#c62828;">*</span></label>
+      <input type="text" id="evtReason" placeholder="Why is this event being changed? (required on edits + removals)" style="width:100%; padding:7px; border:1px solid #ccc; border-radius:4px;">
+    </div>
+
+    <div style="margin-top:14px; display:flex; gap:8px;">
+      <button id="evtSave" onclick="saveEvent()" style="padding:8px 18px; background:#1a237e; color:#fff; border:none; border-radius:4px; font-weight:600; cursor:pointer;">Add event</button>
+      <button id="evtCancel" onclick="resetEventForm()" style="padding:8px 18px; background:#9e9e9e; color:#fff; border:none; border-radius:4px; cursor:pointer; display:none;">Cancel edit</button>
+    </div>
+  </div>
+
+  <h3 style="margin:0 0 10px; font-size:15px;">Active events</h3>
+  <div id="eventsList">
+    <p style="color:#999; padding:20px; text-align:center;">No events yet. Name the first one above.</p>
   </div>
 </div>
 
@@ -1120,12 +1277,147 @@ let lastSearchParams = {{}};
 const BROWSE_PAGE_SIZE = 50;
 
 function switchTab(tab) {{
-  const isBrowse = (tab === 'browse');
-  document.getElementById('tabFlagged').classList.toggle('active', !isBrowse);
-  document.getElementById('tabBrowse').classList.toggle('active', isBrowse);
-  document.getElementById('flaggedContainer').style.display = isBrowse ? 'none' : 'flex';
-  document.getElementById('browseContainer').style.display = isBrowse ? 'flex' : 'none';
-  if (isBrowse) loadConversations();
+  const flagged = document.getElementById('flaggedContainer');
+  const browse = document.getElementById('browseContainer');
+  const events = document.getElementById('eventsContainer');
+  document.getElementById('tabFlagged').classList.toggle('active', tab === 'flagged');
+  document.getElementById('tabBrowse').classList.toggle('active', tab === 'browse');
+  document.getElementById('tabEvents').classList.toggle('active', tab === 'events');
+  flagged.style.display = (tab === 'flagged') ? 'flex' : 'none';
+  browse.style.display = (tab === 'browse') ? 'flex' : 'none';
+  events.style.display = (tab === 'events') ? 'block' : 'none';
+  if (tab === 'browse') loadConversations();
+  if (tab === 'events') loadEvents();
+}}
+
+// ---- Events ----
+let editingEventId = null;
+
+function loadEvents() {{
+  fetch('/api/events')
+    .then(r => r.json())
+    .then(data => renderEventList(data.events || []));
+}}
+
+function renderEventList(events) {{
+  const panel = document.getElementById('eventsList');
+  if (!events.length) {{
+    panel.innerHTML = '<p style="color:#999; padding:20px; text-align:center;">No events yet. Name the first one above.</p>';
+    return;
+  }}
+  const categoryColors = {{
+    incident: '#6a1b9a', threat: '#c62828', escalation: '#ad1457',
+    de_escalation: '#2e7d32', pattern: '#ef6c00', milestone: '#1565c0'
+  }};
+  let html = '';
+  events.forEach(e => {{
+    const color = categoryColors[e.category] || '#666';
+    const range = (e.start_message_id && e.end_message_id && e.start_message_id !== e.end_message_id)
+      ? (escapeHtml(e.start_message_id) + ' → ' + escapeHtml(e.end_message_id))
+      : escapeHtml(e.start_message_id || e.end_message_id || '');
+    const ts = e.start_timestamp ? (' &middot; ' + escapeHtml(e.start_timestamp)) : '';
+    const amendedBadge = e.amended ? ' <span style="font-size:10px;color:#888;">(amended)</span>' : '';
+    html += '<div style="background:#fff; border:1px solid #ddd; border-radius:6px; padding:14px; margin-bottom:10px;">'
+          + '<div style="display:flex; justify-content:space-between; align-items:start; gap:10px;">'
+          +   '<div style="flex:1;">'
+          +     '<span style="display:inline-block; background:' + color + '22; color:' + color
+          +       '; font-size:10px; font-weight:700; letter-spacing:0.06em; padding:2px 8px; border-radius:10px;">'
+          +       escapeHtml((e.category || 'incident').toUpperCase().replace('_','-')) + '</span> '
+          +     '<strong style="font-size:15px;">' + escapeHtml(e.title || '') + '</strong>' + amendedBadge
+          +     '<div style="font-size:11px; color:#888; margin-top:4px; font-family: Consolas, monospace;">' + range + ts + '</div>'
+          +     (e.description ? '<div style="margin-top:6px; font-size:13px; color:#333;">' + escapeHtml(e.description) + '</div>' : '')
+          +     (e.examiner ? '<div style="font-size:11px; color:#888; margin-top:6px;">by ' + escapeHtml(e.examiner) + '</div>' : '')
+          +   '</div>'
+          +   '<div style="display:flex; flex-direction:column; gap:4px;">'
+          +     '<button onclick="beginEditEvent(\\''+ escapeHtml(e.event_id) +'\\')" '
+          +            'style="padding:4px 10px; background:#e3f2fd; color:#0d47a1; border:1px solid #bbdefb; border-radius:4px; cursor:pointer; font-size:11px;">Edit</button>'
+          +     '<button onclick="removeEvent(\\''+ escapeHtml(e.event_id) +'\\')" '
+          +            'style="padding:4px 10px; background:#ffebee; color:#c62828; border:1px solid #ffcdd2; border-radius:4px; cursor:pointer; font-size:11px;">Remove</button>'
+          +   '</div>'
+          + '</div></div>';
+  }});
+  panel.innerHTML = html;
+  window._eventsCache = events;
+}}
+
+function beginEditEvent(eventId) {{
+  const e = (window._eventsCache || []).find(x => x.event_id === eventId);
+  if (!e) return;
+  editingEventId = eventId;
+  document.getElementById('evtTitle').value = e.title || '';
+  document.getElementById('evtCategory').value = e.category || 'incident';
+  document.getElementById('evtSeverity').value = e.severity || 'medium';
+  document.getElementById('evtStart').value = e.start_message_id || '';
+  document.getElementById('evtEnd').value = e.end_message_id || '';
+  document.getElementById('evtDescription').value = e.description || '';
+  document.getElementById('evtEditReasonRow').style.display = 'block';
+  document.getElementById('evtReason').value = '';
+  document.getElementById('evtSave').textContent = 'Save changes';
+  document.getElementById('evtCancel').style.display = 'inline-block';
+  document.getElementById('eventForm').scrollIntoView({{behavior: 'smooth', block: 'start'}});
+}}
+
+function resetEventForm() {{
+  editingEventId = null;
+  document.getElementById('evtTitle').value = '';
+  document.getElementById('evtCategory').value = 'incident';
+  document.getElementById('evtSeverity').value = 'medium';
+  document.getElementById('evtStart').value = '';
+  document.getElementById('evtEnd').value = '';
+  document.getElementById('evtDescription').value = '';
+  document.getElementById('evtReason').value = '';
+  document.getElementById('evtEditReasonRow').style.display = 'none';
+  document.getElementById('evtSave').textContent = 'Add event';
+  document.getElementById('evtCancel').style.display = 'none';
+}}
+
+function saveEvent() {{
+  const payload = {{
+    title: document.getElementById('evtTitle').value.trim(),
+    category: document.getElementById('evtCategory').value,
+    severity: document.getElementById('evtSeverity').value,
+    start_message_id: document.getElementById('evtStart').value.trim(),
+    end_message_id: document.getElementById('evtEnd').value.trim(),
+    description: document.getElementById('evtDescription').value.trim(),
+  }};
+  if (!payload.title) {{ showToast('Title is required'); return; }}
+  if (!payload.start_message_id || !payload.end_message_id) {{ showToast('Start and end message_id are required'); return; }}
+
+  const url = editingEventId ? ('/api/events/' + encodeURIComponent(editingEventId)) : '/api/events';
+  const method = editingEventId ? 'PUT' : 'POST';
+  if (editingEventId) {{
+    payload.reason = document.getElementById('evtReason').value.trim();
+    if (!payload.reason) {{ showToast('Reason is required when editing an event'); return; }}
+  }}
+
+  fetch(url, {{
+    method: method,
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify(payload),
+  }})
+  .then(r => r.json().then(d => ({{ok: r.ok, data: d}})))
+  .then(({{ok, data}}) => {{
+    if (!ok) {{ showToast('Error: ' + (data.error || 'could not save')); return; }}
+    showToast(editingEventId ? 'Event updated' : 'Event added');
+    resetEventForm();
+    loadEvents();
+  }});
+}}
+
+function removeEvent(eventId) {{
+  const reason = prompt('Reason for removing this event (required):');
+  if (!reason) return;
+  fetch('/api/events/' + encodeURIComponent(eventId), {{
+    method: 'DELETE',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{reason: reason}}),
+  }})
+  .then(r => r.json().then(d => ({{ok: r.ok, data: d}})))
+  .then(({{ok, data}}) => {{
+    if (!ok) {{ showToast('Error: ' + (data.error || 'could not remove')); return; }}
+    showToast('Event removed');
+    loadEvents();
+  }});
 }}
 
 function loadConversations() {{

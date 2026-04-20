@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 _CATEGORY_DISPLAY = {
+    "incident": {"label": "INCIDENT", "color": "#6a1b9a", "accent": "#f3e5f5"},
     "threat": {"label": "THREAT", "color": "#c62828", "accent": "#ffebee"},
     "pattern": {"label": "PATTERN", "color": "#ef6c00", "accent": "#fff3e0"},
     "escalation": {"label": "ESCALATION", "color": "#ad1457", "accent": "#fce4ec"},
@@ -40,17 +41,26 @@ _CATEGORY_DISPLAY = {
 }
 
 
-def collect_events(extracted_data: Dict, analysis_results: Dict, review_decisions: Dict) -> List[Dict[str, Any]]:
+def _lookup_message_timestamp(messages: List[Dict[str, Any]], message_id: str) -> Optional[str]:
+    for m in messages:
+        if m.get("message_id") == message_id:
+            return m.get("timestamp")
+    return None
+
+
+def collect_events(extracted_data: Dict, analysis_results: Dict, review_decisions: Dict,
+                    manual_events: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """Assemble the list of big-picture events from the analysis+review outputs.
 
     Only findings that survived manual review are included. Raw automated flags are deliberately excluded — the timeline's point is to show what the examiner is willing to testify to.
 
     Sources mined (in priority order):
-      1. Reviewer-confirmed pattern-matched threats (local YAML).
-      2. Reviewer-confirmed AI-flagged threats, dated by quote-match against the original messages when the AI record omits a date.
-      3. Reviewer-confirmed AI coercive-control patterns, clustered per day.
-      4. Reviewer-confirmed local behavioral-pattern matches (DARVO, gaslighting, etc.), clustered per day.
-      5. Sentiment shifts from the AI executive summary, dated by quote-match or natural-language parsing when no ISO date is given.
+      1. Examiner-authored manual events (``manual_events``) — the examiner's named incidents spanning a message range.
+      2. Reviewer-confirmed pattern-matched threats (local YAML).
+      3. Reviewer-confirmed AI-flagged threats, dated by quote-match against the original messages when the AI record omits a date.
+      4. Reviewer-confirmed AI coercive-control patterns, clustered per day.
+      5. Reviewer-confirmed local behavioral-pattern matches (DARVO, gaslighting, etc.), clustered per day.
+      6. Sentiment shifts from the AI executive summary, dated by quote-match or natural-language parsing when no ISO date is given.
 
     Period-boundary events (first/last message) are intentionally excluded — they are filler on an executive timeline.
     """
@@ -62,6 +72,30 @@ def collect_events(extracted_data: Dict, analysis_results: Dict, review_decision
     reference_year = message_years[0] if message_years else datetime.now().year
 
     events: List[Dict[str, Any]] = []
+
+    # Examiner-authored manual events. These get priority in the display and carry an 'authored_by_examiner' marker so the court can distinguish named incidents from automatic findings. Each event's date comes from its start_timestamp, falling back to a lookup of the linked start_message_id in the corpus.
+    for me in (manual_events or []):
+        start_ts = me.get("start_timestamp") or ""
+        end_ts = me.get("end_timestamp") or ""
+        if not start_ts and me.get("start_message_id"):
+            start_ts = _lookup_message_timestamp(messages, me["start_message_id"]) or ""
+        if not end_ts and me.get("end_message_id"):
+            end_ts = _lookup_message_timestamp(messages, me["end_message_id"]) or ""
+        date_display = None
+        if start_ts and end_ts and start_ts[:10] != end_ts[:10]:
+            date_display = f"{_format_day(start_ts)} – {_format_day(end_ts)}"
+        events.append({
+            "date": start_ts,
+            "date_display": date_display,
+            "category": me.get("category") or "incident",
+            "severity": me.get("severity") or "medium",
+            "title": me.get("title", "Examiner-named event"),
+            "description": me.get("description", ""),
+            "message_id": me.get("start_message_id", ""),
+            "end_message_id": me.get("end_message_id", ""),
+            "source_ref": me.get("event_id", ""),
+            "authored_by_examiner": me.get("examiner") or True,
+        })
 
     # Local pattern-matched threats.
     threat_details = (analysis_results.get("threats") or {}).get("details") or []
@@ -392,17 +426,32 @@ def _render_event(event: Dict[str, Any], tz) -> str:
     date_str = event.get("date_display") or _format_date(event.get("date", ""), tz) or "date unknown"
     title = html_module.escape(event.get("title", "") or "")
     description = html_module.escape(event.get("description", "") or "")
+
     ref_parts = []
-    if event.get("message_id"):
+    if event.get("message_id") and event.get("end_message_id") and event["message_id"] != event["end_message_id"]:
+        ref_parts.append(
+            f"messages {html_module.escape(str(event['message_id']))} → {html_module.escape(str(event['end_message_id']))}"
+        )
+    elif event.get("message_id"):
         ref_parts.append(f"message_id: {html_module.escape(str(event['message_id']))}")
     if event.get("source_ref"):
         ref_parts.append(f"ref: {html_module.escape(str(event['source_ref']))}")
     ref_html = f'<div class="event-ref">{" &middot; ".join(ref_parts)}</div>' if ref_parts else ""
 
+    examiner_badge = ""
+    authored = event.get("authored_by_examiner")
+    if authored:
+        who = authored if isinstance(authored, str) else ""
+        label = f"NAMED BY EXAMINER{': ' + html_module.escape(who) if who else ''}"
+        examiner_badge = (
+            f'<span class="event-category" style="background:#ede7f6;color:#4527a0;margin-left:6px;">'
+            f"{label}</span>"
+        )
+
     return f"""<div class="event">
   <span class="event-marker" style="background:{display['color']}"></span>
   <div class="event-date">{html_module.escape(date_str)}</div>
-  <span class="event-category" style="background:{display['accent']};color:{display['color']}">{display['label']}</span>
+  <span class="event-category" style="background:{display['accent']};color:{display['color']}">{display['label']}</span>{examiner_badge}
   <div class="event-title">{title}</div>
   {f'<div class="event-description">{description}</div>' if description else ''}
   {ref_html}

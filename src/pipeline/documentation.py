@@ -47,10 +47,30 @@ def run(analyzer, data: Dict, analysis_results: Optional[Dict] = None, review_de
     return result
 
 
+def _load_manual_events(analyzer) -> list:
+    """Load examiner-authored manual events from the current review session, if any."""
+    session_id = getattr(analyzer, "_review_session_id", None)
+    if not session_id:
+        return []
+    try:
+        from ..review.event_manager import EventManager
+        em = EventManager(session_id=session_id, config=analyzer.config, forensic_recorder=analyzer.forensic)
+        return em.active_events()
+    except Exception as exc:
+        logger.info(f"    (Could not load manual events: {exc})")
+        return []
+
+
 def _build_events_timeline(analyzer, data: Dict, analysis_results: Optional[Dict], review_decisions: Dict) -> Optional[Path]:
-    """Render the sparse, executive-view timeline of confirmed events only."""
+    """Render the sparse, executive-view timeline of confirmed events only.
+
+    Merges examiner-authored manual events (named incidents that span a message range) with auto-detected findings into a single chronological view.
+    """
     logger.info("\n[*] Generating events timeline (big-picture view)...")
-    events = collect_events(data, analysis_results or {}, review_decisions)
+    manual_events = _load_manual_events(analyzer)
+    if manual_events:
+        logger.info(f"    Including {len(manual_events)} examiner-authored event(s)")
+    events = collect_events(data, analysis_results or {}, review_decisions, manual_events=manual_events)
     if not events:
         logger.info("    Skipping events timeline — no confirmed events to plot")
         return None
