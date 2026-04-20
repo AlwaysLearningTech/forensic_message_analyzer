@@ -1729,7 +1729,7 @@ function renderNotesOverview(noteGroups, suggestions) {{
           +   '<span class="note-group-count">' + g.count + ' item' + (g.count !== 1 ? 's' : '') + '</span>'
           +   '<div class="note-group-actions">'
           +     '<button onclick="startBulkEdit(' + idx + ', this)" data-text="' + escapeHtml(g.text) + '">Edit</button>'
-          +     '<button onclick="deleteNotePhrase(\'' + escapeHtml(g.text).replace(/'/g, "\\'") + '\', false)">Hide</button>'
+          +     '<button onclick="deleteNotePhrase(\'' + escapeHtml(g.text).replace(/'/g, "&#39;") + '\', false)">Hide</button>'
           +   '</div>'
           + '</div>'
           + '<div class="note-group-items">'
