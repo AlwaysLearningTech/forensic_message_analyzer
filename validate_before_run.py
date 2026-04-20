@@ -91,14 +91,26 @@ def main():
     print("\n[3/8] Data extraction (reads local files — free)...")
     import tempfile as _tf
     _validation_log_dir = _tf.mkdtemp(prefix="fma_validation_log_")
+    _validation_extract_dir = _tf.mkdtemp(prefix="fma_validation_extract_")
     forensic = ForensicRecorder(Path(_validation_log_dir))
     integrity = ForensicIntegrity(forensic)
     third_party = ThirdPartyRegistry(forensic, config)
+
+    # Point output_dir at a temp directory so extractors (e.g. WhatsApp ZIP
+    # expansion) don't write into the user's real output folder.
+    _real_output_dir = config.output_dir
+    config.output_dir = _validation_extract_dir
 
     from src.extractors.data_extractor import DataExtractor
     extractor = DataExtractor(forensic, third_party_registry=third_party, config=config)
     # extract_all() returns a list of message dicts directly
     messages = extractor.extract_all()
+
+    # Restore real output_dir and clean up temp extraction artifacts
+    config.output_dir = _real_output_dir
+    shutil.rmtree(_validation_extract_dir, ignore_errors=True)
+    shutil.rmtree(_validation_log_dir, ignore_errors=True)
+
     print(f"  Total messages extracted: {len(messages):,}")
 
     # Show source breakdown
