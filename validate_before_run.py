@@ -9,6 +9,7 @@ money on the full run.
 
 Usage:
     python3 validate_before_run.py              # Full validation with AI test (~$0.29)
+    python3 validate_before_run.py --env ~/.env # Use a specific .env file
     python3 validate_before_run.py --estimate    # Just show extraction stats + cost estimate
     python3 validate_before_run.py --ai-sample 10  # Custom AI sample size
 """
@@ -31,6 +32,10 @@ from src.third_party_registry import ThirdPartyRegistry
 
 def main():
     parser = argparse.ArgumentParser(description="Validate forensic analyzer before expensive AI run")
+    parser.add_argument(
+        "--env", default=None, metavar="PATH",
+        help="Path to the .env file. Defaults to the project-root .env. Overrides DOTENV_PATH if set."
+    )
     parser.add_argument("--estimate", action="store_true", help="Just show extraction stats + cost estimate")
     parser.add_argument("--no-ai", action="store_true", help="Skip the live AI sample test (still shows cost estimate)")
     parser.add_argument("--ai-sample", type=int, default=5, help="Number of messages to send to AI (default: 5)")
@@ -42,7 +47,7 @@ def main():
     print(f"Started: {datetime.now()}")
     print()
 
-    config = Config()
+    config = Config(env_path=args.env)
     passed = 0
     failed = 0
     warnings = 0
