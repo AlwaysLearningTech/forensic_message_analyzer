@@ -107,8 +107,13 @@ class WebReview:
     def _register_routes(self):
         """Register all Flask routes."""
 
+        @self.app.before_request
+        def log_request():
+            logger.info(f"[REQUEST] {request.method} {request.path}")
+
         @self.app.route("/")
         def index():
+            logger.info("[REQUEST] Serving index page")
             return self._render_review_page()
 
         @self.app.route("/api/item/<int:idx>")
