@@ -487,25 +487,23 @@ class ForensicAnalyzer:
             # Phase 4: Manual Review (reviews local + AI findings)
             review_results = self.run_review_phase(analysis_results, extracted_data, resume_session_id=resume_session_id)
 
-            # The reviewer can end the session two ways: Complete Review (phase is done, move to finalize) or Pause & Quit (phase stays open, come back with --resume). _review_paused distinguishes the two so review_complete only flips on Complete.
+            # The reviewer can end the session three ways:
+            # 1. Complete Review → _review_completed=True → review_complete=True
+            # 2. Pause & Quit → _review_paused=True → review_complete=False
+            # 3. Ctrl+C/crash → neither flag set → review_complete=False (DEFENSIVE: assume resumable)
+            completed = getattr(self, '_review_completed', False)
             paused = getattr(self, '_review_paused', False)
-            logger.info(f"[MAIN] After review phase: _review_paused={getattr(self, '_review_paused', 'NOT_SET')}, paused={paused}, review_complete will be={not paused}")
+            logger.info(f"[MAIN] After review phase: _review_completed={completed}, _review_paused={paused}, review_complete will be={completed}")
 
             self._save_pipeline_state(
                 review_session_id=getattr(self, '_review_session_id', None),
                 review_results_path=str(self._review_results_path) if getattr(self, '_review_results_path', None) else None,
                 ai_batch_results_path=str(self._ai_batch_results_path) if getattr(self, '_ai_batch_results_path', None) else None,
-                review_complete=not paused,
+                review_complete=completed,  # Only True if Complete button was explicitly clicked
             )
 
             logger.info("\n" + "="*80)
-            if paused:
-                logger.info(" REVIEW PAUSED — RESUMABLE ")
-                logger.info("="*80)
-                logger.info(f"\nRun directory: {self.config.output_dir}")
-                logger.info(f"\nDecisions so far are saved. To continue the review, run:")
-                logger.info(f"  python3 run.py --env <your .env> --resume")
-            else:
+            if completed:
                 logger.info(" REVIEW COMPLETE — PIPELINE PAUSED ")
                 logger.info("="*80)
                 logger.info(f"\nRun directory: {self.config.output_dir}")
@@ -513,6 +511,13 @@ class ForensicAnalyzer:
                 logger.info(f"  python3 run.py --finalize \"{self.config.output_dir}\"")
                 logger.info(f"\nOr auto-detect the latest run:")
                 logger.info(f"  python3 run.py --finalize")
+            else:
+                # Either Pause button clicked or Ctrl+C/unexpected exit — all resumable
+                logger.info(" REVIEW PAUSED — RESUMABLE ")
+                logger.info("="*80)
+                logger.info(f"\nRun directory: {self.config.output_dir}")
+                logger.info(f"\nDecisions so far are saved. To continue the review, run:")
+                logger.info(f"  python3 run.py --env <your .env> --resume")
 
         except Exception as e:
             logger.info(f"\n[ERROR] Workflow failed: {e}")

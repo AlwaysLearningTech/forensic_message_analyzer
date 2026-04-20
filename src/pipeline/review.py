@@ -67,10 +67,17 @@ def run(analyzer, analysis_results: Dict, extracted_data: Dict, resume_session_i
             from ..review.web_review import WebReview
             web = WebReview(manager, forensic_recorder=analyzer.forensic, config=analyzer.config)
             web.start_review(messages, items_for_review, screenshots=screenshots, port=analyzer.config.review_port)
-            logger.info(f"[PIPELINE] After start_review: web.was_paused={getattr(web, 'was_paused', 'NOT_SET')}")
-            if getattr(web, "was_paused", False):
+            was_completed = getattr(web, 'was_completed', False)
+            was_paused = getattr(web, 'was_paused', False)
+            logger.info(f"[PIPELINE] After start_review: was_completed={was_completed}, was_paused={was_paused}")
+            # DEFENSIVE: Only mark as completed if Complete button was explicitly clicked.
+            # Any other exit (Pause, Ctrl+C, crash) leaves _review_completed=False → resumable.
+            if was_completed:
+                analyzer._review_completed = True
+                logger.info("[PIPELINE] Set analyzer._review_completed = True (user clicked Complete)")
+            elif was_paused:
                 analyzer._review_paused = True
-                logger.info("[PIPELINE] Set analyzer._review_paused = True")
+                logger.info("[PIPELINE] Set analyzer._review_paused = True (user clicked Pause)")
         except ImportError:
             logger.info("    Flask not installed. Falling back to terminal review.")
             from ..review.interactive_review import InteractiveReview

@@ -62,8 +62,11 @@ class WebReview:
         self.screenshots: List[Dict] = []
         self.reviewed_indices: set = set()
         self._shutdown_event = threading.Event()
-        # Tracks how the session ended so the pipeline runner can tell Complete from Pause. Complete marks the phase done; Pause leaves review_complete=False so --resume picks up where the reviewer stopped.
-        self.was_paused = False
+        # Tracks how the session ended so the pipeline runner can tell Complete from Pause/Ctrl+C.
+        # DEFENSIVE: Default to False. Only set True when Complete is explicitly clicked.
+        # This ensures any unexpected exit (Ctrl+C, crash, network issue) is resumable.
+        self.was_paused = False  # Legacy, kept for compatibility
+        self.was_completed = False  # New: only True when Complete button clicked
         self._conversation_cache = None
 
         # EventManager shares the review session so manual events persist alongside review decisions.
@@ -313,7 +316,8 @@ class WebReview:
 
         @self.app.route("/api/complete", methods=["POST"])
         def complete_review():
-            logger.info(f"[COMPLETE] /api/complete route: was_paused is {self.was_paused}")
+            self.was_completed = True
+            logger.info(f"[COMPLETE] /api/complete route: was_completed={self.was_completed}, was_paused={self.was_paused}")
             if self.forensic:
                 self.forensic.record_action(
                     "web_review_completed",
@@ -404,7 +408,7 @@ class WebReview:
         except KeyboardInterrupt:
             logger.info("[EXIT] KeyboardInterrupt caught (Ctrl+C)")
 
-        logger.info(f"[EXIT] start_review returning. was_paused={self.was_paused}")
+        logger.info(f"[EXIT] start_review returning. was_completed={self.was_completed}, was_paused={self.was_paused}")
 
     # ------------------------------------------------------------------
     # Attachment path safety
