@@ -906,7 +906,7 @@ class WebReview:
     def _render_review_page(self) -> str:
         """Return the single-page review interface HTML."""
         import html as html_module
-        case_number = html_module.escape(self.config.case_number or "")
+        case_number = html_module.escape(self.config.case_number.split("\n")[0] if self.config.case_number else "")
         case_name = html_module.escape(self.config.case_name or "")
         examiner = html_module.escape(self.config.examiner_name or "")
         total_items = len(self.flagged_items)
@@ -963,9 +963,9 @@ class WebReview:
   .item-details h2 {{ font-size: 16px; margin-bottom: 8px; }}
   .detail-row {{ font-size: 13px; margin-bottom: 4px; }}
   .detail-row .label {{ font-weight: 600; }}
-  .decision-buttons {{ display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }}
-  .decision-buttons button {{ padding: 10px; border: 3px solid transparent; border-radius: 6px;
-                              font-size: 14px; font-weight: 600; cursor: pointer;
+  .decision-buttons {{ display: flex; flex-direction: row; gap: 6px; margin-bottom: 12px; }}
+  .decision-buttons button {{ flex: 1; padding: 8px 4px; border: 3px solid transparent; border-radius: 6px;
+                              font-size: 13px; font-weight: 600; cursor: pointer;
                               transition: transform 0.12s, box-shadow 0.12s, filter 0.12s; }}
   .decision-buttons button:hover {{ filter: brightness(1.05); }}
   .btn-relevant {{ background: #43a047; color: #fff; }}
@@ -1019,9 +1019,8 @@ class WebReview:
   .phrase-edit-input {{ border: 1px solid #1a237e; border-radius: 4px; font-size: 12px;
                         padding: 3px 6px; width: 200px; outline: none; }}
 
-  .submit-btn {{ width: 100%; padding: 10px; background: #1a237e; color: #fff; border: none;
-                 border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
-                 margin-top: 8px; }}
+  .submit-btn {{ padding: 8px 18px; background: #1a237e; color: #fff; border: none;
+                 border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }}
   .submit-btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
 
   /* Navigation */
@@ -1032,9 +1031,10 @@ class WebReview:
   .nav button:disabled {{ opacity: 0.4; cursor: not-allowed; }}
   .nav .counter {{ font-size: 13px; font-weight: 600; }}
 
-  .complete-btn {{ width: 100%; padding: 10px; margin-top: 12px; background: #b71c1c; color: #fff;
-                   border: none; border-radius: 6px; font-size: 14px; cursor: pointer; }}
-  .pause-btn {{ width: 100%; padding: 10px; margin-top: 8px; background: #fff; color: #424242;
+  .session-btns {{ display: flex; gap: 8px; margin-top: 10px; }}
+  .complete-btn {{ flex: 1; padding: 8px; background: #b71c1c; color: #fff;
+                   border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }}
+  .pause-btn {{ flex: 1; padding: 8px; background: #fff; color: #424242;
                 border: 1px solid #9e9e9e; border-radius: 6px; font-size: 13px; cursor: pointer; }}
   .pause-btn:hover {{ background: #f5f5f5; }}
 
@@ -1063,6 +1063,10 @@ class WebReview:
           font-size: 14px; cursor: pointer; border-bottom: 3px solid transparent; }}
   .tab:hover {{ color: #fff; }}
   .tab.active {{ color: #fff; border-bottom-color: #43a047; }}
+  .tab-edit-btn {{ margin-left: auto; padding: 6px 14px; border: 1px solid #607d8b; border-radius: 4px;
+                   background: transparent; color: #b0bec5; font-size: 12px; cursor: pointer;
+                   align-self: center; margin-right: 12px; }}
+  .tab-edit-btn:hover {{ background: #37474f; color: #fff; }}
 
   /* Browse mode */
   .browse-container {{ display: flex; height: calc(100vh - 108px); }}
@@ -1136,6 +1140,7 @@ class WebReview:
   <button class="tab" id="tabEvents" onclick="switchTab('events')">
     Events Timeline
   </button>
+  <button class="tab-edit-btn" id="editPhrasesBtn" onclick="toggleEditPhrases()">Edit Notes</button>
 </div>
 
 <div class="container" id="flaggedContainer">
@@ -1171,21 +1176,19 @@ class WebReview:
     </div>
 
     <label style="font-size:13px; font-weight:600; margin-bottom:4px; display:block;">Notes</label>
-    <div class="note-phrases-header">
-      <button class="edit-phrases-btn" id="editPhrasesBtn" onclick="toggleEditPhrases()">Edit</button>
-    </div>
     <div id="notePhrases" class="note-phrases"></div>
     <textarea id="notesField" placeholder="Optional notes about your decision..."></textarea>
-    <button class="submit-btn" id="submitBtn" onclick="submitDecision()" disabled>Submit Decision</button>
-
     <div class="nav">
       <button onclick="navigate(-1)" id="prevBtn">&larr; Previous</button>
       <span class="counter" id="navCounter">-</span>
+      <button class="submit-btn" id="submitBtn" onclick="submitDecision()" disabled>Submit</button>
       <button onclick="navigate(1)" id="nextBtn">Next &rarr;</button>
     </div>
 
-    <button class="complete-btn" onclick="completeReview()">Complete Review</button>
-    <button class="pause-btn" onclick="pauseReview()" title="Save decisions, close the UI, and resume later with --resume">Pause &amp; Quit (resume later)</button>
+    <div class="session-btns">
+      <button class="complete-btn" onclick="completeReview()">Complete Review</button>
+      <button class="pause-btn" onclick="pauseReview()" title="Save decisions, close the UI, and resume later with --resume">Pause &amp; Quit</button>
+    </div>
   </div>
 </div>
 
