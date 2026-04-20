@@ -474,6 +474,6 @@ python3 check_readiness.py
 For a deeper pre-run validation that also estimates AI costs (uses a small amount of API credits):
 
 ```bash
-python3 validate_before_run.py            # 8-check validation with 5-message AI sample (~$0.01)
-python3 validate_before_run.py --no-ai    # Skip the AI sample; extraction stats + cost table only
+python3 validate_before_run.py --env /path/to/.env            # 8-check validation with 5-message AI sample (~$0.01)
+python3 validate_before_run.py --env /path/to/.env --no-ai    # Skip the AI sample; extraction stats + cost table only
 ```

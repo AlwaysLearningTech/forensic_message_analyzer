@@ -270,17 +270,19 @@ Before running the full analysis (which incurs AI API costs), use the validation
 
 ```bash
 # Full validation with 5-message AI test (~$0.01)
-python3 validate_before_run.py
+python3 validate_before_run.py --env /path/to/.env
 
 # Just show extraction stats and cost estimate ($0 cost)
-python3 validate_before_run.py --estimate
+python3 validate_before_run.py --env /path/to/.env --estimate
 
 # Skip AI test entirely ($0 cost)
-python3 validate_before_run.py --no-ai
+python3 validate_before_run.py --env /path/to/.env --no-ai
 
 # Test with a custom number of messages
-python3 validate_before_run.py --ai-sample 10
+python3 validate_before_run.py --env /path/to/.env --ai-sample 10
 ```
+
+The `--env` flag works the same as in `run.py` — see [Configuration](#configuration) for details.
 
 The script runs 8 checks:
 1. **Config validation** - Verifies .env settings
@@ -296,7 +298,7 @@ The script runs 8 checks:
 
 The analysis runs in two steps. First, extract, analyze, and review:
 ```bash
-python3 run.py
+python3 run.py --env /path/to/.env
 ```
 
 This executes Phases 1-4 (extraction through review):
@@ -316,7 +318,7 @@ This executes Phases 1-4 (extraction through review):
 3. **Optional AI Pre-Screening**: If configured, submits messages to Claude to surface additional review candidates
 4. **Manual Review**: Examiner reviews and confirms every flagged item before it can appear in the final reports
 
-Then run `python3 run.py --finalize` for Phases 5-8 (post-review):
+Then run `python3 run.py --env /path/to/.env --finalize` for Phases 5-8 (post-review):
 5. **Behavioral Analysis**: Post-review behavioral pattern analysis
 6. **Executive Summary**: Generates narrative summary from the reviewer-confirmed messages (uses Claude when configured; otherwise produces a deterministic statistical summary)
 7. **Report Generation**: Creates comprehensive reports
@@ -332,15 +334,15 @@ Then run `python3 run.py --finalize` for Phases 5-8 (post-review):
 After completing manual review, generate reports and documentation:
 ```bash
 # Auto-detect the latest run directory
-python3 run.py --finalize
+python3 run.py --env /path/to/.env --finalize
 
 # Or specify a run directory explicitly
-python3 run.py --finalize ~/workspace/output/forensic-message-analyzer/run_20260304_120000
+python3 run.py --env /path/to/.env --finalize ~/workspace/output/forensic-message-analyzer/run_20260304_120000
 ```
 
 To resume an interrupted review session:
 ```bash
-python3 run.py --resume
+python3 run.py --env /path/to/.env --resume
 ```
 
 ### Expected Output
@@ -425,8 +427,8 @@ Each person tab includes:
 
 Eight-phase pipeline runs in two passes:
 
-- **Pass 1** (`python3 run.py`) — Phases 1–4: extract every configured source, hash and archive it, run local and optional AI analysis, and open the manual-review UI.
-- **Pass 2** (`python3 run.py --finalize`) — Phases 5–8: post-review behavioral analysis, AI executive summary, report generation in every format, and documentation (chain of custody, timelines, manifest).
+- **Pass 1** (`python3 run.py --env /path/to/.env`) — Phases 1–4: extract every configured source, hash and archive it, run local and optional AI analysis, and open the manual-review UI.
+- **Pass 2** (`python3 run.py --env /path/to/.env --finalize`) — Phases 5–8: post-review behavioral analysis, AI executive summary, report generation in every format, and documentation (chain of custody, timelines, manifest).
 
 Every source file is copied to a hash-verified working copy before any extractor opens it; originals are never read during analysis. The forensic log is HMAC-chained so edits, deletions, or reorders break the chain at the first affected record. The final manifest, chain of custody, and every report get detached Ed25519 signatures.
 

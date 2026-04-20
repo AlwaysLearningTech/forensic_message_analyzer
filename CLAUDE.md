@@ -185,11 +185,11 @@ These are confirmed by reading the source — do not guess.
 ## Developer Workflows
 
 ```bash
-python3 run.py                          # Phases 1-4: extraction, analysis, review
-python3 run.py --finalize               # Phases 5-8: post-review reporting
-python3 run.py --resume                 # Resume interrupted review
-python3 validate_before_run.py          # 8-check pre-run validation (spends AI credits)
-python3 validate_before_run.py --no-ai  # Validate without AI spend
+python3 run.py --env /path/to/.env                # Phases 1-4: extraction, analysis, review
+python3 run.py --env /path/to/.env --finalize     # Phases 5-8: post-review reporting
+python3 run.py --env /path/to/.env --resume       # Resume interrupted review
+python3 validate_before_run.py --env /path/to/.env          # 8-check pre-run validation (spends AI credits)
+python3 validate_before_run.py --env /path/to/.env --no-ai  # Validate without AI spend
 python3 -m pytest tests/ -v             # Full test suite
 python3 -m pytest tests/test_integration.py -v
 ```
