@@ -138,6 +138,16 @@ class Config:
         self.review_dir = self._expand_path(
             os.getenv('REVIEW_DIR', str(_PROJECT_ROOT / 'review'))
         )
+
+        # Port the Flask review UI binds to. Override with REVIEW_PORT in .env when 5000 is taken (macOS AirPlay Receiver uses it by default) or to run two pipelines side by side. Validated into the unprivileged range so a typo can't try to bind to port 80.
+        raw_port = os.getenv('REVIEW_PORT', '5000').strip() or '5000'
+        try:
+            port_val = int(raw_port)
+        except ValueError as exc:
+            raise ValueError(f"REVIEW_PORT must be an integer, got {raw_port!r}") from exc
+        if not (1024 <= port_val <= 65535):
+            raise ValueError(f"REVIEW_PORT must be between 1024 and 65535, got {port_val}")
+        self.review_port = port_val
         
         # AI processing mode
         self.use_batch_api = os.getenv('USE_BATCH_API', 'true').lower() == 'true'
@@ -261,6 +271,9 @@ class Config:
             "paths": {
                 "output_dir": self.output_dir,
                 "review_dir": self.review_dir,
+            },
+            "review_ui": {
+                "port": self.review_port,
             },
         }
 

@@ -62,6 +62,8 @@ class WebReview:
         self.screenshots: List[Dict] = []
         self.reviewed_indices: set = set()
         self._shutdown_event = threading.Event()
+        # Tracks how the session ended so the pipeline runner can tell Complete from Pause. Complete marks the phase done; Pause leaves review_complete=False so --resume picks up where the reviewer stopped.
+        self.was_paused = False
         self._conversation_cache = None
 
         # EventManager shares the review session so manual events persist alongside review decisions.
@@ -246,6 +248,22 @@ class WebReview:
             self._shutdown_event.set()
             return jsonify({"status": "ok"})
 
+        @self.app.route("/api/pause", methods=["POST"])
+        def pause_review():
+            """Exit the session without flipping review_complete.
+
+            Functionally similar to /api/complete but stamps a different audit event and sets was_paused so the pipeline runner keeps the phase resumable via --resume.
+            """
+            self.was_paused = True
+            if self.forensic:
+                self.forensic.record_action(
+                    "web_review_paused",
+                    f"Web review session paused with {len(self.reviewed_indices)} items reviewed this session",
+                    {"reviewed": len(self.reviewed_indices), "total": len(self.flagged_items), "resumable": True}
+                )
+            self._shutdown_event.set()
+            return jsonify({"status": "ok"})
+
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
@@ -283,7 +301,8 @@ class WebReview:
             )
 
         print(f"\n    Opening review interface at http://127.0.0.1:{port}")
-        print(f"    Press Ctrl+C or click 'Complete Review' to finish.\n")
+        print(f"    Click 'Complete Review' to finish, 'Pause & Quit' to stop and resume later,")
+        print(f"    or press Ctrl+C in this terminal.\n")
 
         # Run Flask in a daemon thread so that 'Complete Review' doesn't need to SIGINT the whole process (which kills the parent pipeline).
         server_thread = threading.Thread(
@@ -886,6 +905,9 @@ class WebReview:
 
   .complete-btn {{ width: 100%; padding: 10px; margin-top: 12px; background: #b71c1c; color: #fff;
                    border: none; border-radius: 6px; font-size: 14px; cursor: pointer; }}
+  .pause-btn {{ width: 100%; padding: 10px; margin-top: 8px; background: #fff; color: #424242;
+                border: 1px solid #9e9e9e; border-radius: 6px; font-size: 13px; cursor: pointer; }}
+  .pause-btn:hover {{ background: #f5f5f5; }}
 
   /* Toast */
   .toast {{ position: fixed; bottom: 24px; right: 24px; background: #333; color: #fff;
@@ -1031,6 +1053,7 @@ class WebReview:
     </div>
 
     <button class="complete-btn" onclick="completeReview()">Complete Review</button>
+    <button class="pause-btn" onclick="pauseReview()" title="Save decisions, close the UI, and resume later with --resume">Pause &amp; Quit (resume later)</button>
   </div>
 </div>
 
@@ -1293,10 +1316,21 @@ function updateProgress(progress) {{
 }}
 
 function completeReview() {{
-  if (!confirm('Complete the review session? The server will shut down.')) return;
+  if (!confirm('Complete the review session? This marks the review phase DONE; reports will be generated on the next run --finalize call. Use Pause & Quit instead if you plan to keep reviewing later.')) return;
   fetch('/api/complete', {{ method: 'POST' }}).then(() => {{
     document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;'
       + 'font-family:sans-serif;font-size:18px;color:#333;">Review complete. You may close this tab.</div>';
+  }});
+}}
+
+function pauseReview() {{
+  if (!confirm('Pause the review? Your decisions so far are already saved. Run --resume to continue from where you stopped.')) return;
+  fetch('/api/pause', {{ method: 'POST' }}).then(() => {{
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;'
+      + 'font-family:sans-serif;font-size:18px;color:#333; flex-direction:column;">'
+      + '<div style="font-weight:600; margin-bottom:8px;">Review paused.</div>'
+      + '<div style="font-size:14px; color:#666;">Resume with <code>python3 run.py --env &lt;your .env&gt; --resume</code></div>'
+      + '</div>';
   }});
 }}
 

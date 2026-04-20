@@ -450,22 +450,31 @@ class ForensicAnalyzer:
             # Phase 4: Manual Review (reviews local + AI findings)
             review_results = self.run_review_phase(analysis_results, extracted_data, resume_session_id=resume_session_id)
 
-            # Save complete state with review results for finalize
+            # The reviewer can end the session two ways: Complete Review (phase is done, move to finalize) or Pause & Quit (phase stays open, come back with --resume). _review_paused distinguishes the two so review_complete only flips on Complete.
+            paused = getattr(self, '_review_paused', False)
+
             self._save_pipeline_state(
                 review_session_id=getattr(self, '_review_session_id', None),
                 review_results_path=str(self._review_results_path) if getattr(self, '_review_results_path', None) else None,
                 ai_batch_results_path=str(self._ai_batch_results_path) if getattr(self, '_ai_batch_results_path', None) else None,
-                review_complete=True,
+                review_complete=not paused,
             )
 
             logger.info("\n" + "="*80)
-            logger.info(" REVIEW COMPLETE — PIPELINE PAUSED ")
-            logger.info("="*80)
-            logger.info(f"\nRun directory: {self.config.output_dir}")
-            logger.info(f"\nTo generate reports, run:")
-            logger.info(f"  python3 run.py --finalize \"{self.config.output_dir}\"")
-            logger.info(f"\nOr auto-detect the latest run:")
-            logger.info(f"  python3 run.py --finalize")
+            if paused:
+                logger.info(" REVIEW PAUSED — RESUMABLE ")
+                logger.info("="*80)
+                logger.info(f"\nRun directory: {self.config.output_dir}")
+                logger.info(f"\nDecisions so far are saved. To continue the review, run:")
+                logger.info(f"  python3 run.py --env <your .env> --resume")
+            else:
+                logger.info(" REVIEW COMPLETE — PIPELINE PAUSED ")
+                logger.info("="*80)
+                logger.info(f"\nRun directory: {self.config.output_dir}")
+                logger.info(f"\nTo generate reports, run:")
+                logger.info(f"  python3 run.py --finalize \"{self.config.output_dir}\"")
+                logger.info(f"\nOr auto-detect the latest run:")
+                logger.info(f"  python3 run.py --finalize")
 
         except Exception as e:
             logger.info(f"\n[ERROR] Workflow failed: {e}")

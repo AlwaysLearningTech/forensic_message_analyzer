@@ -61,7 +61,10 @@ def run(analyzer, analysis_results: Dict, extracted_data: Dict, resume_session_i
         try:
             from ..review.web_review import WebReview
             web = WebReview(manager, forensic_recorder=analyzer.forensic, config=analyzer.config)
-            web.start_review(messages, items_for_review, screenshots=screenshots)
+            web.start_review(messages, items_for_review, screenshots=screenshots, port=analyzer.config.review_port)
+            # Reviewer can stop the session two ways: Complete Review (review_complete=True) or Pause & Quit (review_complete stays False so --resume picks it up). Surface the pause signal to the pipeline runner so it doesn't flip review_complete.
+            if getattr(web, "was_paused", False):
+                analyzer._review_paused = True
         except ImportError:
             logger.info("    Flask not installed. Falling back to terminal review.")
             from ..review.interactive_review import InteractiveReview
