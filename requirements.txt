@@ -16,7 +16,7 @@ python-magic>=0.4.27
 # Report generation
 openpyxl>=3.0.9  # Excel reports
 python-docx>=0.8.11  # Word reports
-reportlab>=3.6.0  # PDF reports
+docx2pdf>=0.1.8  # DOCX-to-PDF conversion (requires MS Word or LibreOffice)
 
 # Data visualization (optional but recommended)
 plotly>=5.0.0  # Interactive charts for timeline visualization

@@ -94,9 +94,8 @@ def run(analyzer, data: Dict, analysis: Dict, review: Dict) -> Dict:
         logger.info("\n[*] Generating legal team summary document (DOCX + PDF)...")
         try:
             summary_docx = Path(analyzer.config.output_dir) / f"legal_team_summary_{timestamp}.docx"
-            summary_pdf = Path(analyzer.config.output_dir) / f"legal_team_summary_{timestamp}.pdf"
             forensic_reporter._generate_legal_summary_docx(legal_text, summary_docx, reports)
-            forensic_reporter._generate_legal_summary_pdf(legal_text, summary_pdf, reports)
+            summary_pdf = forensic_reporter._docx_to_pdf(summary_docx)
             reports["legal_summary"] = str(summary_docx)
             reports["legal_summary_pdf"] = str(summary_pdf)
             docx_hash = analyzer.forensic.compute_hash(summary_docx)

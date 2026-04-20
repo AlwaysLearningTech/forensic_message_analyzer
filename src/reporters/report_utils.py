@@ -152,59 +152,6 @@ def _md_inline_to_html(text: str) -> str:
     return text
 
 
-def markdown_to_reportlab(text: str, styles) -> list:
-    """Convert a markdown string into a list of ReportLab flowable elements.
-
-    Handles headings (# / ##), bold/italic inline, bullet lists (- ),
-    numbered lists (1. ), and plain paragraphs. Returns a list of
-    Paragraph/Spacer objects ready to append to a ReportLab document.
-    """
-    from reportlab.platypus import Paragraph, Spacer
-    import html as html_module
-
-    elements = []
-    for block in text.split('\n\n'):
-        for line in block.split('\n'):
-            stripped = line.strip()
-            if not stripped:
-                continue
-
-            # Headings
-            heading_match = re.match(r'^(#{1,3})\s+(.*)', stripped)
-            if heading_match:
-                level = len(heading_match.group(1))
-                heading_text = html_module.escape(heading_match.group(2))
-                style_name = f'Heading{min(level, 3)}'
-                style = styles.get(style_name, styles['Heading2'])
-                elements.append(Paragraph(heading_text, style))
-                continue
-
-            # Bullet lines
-            bullet_match = re.match(r'^[-*]\s+(.*)', stripped)
-            if bullet_match:
-                body = html_module.escape(bullet_match.group(1))
-                body = _md_inline_to_html(body)
-                elements.append(Paragraph(f"&bull; {body}", styles['Normal']))
-                continue
-
-            # Numbered list lines
-            num_match = re.match(r'^(\d+)\.\s+(.*)', stripped)
-            if num_match:
-                num = num_match.group(1)
-                body = html_module.escape(num_match.group(2))
-                body = _md_inline_to_html(body)
-                elements.append(Paragraph(f"{num}. {body}", styles['Normal']))
-                continue
-
-            # Regular paragraph — escape then convert inline formatting
-            safe = html_module.escape(stripped)
-            safe = _md_inline_to_html(safe)
-            elements.append(Paragraph(safe, styles['Normal']))
-
-        elements.append(Spacer(1, 6))
-    return elements
-
-
 def markdown_to_docx(doc, text: str):
     """Add markdown-formatted text to a python-docx Document.
 

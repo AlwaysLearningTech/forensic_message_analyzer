@@ -9,17 +9,14 @@ import html as html_module
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
+from docx.oxml.ns import nsdecls
+from docx.oxml import parse_xml
 
 from ..config import Config
 from ..forensic_utils import ForensicRecorder
 from ..utils.legal_compliance import LegalComplianceManager
 from ..utils.pricing import get_pricing
-from .report_utils import match_quote_to_message, generate_limitations, markdown_to_reportlab, markdown_to_docx
+from .report_utils import match_quote_to_message, generate_limitations, markdown_to_docx
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +80,54 @@ class ForensicReporter:
         """Match an AI-identified quote to its source message via substring matching."""
         return match_quote_to_message(quote, messages)
 
+    def _docx_to_pdf(self, docx_path: Path) -> Path:
+        """Convert a DOCX file to PDF using docx2pdf (MS Word / LibreOffice).
+
+        Returns the path to the generated PDF file.
+        """
+        from docx2pdf import convert
+        pdf_path = docx_path.with_suffix('.pdf')
+        convert(str(docx_path), str(pdf_path))
+        file_hash = self.forensic.compute_hash(pdf_path)
+        self.forensic.record_action(
+            "pdf_converted",
+            f"Converted {docx_path.name} to PDF with hash {file_hash}",
+            {"source": str(docx_path), "path": str(pdf_path), "hash": file_hash}
+        )
+        return pdf_path
+
+    @staticmethod
+    def _style_docx_table(table) -> None:
+        """Apply consistent Microsoft blue theme styling to a python-docx table.
+
+        Header: dark blue (#1F4E79) with white bold text.
+        Body: alternating white / light blue (#D6E4F0).
+        Borders: thin grey.
+        """
+        HEADER_BG = '1F4E79'
+        ALT_BG = 'D6E4F0'
+
+        for row_idx, row in enumerate(table.rows):
+            for cell in row.cells:
+                # Set background
+                if row_idx == 0:
+                    shading = parse_xml(f'<w:shd {nsdecls("w")} w:fill="{HEADER_BG}"/>')
+                    cell._tc.get_or_add_tcPr().append(shading)
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph.runs:
+                            run.bold = True
+                            run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+                            run.font.size = Pt(10)
+                elif row_idx % 2 == 0:
+                    shading = parse_xml(f'<w:shd {nsdecls("w")} w:fill="{ALT_BG}"/>')
+                    cell._tc.get_or_add_tcPr().append(shading)
+
+                # Set font size for body rows
+                if row_idx > 0:
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph.runs:
+                            run.font.size = Pt(10)
+
     @staticmethod
     def _render_methodology_to_docx(doc, sections, base_level: int = 1) -> None:
         """Render structured methodology sections into a python-docx document."""
@@ -101,32 +146,7 @@ class ForensicReporter:
                     run.bold = True
                     para.add_run(block['text'])
 
-    @staticmethod
-    def _render_methodology_to_reportlab(elements, sections, styles) -> None:
-        """Render structured methodology sections into a reportlab story."""
-        for section in sections:
-            elements.append(Paragraph(html_module.escape(section['heading']),
-                                      styles['Heading2']))
-            for block in section['blocks']:
-                btype = block['type']
-                if btype == 'paragraph':
-                    elements.append(Paragraph(html_module.escape(block['text']),
-                                              styles['Normal']))
-                elif btype == 'bullets':
-                    for item in block['items']:
-                        elements.append(Paragraph(
-                            f"• {html_module.escape(item)}", styles['Normal']
-                        ))
-                elif btype == 'definition':
-                    elements.append(Paragraph(
-                        f"<b>{html_module.escape(block['term'])}.</b> "
-                        f"{html_module.escape(block['text'])}",
-                        styles['Normal']
-                    ))
-                elements.append(Spacer(1, 4))
-            elements.append(Spacer(1, 8))
-
-    def generate_comprehensive_report(self, 
+    def generate_comprehensive_report(self,
                                      extracted_data: Dict,
                                      analysis_results: Dict,
                                      review_decisions: Dict) -> Dict[str, Path]:
@@ -182,34 +202,30 @@ class ForensicReporter:
                 f"Methodology document generation failed: {str(e)}"
             )
 
-        # PDF methodology (same content as the Word version, rendered for readers who cannot open .docx or need a signed/stamped court exhibit)
-        try:
-            methodology_pdf = self._generate_methodology_pdf(
-                extracted_data, timestamp
-            )
-            reports['methodology_pdf'] = methodology_pdf
-            logger.info(f"Generated Methodology PDF: {methodology_pdf}")
-        except Exception as e:
-            logger.error(f"Failed to generate methodology PDF: {e}")
-            self.forensic.record_action(
-                "report_generation_error",
-                f"Methodology PDF generation failed: {str(e)}"
-            )
-        
-        # Generate PDF report
-        try:
-            pdf_path = self._generate_pdf_report(
-                extracted_data, analysis_results, review_decisions, timestamp,
-                legal_summary=legal_summary
-            )
-            reports['pdf'] = pdf_path
-            logger.info(f"Generated PDF report: {pdf_path}")
-        except Exception as e:
-            logger.error(f"Failed to generate PDF report: {e}")
-            self.forensic.record_action(
-                "report_generation_error",
-                f"PDF report generation failed: {str(e)}"
-            )
+        # PDF versions: convert each DOCX to PDF via docx2pdf for exact fidelity
+        if 'methodology' in reports:
+            try:
+                methodology_pdf = self._docx_to_pdf(reports['methodology'])
+                reports['methodology_pdf'] = methodology_pdf
+                logger.info(f"Generated Methodology PDF: {methodology_pdf}")
+            except Exception as e:
+                logger.error(f"Failed to convert methodology to PDF: {e}")
+                self.forensic.record_action(
+                    "report_generation_error",
+                    f"Methodology PDF conversion failed: {str(e)}"
+                )
+
+        if 'word' in reports:
+            try:
+                pdf_path = self._docx_to_pdf(reports['word'])
+                reports['pdf'] = pdf_path
+                logger.info(f"Generated PDF report: {pdf_path}")
+            except Exception as e:
+                logger.error(f"Failed to convert Word report to PDF: {e}")
+                self.forensic.record_action(
+                    "report_generation_error",
+                    f"PDF report conversion failed: {str(e)}"
+                )
         
         # Generate JSON report
         try:
@@ -307,81 +323,6 @@ class ForensicReporter:
             "methodology_document_generated",
             f"Generated standalone methodology document with hash {file_hash}",
             {"path": str(output_path), "hash": file_hash}
-        )
-        return output_path
-
-    def _generate_methodology_pdf(self, extracted_data: Dict, timestamp: str) -> Path:
-        """PDF version of the standalone Methodology Statement.
-
-        Mirrors _generate_methodology_document but emits PDF via reportlab. Shares the same structured section source (generate_methodology_sections + generate_standards_compliance_sections) so the two files can be cross-referenced by the court without worrying about content drift.
-        """
-        output_path = self.output_dir / f"methodology_{timestamp}.pdf"
-        doc = SimpleDocTemplate(
-            str(output_path),
-            pagesize=letter,
-            title="Methodology Statement",
-            author=getattr(self.config, "examiner_name", "") or "Forensic Analyzer",
-        )
-        styles = getSampleStyleSheet()
-        title_style = ParagraphStyle(
-            "MethodologyTitle", parent=styles["Title"], alignment=1, spaceAfter=20
-        )
-        section_style = ParagraphStyle(
-            "MethodologyH1", parent=styles["Heading1"], spaceBefore=10, spaceAfter=6
-        )
-        # The default reportlab styles carry a Heading2 but no dedicated block style for methodology bullets; we reuse Normal since _render_methodology_to_reportlab owns bullet formatting itself.
-
-        story = []
-        story.append(Paragraph("Methodology Statement", title_style))
-
-        header = self.compliance.generate_report_header()
-        case_numbers = header.get("case_numbers") or [header["case_number"]]
-        if len(case_numbers) > 1:
-            story.append(Paragraph("<b>Case Numbers</b>", styles["Normal"]))
-            for cn in case_numbers:
-                story.append(Paragraph(f"• {html_module.escape(str(cn))}", styles["Normal"]))
-        else:
-            story.append(Paragraph(f"<b>Case Number:</b> {html_module.escape(str(case_numbers[0]))}", styles["Normal"]))
-        if header.get("case_name") and header["case_name"] != "Not assigned":
-            story.append(Paragraph(f"<b>Case Name:</b> {html_module.escape(str(header['case_name']))}", styles["Normal"]))
-        story.append(Paragraph(f"<b>Generated:</b> {html_module.escape(str(header['date_of_examination']))}", styles["Normal"]))
-        story.append(Spacer(1, 12))
-
-        self._render_methodology_to_reportlab(
-            story, self.compliance.generate_methodology_sections(), styles
-        )
-
-        story.append(PageBreak())
-        story.append(Paragraph("Standards Compliance", section_style))
-        self._render_methodology_to_reportlab(
-            story, self.compliance.generate_standards_compliance_sections(), styles
-        )
-
-        story.append(PageBreak())
-        story.append(Paragraph("Completeness Validation (FRE 106)", section_style))
-        messages = extracted_data.get("messages", extracted_data.get("combined", []))
-        completeness = self.compliance.validate_completeness(messages)
-        story.append(Paragraph(
-            f"Total messages examined: {completeness.get('total_messages', 0)}. "
-            f"Conversations analysed: {len(completeness.get('conversations', {}))}. "
-            f"Complete: {'Yes' if completeness.get('is_complete') else 'No'}.",
-            styles["Normal"],
-        ))
-        issues = completeness.get("issues", [])
-        if issues:
-            story.append(Paragraph("Issues detected (review and supplement as needed):", styles["Normal"]))
-            for issue in issues:
-                story.append(Paragraph(f"• {html_module.escape(str(issue))}", styles["Normal"]))
-        else:
-            story.append(Paragraph("No completeness issues detected.", styles["Normal"]))
-
-        doc.build(story)
-
-        file_hash = self.forensic.compute_hash(output_path)
-        self.forensic.record_action(
-            "methodology_pdf_generated",
-            f"Generated standalone methodology PDF with hash {file_hash}",
-            {"path": str(output_path), "hash": file_hash},
         )
         return output_path
 
@@ -498,7 +439,7 @@ class ForensicReporter:
         """
         content = self._build_cover_sheet_content(reports, timestamp)
         docx_path = self._render_cover_sheet_docx(content, timestamp)
-        pdf_path = self._render_cover_sheet_pdf(content, timestamp)
+        pdf_path = self._docx_to_pdf(docx_path)
         return {'docx': docx_path, 'pdf': pdf_path}
 
     def _render_cover_sheet_docx(self, content: Dict[str, Any], timestamp: str) -> Path:
@@ -561,51 +502,6 @@ class ForensicReporter:
         )
         return output_path
 
-    def _render_cover_sheet_pdf(self, content: Dict[str, Any], timestamp: str) -> Path:
-        """Render the same cover-sheet content as a PDF via reportlab."""
-        output_path = self.output_dir / f"READ_ME_FIRST_{timestamp}.pdf"
-        doc = SimpleDocTemplate(
-            str(output_path),
-            pagesize=letter,
-            title=content['title'],
-            author=getattr(self.config, "examiner_name", "") or "Forensic Analyzer",
-            leftMargin=0.8 * inch, rightMargin=0.8 * inch,
-            topMargin=0.7 * inch, bottomMargin=0.7 * inch,
-        )
-        styles = getSampleStyleSheet()
-        title_style = ParagraphStyle('CoverTitle', parent=styles['Title'], alignment=1, spaceAfter=6)
-        subtitle_style = ParagraphStyle('CoverSubtitle', parent=styles['Normal'], alignment=1, fontName='Helvetica-Oblique', fontSize=12, spaceAfter=18)
-        question_style = ParagraphStyle('CoverQ', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, spaceBefore=10, spaceAfter=2)
-        filename_style = ParagraphStyle('CoverFilename', parent=styles['Normal'], fontName='Courier', fontSize=10, leftIndent=18, spaceAfter=2, textColor=colors.HexColor('#1f4e79'))
-        description_style = ParagraphStyle('CoverDesc', parent=styles['Normal'], fontSize=10, leftIndent=18, spaceAfter=6)
-        footer_style = ParagraphStyle('CoverFooter', parent=styles['Normal'], alignment=1, fontName='Helvetica-Oblique', fontSize=9, textColor=colors.grey, spaceBefore=18)
-
-        story = [Paragraph(html_module.escape(content['title']), title_style),
-                 Paragraph(html_module.escape(content['subtitle']), subtitle_style)]
-
-        for label, value in content['header_rows']:
-            story.append(Paragraph(f"<b>{html_module.escape(label)}:</b> {html_module.escape(str(value))}", styles['Normal']))
-        story.append(Spacer(1, 8))
-        story.append(Paragraph(html_module.escape(content['intro']), styles['Normal']))
-        story.append(Spacer(1, 6))
-        story.append(Paragraph('Where to start', styles['Heading2']))
-
-        for question, filename, description in content['guide']:
-            story.append(Paragraph(f'{html_module.escape(question)}:', question_style))
-            story.append(Paragraph(f'→ Open  {html_module.escape(filename)}', filename_style))
-            story.append(Paragraph(html_module.escape(description), description_style))
-
-        story.append(Paragraph(html_module.escape(content['footer']), footer_style))
-        doc.build(story)
-
-        file_hash = self.forensic.compute_hash(output_path)
-        self.forensic.record_action(
-            "cover_sheet_pdf_generated",
-            f"Generated READ ME FIRST cover sheet (pdf) with hash {file_hash}",
-            {"path": str(output_path), "hash": file_hash}
-        )
-        return output_path
-
     def _generate_word_report(self, extracted_data: Dict, analysis_results: Dict,
                             review_decisions: Dict, timestamp: str,
                             legal_summary: str = None) -> Path:
@@ -624,17 +520,23 @@ class ForensicReporter:
         header = self.compliance.generate_report_header()
         doc.add_heading('Case Information', 1)
         case_numbers = header.get('case_numbers') or [header['case_number']]
-        if len(case_numbers) > 1:
-            doc.add_paragraph('Case Numbers:')
-            for cn in case_numbers:
-                doc.add_paragraph(cn, style='List Bullet')
-        else:
-            doc.add_paragraph(f"Case Number: {case_numbers[0]}")
-        doc.add_paragraph(f"Case Name: {header['case_name']}")
-        doc.add_paragraph(f"Examiner: {header['examiner_name']}")
-        doc.add_paragraph(f"Organization: {header['organization']}")
-        doc.add_paragraph(f"Date of Examination: {header['date_of_examination']}")
-        doc.add_paragraph(f"Tools Used: {header['tools_used']}")
+        case_info_rows = [
+            ('Field', 'Value'),
+            ('Case Number(s)', '\n'.join(str(cn) for cn in case_numbers)),
+            ('Case Name', header['case_name']),
+            ('Examiner', header['examiner_name']),
+            ('Organization', header['organization']),
+            ('Date of Examination', header['date_of_examination']),
+            ('Tools Used', header['tools_used']),
+        ]
+        table = doc.add_table(rows=len(case_info_rows), cols=2)
+        for row_idx, (field, value) in enumerate(case_info_rows):
+            table.rows[row_idx].cells[0].text = field
+            table.rows[row_idx].cells[1].text = str(value)
+        table.columns[0].width = Inches(2.5)
+        table.columns[1].width = Inches(4.0)
+        self._style_docx_table(table)
+        doc.add_paragraph('')  # spacer
 
         # Methodology Statement
         doc.add_heading('Methodology', 1)
@@ -643,10 +545,8 @@ class ForensicReporter:
 
         # Standards Compliance Statement
         doc.add_heading('Standards Compliance', 1)
-        compliance_stmt = self.compliance.get_standards_compliance_statement()
-        for line in compliance_stmt.split('\n'):
-            if line.strip():
-                doc.add_paragraph(line)
+        standards_sections = self.compliance.generate_standards_compliance_sections()
+        self._render_methodology_to_docx(doc, standards_sections, base_level=2)
 
         # Completeness Validation (FRE 106)
         messages = extracted_data.get('messages', extracted_data.get('combined', []))
@@ -744,8 +644,8 @@ class ForensicReporter:
             extracted_data, analysis_results, review_decisions
         ))
         
-        # Data Extraction Summary
-        doc.add_heading('Data Extraction', 1)
+        # Data Overview
+        doc.add_heading('Data Overview', 1)
 
         # Calculate metadata from extracted_data structure
         messages = extracted_data.get('messages', extracted_data.get('combined', []))
@@ -758,22 +658,33 @@ class ForensicReporter:
                 if msg.get('source'):
                     sources.add(msg['source'])
 
-        doc.add_paragraph(f"Total messages extracted: {total_messages}")
-        doc.add_paragraph(f"Date range: {date_range}")
-        doc.add_paragraph(f"Sources: {', '.join(sources) if sources else 'N/A'}")
-        
-        # Add screenshot count
         screenshots = extracted_data.get('screenshots', [])
-        if screenshots:
-            doc.add_paragraph(f"Screenshots cataloged: {len(screenshots)}")
-        
-        # Threat Analysis
-        doc.add_heading('Threat Analysis', 1)
         threats = analysis_results.get('threats', {})
         threat_summary = threats.get('summary', {})
         threat_details = threats.get('details', [])
-        
         messages_with_threats = threat_summary.get('messages_with_threats', 0)
+
+        overview_rows = [
+            ('Metric', 'Value'),
+            ('Total Messages', str(total_messages)),
+            ('Date Range', date_range),
+            ('Sources', ', '.join(sources) if sources else 'N/A'),
+            ('Threats Detected', str(messages_with_threats)),
+            ('Items Reviewed', str(review_decisions.get('total_reviewed', 0))),
+        ]
+        if screenshots:
+            overview_rows.append(('Screenshots Cataloged', str(len(screenshots))))
+        overview_table = doc.add_table(rows=len(overview_rows), cols=2)
+        for row_idx, (metric, value) in enumerate(overview_rows):
+            overview_table.rows[row_idx].cells[0].text = metric
+            overview_table.rows[row_idx].cells[1].text = value
+        overview_table.columns[0].width = Inches(3.0)
+        overview_table.columns[1].width = Inches(3.5)
+        self._style_docx_table(overview_table)
+        doc.add_paragraph('')  # spacer
+
+        # Threat Analysis
+        doc.add_heading('Threat Analysis', 1)
         doc.add_paragraph(f"Threats detected: {messages_with_threats}")
         
         # Show high priority threats if available
@@ -841,12 +752,22 @@ class ForensicReporter:
                 'from emails and screenshots. These are contacts not included in the '
                 'configured person mappings.'
             )
+            tp_rows = [('Identifier', 'Display Name', 'Source')]
             for entry in third_party:
-                ident = entry.get('identifier', '')
-                name = entry.get('display_name', '')
-                entry_sources = ', '.join(entry.get('sources', []))
-                label = f'{name} ({ident})' if name else ident
-                doc.add_paragraph(f'  {label}  [source: {entry_sources}]')
+                tp_rows.append((
+                    entry.get('identifier', ''),
+                    entry.get('display_name', ''),
+                    ', '.join(entry.get('sources', [])),
+                ))
+            tp_table = doc.add_table(rows=len(tp_rows), cols=3)
+            for row_idx, (ident, name, src) in enumerate(tp_rows):
+                tp_table.rows[row_idx].cells[0].text = ident
+                tp_table.rows[row_idx].cells[1].text = name
+                tp_table.rows[row_idx].cells[2].text = src
+            tp_table.columns[0].width = Inches(2.5)
+            tp_table.columns[1].width = Inches(2.0)
+            tp_table.columns[2].width = Inches(2.0)
+            self._style_docx_table(tp_table)
 
         # Chain of Custody
         doc.add_heading('Chain of Custody', 1)
@@ -874,340 +795,7 @@ class ForensicReporter:
         )
         
         return output_path
-    
-    def _generate_pdf_report(self, extracted_data: Dict, analysis_results: Dict,
-                           review_decisions: Dict, timestamp: str,
-                           legal_summary: str = None) -> Path:
-        """Generate PDF report."""
-        output_path = self.output_dir / f"forensic_report_{timestamp}.pdf"
-        
-        doc = SimpleDocTemplate(
-            str(output_path),
-            pagesize=letter,
-            rightMargin=72,
-            leftMargin=72,
-            topMargin=72,
-            bottomMargin=18,
-        )
-        
-        # Container for the 'Flowable' objects
-        elements = []
-        
-        # Define styles
-        styles = getSampleStyleSheet()
-        title_style = ParagraphStyle(
-            'CustomTitle',
-            parent=styles['Heading1'],
-            fontSize=24,
-            textColor=colors.HexColor('#1f4788'),
-            spaceAfter=30,
-            alignment=1  # Center alignment
-        )
-        
-        # Title
-        elements.append(Paragraph("Forensic Message Analysis Report", title_style))
-        elements.append(Spacer(1, 12))
 
-        # Metadata
-        elements.append(Paragraph(f"<b>Generated:</b> {self.compliance.format_timestamp()}", styles['Normal']))
-        elements.append(Paragraph(f"<b>Case ID:</b> {timestamp}", styles['Normal']))
-        elements.append(PageBreak())
-
-        # ----- Legal Compliance Header -----
-        header = self.compliance.generate_report_header()
-        elements.append(Paragraph("Case Information", styles['Heading1']))
-        case_numbers = header.get('case_numbers') or [header['case_number']]
-        case_number_cell = '<br/>'.join(self._esc(cn) for cn in case_numbers)
-        case_info_data = [
-            ['Field', 'Value'],
-            ['Case Number(s)', Paragraph(case_number_cell, styles['Normal'])],
-            ['Case Name', header['case_name']],
-            ['Examiner', header['examiner_name']],
-            ['Organization', header['organization']],
-            ['Date of Examination', header['date_of_examination']],
-            ['Tools Used', header['tools_used']],
-        ]
-        case_info_table = Table(case_info_data, colWidths=[2.5 * inch, 3.5 * inch])
-        case_info_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f0f4fa')),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-        ]))
-        elements.append(case_info_table)
-        elements.append(Spacer(1, 16))
-
-        # Methodology Statement
-        elements.append(Paragraph("Methodology", styles['Heading1']))
-        sections = self.compliance.generate_methodology_sections()
-        self._render_methodology_to_reportlab(elements, sections, styles)
-        elements.append(Spacer(1, 12))
-
-        # Standards Compliance Statement
-        elements.append(Paragraph("Standards Compliance", styles['Heading1']))
-        compliance_stmt = self.compliance.get_standards_compliance_statement()
-        for line in compliance_stmt.split('\n'):
-            stripped = line.strip()
-            if stripped and stripped != '=' * len(stripped):
-                elements.append(Paragraph(stripped, styles['Normal']))
-        elements.append(PageBreak())
-
-        # === AI-Powered Findings Summary ===
-        ai_analysis = analysis_results.get('ai_analysis', {})
-        if ai_analysis and ai_analysis.get('conversation_summary') and \
-           'not configured' not in ai_analysis.get('conversation_summary', '').lower():
-            elements.append(Paragraph("Findings Summary", styles['Heading1']))
-            elements.append(Paragraph(
-                'This section consolidates the analysis findings for rapid legal team review. '
-                'All flagged items — regardless of whether they were surfaced by pattern '
-                'matching, statistical analysis, or AI — were submitted to the same manual '
-                'review process; only items confirmed during manual review are reflected '
-                'in the threat counts below.',
-                styles['Normal']
-            ))
-            elements.append(Spacer(1, 12))
-
-            # Executive Summary
-            elements.append(Paragraph("Analysis Overview", styles['Heading2']))
-            elements.append(Paragraph(
-                self._esc(ai_analysis.get('conversation_summary', 'Not available')), styles['Normal']
-            ))
-            elements.append(Spacer(1, 12))
-
-            # Risk indicators with severity
-            risk_indicators = ai_analysis.get('risk_indicators', [])
-            if risk_indicators:
-                elements.append(Paragraph("Risk Indicators", styles['Heading2']))
-                for risk in risk_indicators:
-                    if isinstance(risk, dict):
-                        severity = str(risk.get('severity', 'unknown')).upper()
-                        indicator = risk.get('indicator', risk.get('description', risk.get('detail', '')))
-                        action = risk.get('recommended_action', '')
-                        elements.append(Paragraph(
-                            f"<b>[{self._esc(severity)}]</b> {self._esc(indicator)}", styles['Normal']
-                        ))
-                        if action:
-                            elements.append(Paragraph(
-                                f"&nbsp;&nbsp;&nbsp;&nbsp;Recommended: {self._esc(action)}", styles['Normal']
-                            ))
-                    else:
-                        elements.append(Paragraph(f"&nbsp;&nbsp;{self._esc(risk)}", styles['Normal']))
-                elements.append(Spacer(1, 12))
-
-            # Recommendations
-            recommendations = ai_analysis.get('recommendations', [])
-            if recommendations:
-                elements.append(Paragraph("Recommendations", styles['Heading2']))
-                for rec in recommendations:
-                    elements.append(Paragraph(f"&nbsp;&nbsp;{self._esc(rec)}", styles['Normal']))
-                elements.append(Spacer(1, 12))
-
-            elements.append(PageBreak())
-
-        # === Legal Team Summary ===
-        if legal_summary:
-            elements.append(Paragraph("Legal Team Summary", styles['Heading1']))
-            elements.append(Paragraph(
-                'This section provides a comprehensive narrative summary of the analysis '
-                'results, written for the legal team. It explains the key findings and '
-                'how to use the accompanying output files.',
-                styles['Normal']
-            ))
-            elements.append(Spacer(1, 12))
-            elements.extend(markdown_to_reportlab(legal_summary, styles))
-            elements.append(PageBreak())
-
-        # Executive Summary
-        elements.append(Paragraph("Executive Summary", styles['Heading1']))
-        summary = self._generate_executive_summary(extracted_data, analysis_results, review_decisions)
-        elements.append(Paragraph(self._esc(summary), styles['Normal']))
-        elements.append(Spacer(1, 12))
-        
-        # Data Overview Table
-        elements.append(Paragraph("Data Overview", styles['Heading1']))
-        
-        # Calculate metadata from extracted_data structure
-        messages = extracted_data.get('messages', extracted_data.get('combined', []))
-        total_messages = len(messages) if isinstance(messages, list) else 0
-
-        date_range = self._compute_date_range(messages)
-        sources = set()
-        if messages and total_messages > 0:
-            for msg in messages:
-                if msg.get('source'):
-                    sources.add(msg['source'])
-
-        overview_data = [
-            ['Metric', 'Value'],
-            ['Total Messages', str(total_messages)],
-            ['Date Range', date_range],
-            ['Sources', ', '.join(sources) if sources else 'N/A'],
-            ['Threats Detected', str(analysis_results.get('threats', {}).get('summary', {}).get('messages_with_threats', 0))],
-            ['Items Reviewed', str(review_decisions.get('total_reviewed', 0))]
-        ]
-        
-        overview_table = Table(overview_data, colWidths=[3*inch, 3*inch])
-        overview_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-        elements.append(overview_table)
-        elements.append(Spacer(1, 20))
-        
-        # Add Screenshots count if available
-        screenshots = extracted_data.get('screenshots', [])
-        if screenshots:
-            elements.append(Paragraph(f"<b>Screenshots cataloged:</b> {len(screenshots)}", styles['Normal']))
-            elements.append(Spacer(1, 12))
-        
-        # Threat Analysis Section
-        elements.append(Paragraph("Threat Analysis", styles['Heading1']))
-        threats = analysis_results.get('threats', {})
-        threat_summary = threats.get('summary', {})
-        threat_details = threats.get('details', [])
-        
-        messages_with_threats = threat_summary.get('messages_with_threats', 0)
-        elements.append(Paragraph(f"<b>Threats detected:</b> {messages_with_threats}", styles['Normal']))
-        elements.append(Spacer(1, 12))
-        
-        # Show high priority threats if available
-        if threat_details and isinstance(threat_details, list):
-            high_priority = [t for t in threat_details if t.get('threat_detected')][:5]
-            if high_priority:
-                elements.append(Paragraph("High Priority Threats", styles['Heading2']))
-                for threat in high_priority:
-                    content = threat.get('content', '')[:200]
-                    ts = self.compliance.convert_to_local(threat.get('timestamp'))
-                    sender = threat.get('sender', '')
-                    ts_display = f" [{self._esc(ts)}]" if ts else ''
-                    sender_display = f" &mdash; {self._esc(sender)}" if sender else ''
-                    elements.append(Paragraph(
-                        f"&bull; {self._esc(content)}{sender_display}{ts_display}",
-                        styles['Normal']
-                    ))
-                elements.append(Spacer(1, 12))
-        
-        # Sentiment Analysis Section
-        elements.append(Paragraph("Sentiment Analysis", styles['Heading1']))
-        sentiment = analysis_results.get('sentiment', [])
-        
-        # Calculate sentiment distribution if we have data
-        if sentiment and isinstance(sentiment, list):
-            positive = sum(1 for s in sentiment if s.get('sentiment_polarity') == 'positive')
-            negative = sum(1 for s in sentiment if s.get('sentiment_polarity') == 'negative')
-            neutral = sum(1 for s in sentiment if s.get('sentiment_polarity') == 'neutral')
-            
-            elements.append(Paragraph("<b>Sentiment distribution:</b>", styles['Normal']))
-            elements.append(Paragraph(f"• Positive: {positive}", styles['Normal']))
-            elements.append(Paragraph(f"• Neutral: {neutral}", styles['Normal']))
-            elements.append(Paragraph(f"• Negative: {negative}", styles['Normal']))
-            elements.append(Spacer(1, 12))
-        else:
-            elements.append(Paragraph("Sentiment analysis data not available", styles['Normal']))
-            elements.append(Spacer(1, 12))
-
-        # Emotional Escalation Patterns from AI
-        if ai_analysis:
-            sentiment_ai = ai_analysis.get('sentiment_analysis', {})
-            shifts = sentiment_ai.get('shifts', [])
-            if shifts:
-                elements.append(Paragraph("Emotional Escalation Patterns", styles['Heading2']))
-                elements.append(Paragraph(
-                    'The following emotional shifts were detected during pre-review screening, '
-                    'indicating potential escalation patterns:',
-                    styles['Normal']
-                ))
-                for shift in shifts:
-                    if isinstance(shift, dict):
-                        from_state = shift.get('from', 'unknown')
-                        to_state = shift.get('to', 'unknown')
-                        position = shift.get('approximate_position', '')
-                        elements.append(Paragraph(
-                            f"&nbsp;&nbsp;&nbsp;&nbsp;{self._esc(from_state)} -&gt; {self._esc(to_state)} ({self._esc(position)})",
-                            styles['Normal']
-                        ))
-                    else:
-                        elements.append(Paragraph(
-                            f"&nbsp;&nbsp;&nbsp;&nbsp;{self._esc(shift)}", styles['Normal']
-                        ))
-                elements.append(Spacer(1, 12))
-
-        # Manual Review Section
-        elements.append(Paragraph("Manual Review", styles['Heading1']))
-        elements.append(Paragraph(f"<b>Items reviewed:</b> {review_decisions.get('total_reviewed', 0)}", styles['Normal']))
-        elements.append(Paragraph(f"<b>Relevant:</b> {review_decisions.get('relevant', 0)}", styles['Normal']))
-        elements.append(Paragraph(f"<b>Not relevant:</b> {review_decisions.get('not_relevant', 0)}", styles['Normal']))
-        elements.append(Paragraph(f"<b>Uncertain:</b> {review_decisions.get('uncertain', 0)}", styles['Normal']))
-        elements.append(Spacer(1, 20))
-
-        # Third-Party Contacts Section
-        third_party = extracted_data.get('third_party_contacts', [])
-        if third_party:
-            elements.append(Paragraph("Third-Party Contacts", styles['Heading1']))
-            elements.append(Paragraph(
-                f'{len(third_party)} third-party contacts were discovered during analysis '
-                'from emails and screenshots. These are contacts not included in the '
-                'configured person mappings.',
-                styles['Normal'],
-            ))
-            elements.append(Spacer(1, 8))
-            tp_rows = [['Identifier', 'Display Name', 'Source']]
-            for entry in third_party:
-                ident = entry.get('identifier', '')
-                name = entry.get('display_name', '')
-                entry_sources = ', '.join(entry.get('sources', []))
-                tp_rows.append([ident, name, entry_sources])
-            tp_table = Table(tp_rows, colWidths=[2.5 * inch, 2 * inch, 1.5 * inch])
-            tp_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f0f4fa')),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-            ]))
-            elements.append(tp_table)
-            elements.append(Spacer(1, 20))
-
-        # Chain of Custody Section
-        elements.append(Paragraph("Chain of Custody", styles['Heading1']))
-        elements.append(Paragraph(
-            f"<b>Total recorded actions:</b> {len(self.forensic.actions)}", styles['Normal']
-        ))
-        elements.append(Paragraph(
-            f"<b>Session ID:</b> {self.forensic.session_id}", styles['Normal']
-        ))
-        elements.append(Paragraph(
-            f"<b>Session start:</b> {self._esc(self.compliance.convert_to_local(self.forensic.start_time))}", styles['Normal']
-        ))
-        elements.append(Paragraph("See accompanying chain_of_custody.json for the detailed forensic trail.", styles['Normal']))
-        elements.append(Spacer(1, 12))
-        
-        # Build PDF
-        doc.build(elements)
-        
-        # Record hash
-        file_hash = self.forensic.compute_hash(output_path)
-        self.forensic.record_action(
-            "pdf_report_generated",
-            f"Generated PDF report with hash {file_hash}",
-            {"path": str(output_path), "hash": file_hash}
-        )
-        
-        return output_path
-    
     def _generate_json_report(self, extracted_data: Dict, analysis_results: Dict,
                             review_decisions: Dict, timestamp: str,
                             legal_summary: str = None) -> Path:
@@ -1373,16 +961,11 @@ class ForensicReporter:
             }
 
             table = doc.add_table(rows=1, cols=3)
-            table.style = 'Light Grid Accent 1'
 
             # Header row
             hdr = table.rows[0].cells
             for i, text in enumerate(['File', 'Type', 'How to Use']):
                 hdr[i].text = text
-                for paragraph in hdr[i].paragraphs:
-                    for run in paragraph.runs:
-                        run.bold = True
-                        run.font.size = Pt(10)
 
             for key, path_val in reports.items():
                 path = Path(str(path_val))
@@ -1412,11 +995,12 @@ class ForensicReporter:
                 guide_run = guide_para.add_run(guidance)
                 guide_run.font.size = Pt(10)
 
-            # Set column widths
+            # Set column widths and apply consistent blue theme
             for row in table.rows:
                 row.cells[0].width = Inches(2.5)
                 row.cells[1].width = Inches(1.3)
                 row.cells[2].width = Inches(3.7)
+            self._style_docx_table(table)
 
             # Note about files generated after this summary
             note_para = doc.add_paragraph()
@@ -1441,119 +1025,6 @@ class ForensicReporter:
         footer_run.font.italic = True
 
         doc.save(str(output_path))
-
-    def _generate_legal_summary_pdf(self, legal_summary: str, output_path: Path,
-                                     reports: Dict[str, Any] = None):
-        """Render the legal-team summary to PDF via reportlab.
-
-        Shares the same narrative text and report-pointer table as the DOCX version so the two artifacts are content-identical.
-        """
-        doc = SimpleDocTemplate(
-            str(output_path),
-            pagesize=letter,
-            title="Legal Team Summary",
-            author=getattr(self.config, "examiner_name", "") or "Forensic Analyzer",
-        )
-        styles = getSampleStyleSheet()
-        title_style = ParagraphStyle("LegalTitle", parent=styles["Title"], alignment=1, spaceAfter=18)
-        body_style = ParagraphStyle("LegalBody", parent=styles["Normal"], fontSize=11, leading=14, spaceAfter=6)
-        h2_style = ParagraphStyle("LegalH2", parent=styles["Heading2"], spaceBefore=14, spaceAfter=6)
-        note_style = ParagraphStyle("LegalNote", parent=styles["Normal"], fontSize=9, fontName="Helvetica-Oblique", spaceBefore=6)
-        footer_style = ParagraphStyle("LegalFooter", parent=styles["Normal"], fontSize=9, fontName="Helvetica-Oblique", spaceBefore=18, textColor=colors.grey)
-
-        story = [Paragraph("Legal Team Summary", title_style)]
-
-        header = self.compliance.generate_report_header()
-        case_numbers = header.get("case_numbers") or [header["case_number"]]
-        if len(case_numbers) > 1:
-            story.append(Paragraph("<b>Case Numbers:</b>", body_style))
-            for cn in case_numbers:
-                story.append(Paragraph(f"• {html_module.escape(str(cn))}", body_style))
-        else:
-            story.append(Paragraph(f"<b>Case Number:</b> {html_module.escape(str(case_numbers[0]))}", body_style))
-        if header.get("case_name") and header["case_name"] != "Not assigned":
-            story.append(Paragraph(f"<b>Case Name:</b> {html_module.escape(str(header['case_name']))}", body_style))
-        story.append(Paragraph(f"<b>Generated:</b> {html_module.escape(str(header['date_of_examination']))}", body_style))
-        if header.get("examiner_name") and header["examiner_name"] != "Not specified":
-            story.append(Paragraph(f"<b>Examiner:</b> {html_module.escape(str(header['examiner_name']))}", body_style))
-        story.append(Spacer(1, 10))
-
-        # Body — render the same markdown-style narrative.
-        for para in self._markdown_to_paragraphs(legal_summary or "", body_style, h2_style):
-            story.append(para)
-
-        if reports:
-            story.append(Paragraph("Output File Reference", h2_style))
-            story.append(Paragraph(
-                "The following files were generated alongside this summary. All files are in the same output directory.",
-                body_style,
-            ))
-            rows = self._legal_summary_report_rows(reports)
-            table_data = [["Filename", "Type", "Guidance"]] + rows
-            tbl = Table(table_data, colWidths=[2.5 * inch, 1.3 * inch, 3.4 * inch])
-            tbl.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f4e79")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#cccccc")),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f7f7f7")]),
-                ("TEXTCOLOR", (0, 1), (0, -1), colors.HexColor("#1f4e79")),
-                ("FONTNAME", (0, 1), (0, -1), "Courier-Bold"),
-            ]))
-            story.append(tbl)
-            story.append(Paragraph(
-                "Note: The interactive timeline, chain of custody, and run manifest are generated after this summary and will also be present in the output directory.",
-                note_style,
-            ))
-
-        tools = header.get("tools_used", "")
-        version_frag = tools.split("v")[-1] if "v" in tools else "N/A"
-        story.append(Paragraph(
-            f"This summary was generated by the Forensic Message Analyzer v{html_module.escape(version_frag)} "
-            "using AI-assisted analysis. Findings are supplementary and should be validated against the "
-            "underlying evidence and accompanying forensic reports.",
-            footer_style,
-        ))
-
-        doc.build(story)
-
-    @staticmethod
-    def _markdown_to_paragraphs(text: str, body_style, h2_style):
-        """Convert a simple markdown subset (headings, paragraphs, bold, italics, bullets) to reportlab Paragraphs."""
-        paragraphs = []
-        buffer: list = []
-
-        def _flush():
-            if buffer:
-                joined = " ".join(buffer).strip()
-                if joined:
-                    # Convert **bold** and *italic* to reportlab inline markup.
-                    rendered = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", html_module.escape(joined))
-                    rendered = re.sub(r"(?<!\*)\*(.+?)\*(?!\*)", r"<i>\1</i>", rendered)
-                    paragraphs.append(Paragraph(rendered, body_style))
-                buffer.clear()
-
-        for raw_line in (text or "").splitlines():
-            line = raw_line.rstrip()
-            if not line:
-                _flush()
-                continue
-            if line.startswith("## "):
-                _flush()
-                paragraphs.append(Paragraph(html_module.escape(line[3:].strip()), h2_style))
-                continue
-            if line.startswith("- ") or line.startswith("* "):
-                _flush()
-                item = html_module.escape(line[2:].strip())
-                item = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", item)
-                paragraphs.append(Paragraph(f"• {item}", body_style))
-                continue
-            buffer.append(line)
-
-        _flush()
-        return paragraphs
 
     def _legal_summary_report_rows(self, reports: Dict[str, Any]) -> list:
         """Build [(filename, type_label, guidance), ...] rows for the legal-summary report table in either format."""
