@@ -1836,32 +1836,6 @@ function jumpToItem(idx) {{
   loadItem(idx);
 }}
 
-// Initial load — start on the first unreviewed item so resumed sessions don't dump the reviewer back at item 0.
-console.log('[INIT] Starting initial load...');
-fetch('/api/progress').then(function(r) {{ return r.json(); }}).then(function(data) {{
-  console.log('[INIT] progress:', data);
-  updateProgress(data);
-}}).catch(function(e) {{ console.error('[INIT] progress error:', e); }});
-loadNotePhrases();
-fetch('/api/start_index')
-  .then(function(r) {{
-    console.log('[INIT] start_index response status:', r.status);
-    return r.json();
-  }})
-  .then(function(data) {{
-    console.log('[INIT] start_index data:', data);
-    var idx = (data && typeof data.index === 'number') ? data.index : 0;
-    console.log('[INIT] calling loadItem(' + idx + ')');
-    loadItem(idx);
-  }})
-  .catch(function(e) {{
-    console.error('[INIT] start_index error:', e);
-    loadItem(0);
-  }});
-document.getElementById('noteAddInput').addEventListener('keydown', function(e) {{
-  if (e.key === 'Enter') {{ e.preventDefault(); addNotePhrase(); }}
-}});
-
 // =====================================================================
 // Browse mode + Search
 // =====================================================================
@@ -2171,6 +2145,45 @@ function clearSearch() {{
   document.getElementById('searchTo').value = '';
   loadBrowsePage(0);
 }}
+
+// =====================================================================
+// Page initialization - wrapped in DOMContentLoaded to ensure DOM is ready
+// =====================================================================
+document.addEventListener('DOMContentLoaded', function() {{
+  console.log('[INIT] DOM loaded, starting initial load...');
+
+  // Initial load — start on the first unreviewed item so resumed sessions don't dump the reviewer back at item 0.
+  fetch('/api/progress').then(function(r) {{ return r.json(); }}).then(function(data) {{
+    console.log('[INIT] progress:', data);
+    updateProgress(data);
+  }}).catch(function(e) {{ console.error('[INIT] progress error:', e); }});
+
+  loadNotePhrases();
+
+  fetch('/api/start_index')
+    .then(function(r) {{
+      console.log('[INIT] start_index response status:', r.status);
+      return r.json();
+    }})
+    .then(function(data) {{
+      console.log('[INIT] start_index data:', data);
+      var idx = (data && typeof data.index === 'number') ? data.index : 0;
+      console.log('[INIT] calling loadItem(' + idx + ')');
+      loadItem(idx);
+    }})
+    .catch(function(e) {{
+      console.error('[INIT] start_index error:', e);
+      loadItem(0);
+    }});
+
+  // Set up event listener for adding note phrases via Enter key
+  var noteAddInput = document.getElementById('noteAddInput');
+  if (noteAddInput) {{
+    noteAddInput.addEventListener('keydown', function(e) {{
+      if (e.key === 'Enter') {{ e.preventDefault(); addNotePhrase(); }}
+    }});
+  }}
+}});
 </script>
 </body>
 </html>"""
