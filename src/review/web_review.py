@@ -1424,6 +1424,7 @@ class WebReview:
 <div class="toast" id="toast"></div>
 
 <script>
+console.log('[SCRIPT] Script started executing');
 let currentIndex = 0;
 let totalItems = {total_items};
 let selectedDecision = null;
@@ -1431,12 +1432,12 @@ let selectedDecision = null;
 function loadItem(idx) {{
   console.log('[loadItem] fetching /api/item/' + idx);
   fetch('/api/item/' + idx)
-    .then(r => {{
+    .then(function(r) {{
       console.log('[loadItem] response status:', r.status);
       return r.json();
     }})
-    .then(data => {{
-      console.log('[loadItem] data received:', data ? 'ok' : 'empty', data?.error || '');
+    .then(function(data) {{
+      console.log('[loadItem] data received:', data ? 'ok' : 'empty');
       if (data.error) {{
         document.getElementById('contextPanel').innerHTML =
           '<p style="color:#c62828; padding:40px; text-align:center;">' + data.error + '</p>';
@@ -1449,11 +1450,11 @@ function loadItem(idx) {{
       renderExistingReview(data.existing_review);
       updateNav();
       selectedDecision = null;
-      document.querySelectorAll('.decision-buttons button').forEach(b => b.classList.remove('selected'));
+      document.querySelectorAll('.decision-buttons button').forEach(function(b) {{ b.classList.remove('selected'); }});
       document.getElementById('submitBtn').disabled = true;
       document.getElementById('notesField').value = '';
     }})
-    .catch(err => {{
+    .catch(function(err) {{
       console.error('[loadItem] fetch error:', err);
       document.getElementById('contextPanel').innerHTML =
         '<p style="color:#c62828; padding:40px; text-align:center;">Failed to load item: ' + err.message + '</p>';
@@ -1832,23 +1833,23 @@ function jumpToItem(idx) {{
 
 // Initial load — start on the first unreviewed item so resumed sessions don't dump the reviewer back at item 0.
 console.log('[INIT] Starting initial load...');
-fetch('/api/progress').then(r => r.json()).then(data => {{
+fetch('/api/progress').then(function(r) {{ return r.json(); }}).then(function(data) {{
   console.log('[INIT] progress:', data);
   updateProgress(data);
-}}).catch(e => console.error('[INIT] progress error:', e));
+}}).catch(function(e) {{ console.error('[INIT] progress error:', e); }});
 loadNotePhrases();
 fetch('/api/start_index')
-  .then(r => {{
+  .then(function(r) {{
     console.log('[INIT] start_index response status:', r.status);
     return r.json();
   }})
-  .then(data => {{
+  .then(function(data) {{
     console.log('[INIT] start_index data:', data);
-    const idx = (data && typeof data.index === 'number') ? data.index : 0;
+    var idx = (data && typeof data.index === 'number') ? data.index : 0;
     console.log('[INIT] calling loadItem(' + idx + ')');
     loadItem(idx);
   }})
-  .catch(e => {{
+  .catch(function(e) {{
     console.error('[INIT] start_index error:', e);
     loadItem(0);
   }});
