@@ -123,6 +123,10 @@ class WebReview:
         def note_suggestions():
             return jsonify(self._get_note_suggestions())
 
+        @self.app.route("/api/start_index")
+        def start_index():
+            return jsonify({"index": self._first_unreviewed_index()})
+
         @self.app.route("/screenshots/<path:filename>")
         def serve_screenshot(filename):
             screenshot_dir = self.config.screenshot_source_dir
@@ -484,6 +488,20 @@ class WebReview:
             "decision": decision,
             "progress": self._get_progress(),
         }
+
+    def _first_unreviewed_index(self) -> int:
+        """Index of the first flagged item with no active review.
+
+        On resume, reviewers should land on where they left off — not on item 0 with a Previously-reviewed badge and a long chain of Next clicks ahead. Walks the flagged list once; returns 0 if nothing is reviewed yet or everything is reviewed.
+        """
+        reviewed = self.review_manager.reviewed_item_ids
+        if not reviewed or not self.flagged_items:
+            return 0
+        for i, item in enumerate(self.flagged_items):
+            item_id = item.get("id", f"item_{i}")
+            if item_id not in reviewed:
+                return i
+        return 0
 
     def _get_note_suggestions(self) -> Dict:
         """Return previously used note phrases ordered by frequency, most common first.
@@ -1348,10 +1366,13 @@ function applyPhrase(el) {{
   field.setSelectionRange(field.value.length, field.value.length);
 }}
 
-// Initial load
+// Initial load — start on the first unreviewed item so resumed sessions don't dump the reviewer back at item 0.
 fetch('/api/progress').then(r => r.json()).then(updateProgress);
 loadNotePhrases();
-loadItem(0);
+fetch('/api/start_index')
+  .then(r => r.json())
+  .then(data => loadItem((data && typeof data.index === 'number') ? data.index : 0))
+  .catch(() => loadItem(0));
 
 // =====================================================================
 // Browse mode + Search
