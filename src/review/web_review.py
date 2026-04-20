@@ -119,6 +119,10 @@ class WebReview:
         def get_progress():
             return jsonify(self._get_progress())
 
+        @self.app.route("/api/note_suggestions")
+        def note_suggestions():
+            return jsonify(self._get_note_suggestions())
+
         @self.app.route("/screenshots/<path:filename>")
         def serve_screenshot(filename):
             screenshot_dir = self.config.screenshot_source_dir
@@ -368,13 +372,13 @@ class WebReview:
                         target_pos = i
                         break
 
-        # Build context window (3 before, flagged, 3 after)
+        # Build context window (15 before, flagged, 15 after) so reviewers can scroll up/down for richer context while the flagged message stays centered.
         context_before = []
         context_after = []
 
         if target_pos is not None:
-            start = max(0, target_pos - 3)
-            end = min(len(self.messages), target_pos + 4)
+            start = max(0, target_pos - 15)
+            end = min(len(self.messages), target_pos + 16)
 
             context_before = [
                 self._serialise_msg(self.messages[i])
@@ -480,6 +484,23 @@ class WebReview:
             "decision": decision,
             "progress": self._get_progress(),
         }
+
+    def _get_note_suggestions(self) -> Dict:
+        """Return previously used note phrases ordered by frequency, most common first.
+
+        Surfaces prior wording so the examiner can reuse a phrase in one click — speeds up review and keeps language consistent across findings in the same case.
+        """
+        counts: Dict[str, int] = {}
+        for record in self.review_manager.reviews:
+            if record.get("superseded_by"):
+                continue
+            note = (record.get("notes") or "").strip()
+            if not note:
+                continue
+            counts[note] = counts.get(note, 0) + 1
+        ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
+        suggestions = [{"text": text, "count": count} for text, count in ordered[:40]]
+        return {"suggestions": suggestions}
 
     def _get_progress(self) -> Dict:
         """Return review progress stats."""
@@ -797,18 +818,40 @@ class WebReview:
   .detail-row {{ font-size: 13px; margin-bottom: 4px; }}
   .detail-row .label {{ font-weight: 600; }}
   .decision-buttons {{ display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }}
-  .decision-buttons button {{ padding: 10px; border: none; border-radius: 6px; font-size: 14px;
-                              font-weight: 600; cursor: pointer; transition: opacity 0.2s; }}
-  .decision-buttons button:hover {{ opacity: 0.85; }}
+  .decision-buttons button {{ padding: 10px; border: 3px solid transparent; border-radius: 6px;
+                              font-size: 14px; font-weight: 600; cursor: pointer;
+                              transition: transform 0.12s, box-shadow 0.12s, filter 0.12s; }}
+  .decision-buttons button:hover {{ filter: brightness(1.05); }}
   .btn-relevant {{ background: #43a047; color: #fff; }}
   .btn-not-relevant {{ background: #9e9e9e; color: #fff; }}
   .btn-uncertain {{ background: #ff8f00; color: #fff; }}
-  .btn-relevant.selected {{ box-shadow: 0 0 0 3px rgba(67,160,71,0.5); }}
-  .btn-not-relevant.selected {{ box-shadow: 0 0 0 3px rgba(158,158,158,0.5); }}
-  .btn-uncertain.selected {{ box-shadow: 0 0 0 3px rgba(255,143,0,0.5); }}
+  /* Selected state: saturate background, add a thick dark border + outer glow ring, bump size, and drop a checkmark so the active choice is unmistakable at a glance. */
+  .decision-buttons button.selected {{ transform: scale(1.04); }}
+  .decision-buttons button.selected::before {{ content: "\\2713  "; font-weight: 900; }}
+  .btn-relevant.selected {{ background: #1b5e20; border-color: #0b3d10;
+                            box-shadow: 0 0 0 4px rgba(67,160,71,0.45), 0 4px 14px rgba(27,94,32,0.45); }}
+  .btn-not-relevant.selected {{ background: #424242; border-color: #1a1a1a;
+                                box-shadow: 0 0 0 4px rgba(158,158,158,0.55), 0 4px 14px rgba(66,66,66,0.45); }}
+  .btn-uncertain.selected {{ background: #e65100; border-color: #8a2f00;
+                             box-shadow: 0 0 0 4px rgba(255,143,0,0.45), 0 4px 14px rgba(230,81,0,0.45); }}
+  .decision-buttons button:not(.selected) {{ opacity: 0.78; }}
+  .decision-buttons button:not(.selected):hover {{ opacity: 1; }}
 
   textarea {{ width: 100%; height: 80px; padding: 8px; border: 1px solid #ccc;
               border-radius: 6px; font-size: 13px; resize: vertical; }}
+
+  /* Quick-select note phrases — reused prior notes surfaced as clickable chips so the examiner can replay consistent language across findings. */
+  .note-phrases {{ display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; max-height: 120px; overflow-y: auto; }}
+  .note-phrases .phrase-chip {{ display: inline-flex; align-items: center; gap: 4px;
+                                background: #eef3ff; color: #1a237e; border: 1px solid #c5cae9;
+                                border-radius: 14px; padding: 3px 10px; font-size: 12px;
+                                cursor: pointer; max-width: 100%; line-height: 1.3; }}
+  .note-phrases .phrase-chip:hover {{ background: #1a237e; color: #fff; border-color: #1a237e; }}
+  .note-phrases .phrase-chip .chip-text {{ max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+  .note-phrases .phrase-chip .chip-count {{ background: rgba(26,35,126,0.12); color: inherit;
+                                            font-size: 10px; padding: 0 5px; border-radius: 8px; font-weight: 600; }}
+  .note-phrases .phrase-chip:hover .chip-count {{ background: rgba(255,255,255,0.22); }}
+  .note-phrases .phrase-empty {{ color: #999; font-size: 11px; font-style: italic; padding: 2px 2px; }}
 
   .submit-btn {{ width: 100%; padding: 10px; background: #1a237e; color: #fff; border: none;
                  border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
@@ -959,6 +1002,7 @@ class WebReview:
     </div>
 
     <label style="font-size:13px; font-weight:600; margin-bottom:4px; display:block;">Notes</label>
+    <div id="notePhrases" class="note-phrases"></div>
     <textarea id="notesField" placeholder="Optional notes about your decision..."></textarea>
     <button class="submit-btn" id="submitBtn" onclick="submitDecision()" disabled>Submit Decision</button>
 
@@ -1205,6 +1249,7 @@ function submitDecision() {{
     if (data.error) {{ showToast('Error: ' + data.error); return; }}
     showToast('Decision saved');
     updateProgress(data.progress);
+    loadNotePhrases();
     // Auto-advance to next item
     if (currentIndex < totalItems - 1) {{
       setTimeout(() => loadItem(currentIndex + 1), 400);
@@ -1261,8 +1306,51 @@ document.addEventListener('keydown', e => {{
   else if (e.key === 'ArrowRight') navigate(1);
 }});
 
+// Quick-select note phrases
+function loadNotePhrases() {{
+  fetch('/api/note_suggestions')
+    .then(r => r.json())
+    .then(data => renderNotePhrases(data.suggestions || []));
+}}
+
+function renderNotePhrases(suggestions) {{
+  const host = document.getElementById('notePhrases');
+  if (!host) return;
+  if (!suggestions.length) {{
+    host.innerHTML = '<span class="phrase-empty">No reusable phrases yet — your notes will appear here.</span>';
+    return;
+  }}
+  host.innerHTML = suggestions.map(s => {{
+    const text = s.text || '';
+    const count = s.count || 1;
+    return '<span class="phrase-chip" title="' + escapeHtml(text) + '" onclick="applyPhrase(this)" data-text="' + escapeHtml(text) + '">'
+         + '<span class="chip-text">' + escapeHtml(text) + '</span>'
+         + (count > 1 ? '<span class="chip-count">' + count + '</span>' : '')
+         + '</span>';
+  }}).join('');
+}}
+
+function applyPhrase(el) {{
+  const phrase = el.getAttribute('data-text') || '';
+  if (!phrase) return;
+  const field = document.getElementById('notesField');
+  const current = field.value.trim();
+  if (!current) {{
+    field.value = phrase;
+  }} else if (current.toLowerCase().includes(phrase.toLowerCase())) {{
+    // Already present — just focus, don't duplicate
+  }} else {{
+    const sep = /[.!?;]$/.test(current) ? ' ' : '; ';
+    field.value = current + sep + phrase;
+  }}
+  field.focus();
+  // Put cursor at the end
+  field.setSelectionRange(field.value.length, field.value.length);
+}}
+
 // Initial load
 fetch('/api/progress').then(r => r.json()).then(updateProgress);
+loadNotePhrases();
 loadItem(0);
 
 // =====================================================================
