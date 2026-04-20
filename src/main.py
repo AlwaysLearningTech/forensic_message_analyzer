@@ -444,14 +444,26 @@ class ForensicAnalyzer:
 
                     logger.info("\n    Skipping Phases 1-3 (extraction, analysis, AI batch) — already completed.")
                 else:
-                    logger.info("\n[!] State file found but data files missing. Starting fresh.")
-                    resume = False
+                    logger.error("\n[!] RESUME ABORTED: State file found but data files are missing or corrupt.")
+                    logger.error(f"    extracted_data_path: {ext_path}")
+                    logger.error(f"    analysis_results_path: {ana_path}")
+                    logger.error("    Cannot resume without both files. Options:")
+                    logger.error("      1. Restore the missing files from backup")
+                    logger.error("      2. Start a fresh run with: python3 run.py")
+                    raise RuntimeError("Resume failed: required data files missing. Refusing to start a fresh run to protect against unintended AI API costs.")
             else:
-                logger.info("\n[!] No pipeline_state.json found. Starting fresh.")
-                resume = False
+                logger.error("\n[!] RESUME ABORTED: No pipeline_state.json found in this run directory.")
+                logger.error(f"    Looked in: {state_path}")
+                logger.error("    Cannot resume a run that has no saved state. Options:")
+                logger.error("      1. Check that you specified the correct run directory")
+                logger.error("      2. Start a fresh run with: python3 run.py")
+                raise RuntimeError("Resume failed: no pipeline_state.json found. Refusing to start a fresh run to protect against unintended AI API costs.")
 
         try:
-            if not resume:
+            if resume:
+                # Resume path: skip directly to Phase 4 (review). Phases 1-3 were already completed.
+                pass
+            else:
                 # Phase 1: Extraction
                 extracted_data = self.run_extraction_phase()
 
