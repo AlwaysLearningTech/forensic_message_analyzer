@@ -1,4 +1,4 @@
-"""Phase 8: chain of custody + timeline + run manifest."""
+"""Phase 8: chain of custody + timelines + run manifest."""
 
 from __future__ import annotations
 
@@ -8,12 +8,13 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from ..utils.timeline_generator import TimelineGenerator
+from ..utils.events_timeline import collect_events, render_events_timeline
 
 logger = logging.getLogger(__name__)
 
 
-def run(analyzer, data: Dict, analysis_results: Optional[Dict] = None) -> Dict:
-    """Emit chain of custody, timeline, and run manifest for the finalized run."""
+def run(analyzer, data: Dict, analysis_results: Optional[Dict] = None, review_decisions: Optional[Dict] = None) -> Dict:
+    """Emit chain of custody, both timelines, and the run manifest for the finalized run."""
     logger.info("\n" + "=" * 60)
     logger.info("PHASE 8: DOCUMENTATION")
     logger.info("=" * 60)
@@ -27,6 +28,7 @@ def run(analyzer, data: Dict, analysis_results: Optional[Dict] = None) -> Dict:
         logger.info("    WARNING: Chain of custody generation failed")
 
     timeline_path = _build_timeline(analyzer, data, analysis_results)
+    events_timeline_path = _build_events_timeline(analyzer, data, analysis_results, review_decisions or {})
 
     logger.info("\n[*] Generating run manifest...")
     manifest_path = analyzer.manifest.generate_manifest()
@@ -40,7 +42,30 @@ def run(analyzer, data: Dict, analysis_results: Optional[Dict] = None) -> Dict:
     result["manifest"] = str(manifest_path)
     if timeline_path:
         result["timeline"] = str(timeline_path)
+    if events_timeline_path:
+        result["events_timeline"] = str(events_timeline_path)
     return result
+
+
+def _build_events_timeline(analyzer, data: Dict, analysis_results: Optional[Dict], review_decisions: Dict) -> Optional[Path]:
+    """Render the sparse, executive-view timeline of confirmed events only."""
+    logger.info("\n[*] Generating events timeline (big-picture view)...")
+    events = collect_events(data, analysis_results or {}, review_decisions)
+    if not events:
+        logger.info("    Skipping events timeline — no confirmed events to plot")
+        return None
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = Path(analyzer.config.output_dir) / f"events_timeline_{timestamp}.html"
+    render_events_timeline(
+        events,
+        out,
+        config=analyzer.config,
+        case_name=getattr(analyzer.config, "case_name", "") or "",
+        case_number=getattr(analyzer.config, "case_number", "") or "",
+    )
+    analyzer._sign_artifact(out)
+    logger.info(f"    Saved {len(events)} events to {out.name}")
+    return out
 
 
 def _build_timeline(analyzer, data: Dict, analysis_results: Optional[Dict]) -> Optional[Path]:

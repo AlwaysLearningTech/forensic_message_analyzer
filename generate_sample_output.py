@@ -255,22 +255,19 @@ def main():
     chain_path = recorder.generate_chain_of_custody()
     print(f"  chain: {Path(chain_path).name}")
 
-    # Historical timeline (interactive HTML). Without this the legal team has no visual chronology of threats + sentiment + patterns across the conversation.
-    print("Generating historical timeline...")
-    import pandas as pd
-    from src.utils.timeline_generator import TimelineGenerator
-    timeline_gen = TimelineGenerator(recorder, config=config)
-    timeline_path = output_dir / f"timeline_{timestamp}.html"
-    df = pd.DataFrame(messages)
-    # Merge threat columns so the timeline color-codes concerning messages.
-    threat_details = analysis_results["threats"]["details"]
-    if isinstance(threat_details, list) and threat_details:
-        threats_df = pd.DataFrame(threat_details)
-        merge_cols = [c for c in ("threat_detected", "threat_categories", "threat_confidence") if c in threats_df.columns and c not in df.columns]
-        if merge_cols and "message_id" in df.columns and "message_id" in threats_df.columns:
-            df = df.merge(threats_df[["message_id"] + merge_cols], on="message_id", how="left")
-    timeline_gen.create_timeline(df, timeline_path, extracted_data=extracted_data)
-    print(f"  timeline: {timeline_path.name}")
+    # Events timeline — sparse, big-picture chronology showing only the moments the case turns on. The older per-message timeline is kept in the codebase for analysts who need drill-down, but this is what a judge or opposing counsel actually wants to see.
+    print("Generating events timeline (big-picture view)...")
+    from src.utils.events_timeline import collect_events, render_events_timeline
+    events = collect_events(extracted_data, analysis_results, review_decisions)
+    events_path = output_dir / f"events_timeline_{timestamp}.html"
+    render_events_timeline(
+        events,
+        events_path,
+        config=config,
+        case_name=config.case_name,
+        case_number=config.case_number,
+    )
+    print(f"  events_timeline: {events_path.name} ({len(events)} events)")
 
     # Run manifest — uses a real Config() here (not the MagicMock) so the snapshot + pattern-hash structure matches what a real run emits. The mock elsewhere is fine because reporters only read specific attributes; RunManifest.snapshot() walks the full Config object.
     print("Generating run manifest...")

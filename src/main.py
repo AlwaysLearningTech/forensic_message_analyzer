@@ -382,10 +382,10 @@ class ForensicAnalyzer:
         from .pipeline import reporting
         return reporting.run(self, data, analysis, review)
 
-    def run_documentation_phase(self, data: Dict, analysis_results: Dict = None) -> Dict:
+    def run_documentation_phase(self, data: Dict, analysis_results: Dict = None, review_decisions: Dict = None) -> Dict:
         """Phase 8: documentation + manifest. Delegates to src.pipeline.documentation."""
         from .pipeline import documentation
-        return documentation.run(self, data, analysis_results)
+        return documentation.run(self, data, analysis_results, review_decisions)
     
     def run_full_analysis(self, resume: bool = False):
         """Run extraction, analysis, AI batch, and review phases (1-4), then stop.
@@ -672,8 +672,8 @@ class ForensicAnalyzer:
             # Phase 7: Reporting
             reports = self.run_reporting_phase(extracted_data, analysis_results, review_results)
 
-            # Phase 8: Documentation (pass analysis_results for enriched timeline)
-            documentation = self.run_documentation_phase(extracted_data, analysis_results)
+            # Phase 8: Documentation (pass review so the events timeline can show only reviewer-confirmed findings)
+            documentation = self.run_documentation_phase(extracted_data, analysis_results, review_results)
 
             logger.info("\n" + "="*80)
             logger.info(" WORKFLOW COMPLETE ")
