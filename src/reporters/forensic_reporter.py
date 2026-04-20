@@ -83,11 +83,32 @@ class ForensicReporter:
     def _docx_to_pdf(self, docx_path: Path) -> Path:
         """Convert a DOCX file to PDF using docx2pdf (MS Word / LibreOffice).
 
+        On macOS, MS Word is sandboxed and may lack permission to read/write
+        arbitrary directories.  We work around this by copying the DOCX into a
+        temporary directory under ~/Documents (which Word always has access to),
+        converting there, then moving the PDF back to the original location.
+
         Returns the path to the generated PDF file.
         """
+        import shutil
+        import tempfile
         from docx2pdf import convert
+
         pdf_path = docx_path.with_suffix('.pdf')
-        convert(str(docx_path), str(pdf_path))
+
+        # Use ~/Documents as the temp root — Word always has access to it.
+        docs_dir = Path.home() / "Documents"
+        tmp_dir = Path(tempfile.mkdtemp(dir=docs_dir if docs_dir.is_dir() else None,
+                                        prefix='.forensic_pdf_'))
+        try:
+            tmp_docx = tmp_dir / docx_path.name
+            tmp_pdf = tmp_dir / pdf_path.name
+            shutil.copy2(docx_path, tmp_docx)
+            convert(str(tmp_docx), str(tmp_pdf))
+            shutil.move(str(tmp_pdf), str(pdf_path))
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
         file_hash = self.forensic.compute_hash(pdf_path)
         self.forensic.record_action(
             "pdf_converted",
