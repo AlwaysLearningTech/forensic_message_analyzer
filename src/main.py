@@ -7,12 +7,15 @@ Coordinates extraction, analysis, review, and reporting phases.
 import sys
 import json
 import copy
+import logging
 import shutil
 import zipfile
 import re
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -65,7 +68,7 @@ class ForensicAnalyzer:
 
     def _hash_source_files(self):
         """Hash all source files before extraction to establish chain of custody."""
-        print("\n[*] Hashing source files for chain of custody...")
+        logger.info("\n[*] Hashing source files for chain of custody...")
         hashed = 0
 
         # iMessage database
@@ -150,7 +153,7 @@ class ForensicAnalyzer:
                         )
                         hashed += 1
 
-        print(f"    Hashed {hashed} source files")
+        logger.info(f"    Hashed {hashed} source files")
 
     # ------------------------------------------------------------------
     # Source file preservation (forensic archive)
@@ -172,7 +175,7 @@ class ForensicAnalyzer:
         staging.mkdir(parents=True, exist_ok=True)
         preserved_count = 0
 
-        print("\n[*] Preserving source evidence files...")
+        logger.info("\n[*] Preserving source evidence files...")
 
         def _copy_and_hash(src: Path, dest: Path, label: str):
             """Copy a single file and record its hash."""
@@ -244,7 +247,7 @@ class ForensicAnalyzer:
                         _copy_and_hash(f, staging / "counseling" / rel, "counseling")
 
         if preserved_count == 0:
-            print("    No source files found to preserve")
+            logger.info("    No source files found to preserve")
             # Clean up empty staging dir
             if staging.exists():
                 shutil.rmtree(staging)
@@ -252,7 +255,7 @@ class ForensicAnalyzer:
 
         # --- Zip the staging tree ---
         zip_path = run_dir / "preserved_sources.zip"
-        print(f"    Archiving {preserved_count} source files...")
+        logger.info(f"    Archiving {preserved_count} source files...")
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for f in sorted(staging.rglob("*")):
                 if f.is_file():
@@ -270,7 +273,7 @@ class ForensicAnalyzer:
         # Remove unzipped staging tree (originals are untouched)
         shutil.rmtree(staging)
 
-        print(f"    Preserved {preserved_count} source files → {zip_path.name}")
+        logger.info(f"    Preserved {preserved_count} source files → {zip_path.name}")
 
     # ------------------------------------------------------------------
     # Contact auto-mapping from vCard exports
@@ -302,7 +305,7 @@ class ForensicAnalyzer:
             f"Auto-mapped {len(added)} contact(s) from vCards under {vcard_dir}",
             {"dir": vcard_dir, "entries": {k: v for k, v in added.items()}},
         )
-        print(f"\n[*] Auto-mapped {len(added)} contact(s) from vCards")
+        logger.info(f"\n[*] Auto-mapped {len(added)} contact(s) from vCards")
 
     # ------------------------------------------------------------------
     # Working-copy routing (FRE 1002 — Best Evidence Rule)
@@ -318,7 +321,7 @@ class ForensicAnalyzer:
         run_dir = Path(self.config.output_dir)
         working_root = run_dir / "working_copies"
         working_root.mkdir(parents=True, exist_ok=True)
-        print("\n[*] Creating working copies for extraction (originals will not be read)...")
+        logger.info("\n[*] Creating working copies for extraction (originals will not be read)...")
 
         def _copy_file(src: Path, dest_parent: Path) -> Optional[Path]:
             """Copy one file with hash verification; return the copy path or None."""
@@ -394,7 +397,7 @@ class ForensicAnalyzer:
             if copied is not None:
                 setattr(self.config, attr, str(copied))
 
-        print(f"    Working copies routed under {working_root}")
+        logger.info(f"    Working copies routed under {working_root}")
 
     # ------------------------------------------------------------------
     # Attachment preservation (FRE 1002 — Best Evidence Rule)
@@ -419,7 +422,7 @@ class ForensicAnalyzer:
 
         IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.heic', '.heif', '.tiff', '.bmp', '.webp'}
 
-        print("\n[*] Preserving attachment files (FRE 1002 — Best Evidence Rule)...")
+        logger.info("\n[*] Preserving attachment files (FRE 1002 — Best Evidence Rule)...")
 
         for msg in messages:
             # Handle primary attachment path
@@ -467,10 +470,10 @@ class ForensicAnalyzer:
                         missing_count += 1
 
         other_count = preserved_count - image_count
-        print(f"    Preserved {preserved_count} attachment files "
+        logger.info(f"    Preserved {preserved_count} attachment files "
               f"({image_count} images, {other_count} other)")
         if missing_count:
-            print(f"    WARNING: {missing_count} attachment files not found on disk")
+            logger.info(f"    WARNING: {missing_count} attachment files not found on disk")
 
     # ------------------------------------------------------------------
     # Pipeline state (for resume after crash)
@@ -511,9 +514,9 @@ class ForensicAnalyzer:
         
     def run_extraction_phase(self) -> Dict:
         """Run the data extraction phase."""
-        print("\n" + "="*60)
-        print("PHASE 1: DATA EXTRACTION")
-        print("="*60)
+        logger.info("\n" + "="*60)
+        logger.info("PHASE 1: DATA EXTRACTION")
+        logger.info("="*60)
 
         # Ensure we are writing into a run subfolder.  If the caller
         # (e.g. direct ForensicAnalyzer usage without run.py) didn't
@@ -523,7 +526,7 @@ class ForensicAnalyzer:
             run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             run_dir = output_dir / f"run_{run_ts}"
             run_dir.mkdir(parents=True, exist_ok=True)
-            print(f"    [!] output_dir was not a run subfolder — created {run_dir.name}")
+            logger.info(f"    [!] output_dir was not a run subfolder — created {run_dir.name}")
             self.forensic.record_action(
                 "run_folder_created",
                 f"Auto-created run subfolder (caller did not set one)",
@@ -550,21 +553,21 @@ class ForensicAnalyzer:
         extractor = DataExtractor(self.forensic, third_party_registry=self.third_party_registry, config=self.config)
         
         # Extract all message data
-        print("\n[*] Extracting message data from all sources...")
+        logger.info("\n[*] Extracting message data from all sources...")
         try:
             all_messages = extractor.extract_all()
-            print(f"    Extracted {len(all_messages)} total messages")
+            logger.info(f"    Extracted {len(all_messages)} total messages")
         except Exception as e:
-            print(f"    Error extracting messages: {e}")
+            logger.info(f"    Error extracting messages: {e}")
             all_messages = []
 
         if not all_messages:
-            print("\n[ABORT] No messages extracted. Cannot proceed with analysis.")
-            print("    Check your data sources and contact mappings in .env")
+            logger.info("\n[ABORT] No messages extracted. Cannot proceed with analysis.")
+            logger.info("    Check your data sources and contact mappings in .env")
             raise RuntimeError("Extraction produced 0 messages — aborting to avoid wasting API credits")
         
         # Catalog screenshots
-        print("\n[*] Cataloging screenshots...")
+        logger.info("\n[*] Cataloging screenshots...")
         screenshots = []
         if self.config.screenshot_source_dir:
             try:
@@ -573,11 +576,11 @@ class ForensicAnalyzer:
                     self.forensic
                 )
                 screenshots = screenshot_extractor.extract_screenshots()
-                print(f"    Cataloged {len(screenshots)} screenshots")
+                logger.info(f"    Cataloged {len(screenshots)} screenshots")
             except Exception as e:
-                print(f"    Error cataloging screenshots: {e}")
+                logger.info(f"    Error cataloging screenshots: {e}")
         else:
-            print("    No screenshot directory configured")
+            logger.info("    No screenshot directory configured")
         
         # Save extracted data
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -600,31 +603,31 @@ class ForensicAnalyzer:
         self.manifest.add_operation("extraction", "success",
                                     {"message_count": len(all_messages),
                                      "screenshot_count": len(screenshots)})
-        print(f"\n[✓] Extraction complete. Data saved to {output_file}")
+        logger.info(f"\n[✓] Extraction complete. Data saved to {output_file}")
 
         return extraction_results
     
     def run_analysis_phase(self, data: Dict) -> Dict:
         """Run the analysis phase on extracted data."""
-        print("\n" + "="*60)
-        print("PHASE 2: AUTOMATED ANALYSIS")
-        print("="*60)
+        logger.info("\n" + "="*60)
+        logger.info("PHASE 2: AUTOMATED ANALYSIS")
+        logger.info("="*60)
         
         results = {}
         messages = data.get('messages', [])
         
         if not messages:
-            print("\n[!] No message data to analyze")
+            logger.info("\n[!] No message data to analyze")
             return results
         
         # Convert to DataFrame for analysis
         import pandas as pd
         combined_df = pd.DataFrame(messages)
         
-        print(f"\n[*] Analyzing {len(combined_df)} messages")
+        logger.info(f"\n[*] Analyzing {len(combined_df)} messages")
         
         # Run threat analysis
-        print("\n[*] Analyzing threats...")
+        logger.info("\n[*] Analyzing threats...")
         threat_analyzer = ThreatAnalyzer(self.forensic)
         threat_results = threat_analyzer.detect_threats(combined_df)
         threat_summary = threat_analyzer.generate_threat_summary(threat_results)
@@ -632,27 +635,27 @@ class ForensicAnalyzer:
             'details': threat_results.to_dict('records') if hasattr(threat_results, 'to_dict') else threat_results,
             'summary': threat_summary
         }
-        print(f"    Detected threats in {threat_summary.get('messages_with_threats', 0)} messages")
+        logger.info(f"    Detected threats in {threat_summary.get('messages_with_threats', 0)} messages")
         
         # Run sentiment analysis
-        print("\n[*] Analyzing sentiment...")
+        logger.info("\n[*] Analyzing sentiment...")
         sentiment_analyzer = SentimentAnalyzer(self.forensic)
         sentiment_results = sentiment_analyzer.analyze_sentiment(combined_df)
         results['sentiment'] = sentiment_results.to_dict('records') if hasattr(sentiment_results, 'to_dict') else sentiment_results
-        print("    Sentiment analysis complete")
+        logger.info("    Sentiment analysis complete")
         
         # NOTE: Behavioral analysis moved to Phase 4 (after manual review) to ensure trends are based on reviewed/confirmed data, not raw detections.
         
         # Run pattern analysis
-        print("\n[*] Running pattern detection...")
+        logger.info("\n[*] Running pattern detection...")
         pattern_analyzer = YamlPatternAnalyzer(self.forensic)
         pattern_results = pattern_analyzer.analyze_patterns(combined_df)
         results['patterns'] = pattern_results.to_dict('records') if hasattr(pattern_results, 'to_dict') else pattern_results
-        print(f"    Pattern detection complete")
+        logger.info(f"    Pattern detection complete")
         
         # Process screenshots
         if data.get('screenshots'):
-            print("\n[*] Analyzing screenshots...")
+            logger.info("\n[*] Analyzing screenshots...")
             screenshot_analyzer = ScreenshotAnalyzer(
                 self.forensic, third_party_registry=self.third_party_registry,
                 screenshots_dir=self.config.screenshot_source_dir,
@@ -667,14 +670,14 @@ class ForensicAnalyzer:
                     screenshot['contacts_found'] = contacts
             screenshot_results = data['screenshots']
             results['screenshots'] = screenshot_results
-            print(f"    Analyzed {len(screenshot_results)} screenshots")
+            logger.info(f"    Analyzed {len(screenshot_results)} screenshots")
         
         # Communication metrics
-        print("\n[*] Calculating communication metrics...")
+        logger.info("\n[*] Calculating communication metrics...")
         metrics_analyzer = CommunicationMetricsAnalyzer(forensic_recorder=self.forensic)
         metrics_results = metrics_analyzer.analyze_messages(messages)
         results['metrics'] = metrics_results
-        print("    Communication metrics calculated")
+        logger.info("    Communication metrics calculated")
 
         # Save the enriched DataFrame for Phase 4 behavioral analysis. At this point combined_df has threat, sentiment, and pattern columns.
         self._enriched_df = combined_df.copy()
@@ -694,7 +697,7 @@ class ForensicAnalyzer:
         self.manifest.add_operation("analysis", "success",
                                     {"message_count": len(messages),
                                      "analyzers_run": list(results.keys())})
-        print(f"\n[✓] Analysis complete. Results saved to {output_file}")
+        logger.info(f"\n[✓] Analysis complete. Results saved to {output_file}")
 
         return results
 
@@ -712,15 +715,15 @@ class ForensicAnalyzer:
         Returns:
             AI batch results dict (without summary), or empty dict on skip/error.
         """
-        print("\n" + "="*60)
-        print("PHASE 3: PRE-REVIEW SCREENING")
-        print("="*60)
+        logger.info("\n" + "="*60)
+        logger.info("PHASE 3: PRE-REVIEW SCREENING")
+        logger.info("="*60)
 
         try:
             from src.analyzers.ai_analyzer import AIAnalyzer
             ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic, config=self.config)
             if not ai_analyzer.client:
-                print("    Pre-review screening skipped - AI not configured")
+                logger.info("    Pre-review screening skipped - AI not configured")
                 return ai_analyzer._empty_analysis()
 
             messages = extracted_data.get('messages', [])
@@ -737,7 +740,7 @@ class ForensicAnalyzer:
             ]
             skipped = len(messages) - len(mapped_messages)
             if skipped:
-                print(f"    Filtered to {len(mapped_messages)} mapped-contact "
+                logger.info(f"    Filtered to {len(mapped_messages)} mapped-contact "
                       f"messages (skipped {skipped} unmapped)")
 
             # generate_summary=False — summary runs post-review in finalize
@@ -747,7 +750,7 @@ class ForensicAnalyzer:
             )
             threat_count = len(ai_results.get('threat_assessment', {}).get('details', []))
             cc_count = len(ai_results.get('coercive_control', {}).get('patterns', []))
-            print(f"    AI batch complete - {threat_count} threats, "
+            logger.info(f"    AI batch complete - {threat_count} threats, "
                   f"{cc_count} coercive control patterns found")
 
             self.manifest.add_operation("ai_batch_analysis", "success",
@@ -761,21 +764,21 @@ class ForensicAnalyzer:
             with open(ai_output_file, 'w') as f:
                 json.dump(ai_results, f, indent=2, default=str)
             self._ai_batch_results_path = ai_output_file
-            print(f"    AI batch results saved to {ai_output_file.name}")
+            logger.info(f"    AI batch results saved to {ai_output_file.name}")
 
             return ai_results
 
         except Exception as e:
-            print(f"    AI batch analysis error: {e}")
+            logger.info(f"    AI batch analysis error: {e}")
             import traceback
             traceback.print_exc()
             return {}
 
     def run_review_phase(self, analysis_results: Dict, extracted_data: Dict, resume_session_id: str = None) -> Dict:
         """Run the interactive manual review phase on flagged items."""
-        print("\n" + "="*60)
-        print("PHASE 4: INTERACTIVE MANUAL REVIEW")
-        print("="*60)
+        logger.info("\n" + "="*60)
+        logger.info("PHASE 4: INTERACTIVE MANUAL REVIEW")
+        logger.info("="*60)
 
         manager = ManualReviewManager(session_id=resume_session_id, config=self.config,
                                        forensic_recorder=self.forensic)
@@ -882,7 +885,7 @@ class ForensicAnalyzer:
                 'subject': subject,
             })
 
-        print(f"\n[*] {len(items_for_review)} items flagged for review (local threats + AI threats + AI coercive control + emails)")
+        logger.info(f"\n[*] {len(items_for_review)} items flagged for review (local threats + AI threats + AI coercive control + emails)")
 
         # Filter out already-reviewed items (resume support)
         if already_reviewed:
@@ -890,7 +893,7 @@ class ForensicAnalyzer:
             items_for_review = [i for i in items_for_review if i['id'] not in already_reviewed]
             skipped = total_flagged - len(items_for_review)
             if skipped:
-                print(f"    Resuming: {skipped} already reviewed, {len(items_for_review)} remaining")
+                logger.info(f"    Resuming: {skipped} already reviewed, {len(items_for_review)} remaining")
 
         # Save pipeline state with review session ID (for crash recovery)
         self._save_pipeline_state(review_session_id=manager.session_id)
@@ -916,7 +919,7 @@ class ForensicAnalyzer:
                 web = WebReview(manager, forensic_recorder=self.forensic, config=self.config)
                 web.start_review(messages, items_for_review, screenshots=screenshots)
             except ImportError:
-                print("    Flask not installed. Falling back to terminal review.")
+                logger.info("    Flask not installed. Falling back to terminal review.")
                 from src.review.interactive_review import InteractiveReview
                 interactive = InteractiveReview(manager, config=self.config)
                 interactive.review_flagged_items(messages, items_for_review)
@@ -938,11 +941,11 @@ class ForensicAnalyzer:
             'reviews': manager.reviews
         }
 
-        print(f"    Relevant: {review_summary['relevant']}")
-        print(f"    Not Relevant: {review_summary['not_relevant']}")
-        print(f"    Uncertain: {review_summary['uncertain']}")
+        logger.info(f"    Relevant: {review_summary['relevant']}")
+        logger.info(f"    Not Relevant: {review_summary['not_relevant']}")
+        logger.info(f"    Uncertain: {review_summary['uncertain']}")
 
-        print("\n[✓] Review phase complete")
+        logger.info("\n[✓] Review phase complete")
 
         self.manifest.add_operation("manual_review", "success",
                                     {"total_reviewed": review_summary['total_reviewed'],
@@ -966,9 +969,9 @@ class ForensicAnalyzer:
         pattern columns) and applies Phase 3 review decisions so behavioral
         analysis only considers confirmed threats.
         """
-        print("\n" + "="*60)
-        print("PHASE 5: BEHAVIORAL ANALYSIS (POST-REVIEW)")
-        print("="*60)
+        logger.info("\n" + "="*60)
+        logger.info("PHASE 5: BEHAVIORAL ANALYSIS (POST-REVIEW)")
+        logger.info("="*60)
 
         import pandas as pd
 
@@ -979,10 +982,10 @@ class ForensicAnalyzer:
             # Fallback: create from raw messages (no enrichment columns)
             messages = extracted_data.get('messages', [])
             if not messages:
-                print("\n[!] No message data to analyze")
+                logger.info("\n[!] No message data to analyze")
                 return {}
             enriched_df = pd.DataFrame(messages)
-            print("    Note: Using raw messages (enriched DataFrame not available)")
+            logger.info("    Note: Using raw messages (enriched DataFrame not available)")
 
         # Apply Phase 3 review decisions: clear threat annotations not confirmed in review
         approved_ids = set()
@@ -1006,8 +1009,8 @@ class ForensicAnalyzer:
         has_sentiment = 'sentiment_score' in enriched_df.columns
 
         if cleared_count:
-            print(f"\n[*] Cleared {cleared_count} unconfirmed threats from behavioral input")
-        print(f"[*] Behavioral analysis: {len(enriched_df)} messages, "
+            logger.info(f"\n[*] Cleared {cleared_count} unconfirmed threats from behavioral input")
+        logger.info(f"[*] Behavioral analysis: {len(enriched_df)} messages, "
               f"{confirmed_threats} confirmed threats, "
               f"sentiment data: {'yes' if has_sentiment else 'no'}")
 
@@ -1015,7 +1018,7 @@ class ForensicAnalyzer:
         behavioral_analyzer = BehavioralAnalyzer(self.forensic)
         behavioral_results = behavioral_analyzer.analyze_patterns(enriched_df)
 
-        print("    Behavioral analysis complete")
+        logger.info("    Behavioral analysis complete")
 
         return behavioral_results
     
@@ -1076,7 +1079,7 @@ class ForensicAnalyzer:
             }
 
             if cleared:
-                print(f"    Filtered {cleared} unverified threats from reports")
+                logger.info(f"    Filtered {cleared} unverified threats from reports")
 
         # --- Filter AI analysis findings ---
         # AI analysis runs post-review (Phase 5) and doesn't need filtering.
@@ -1096,9 +1099,9 @@ class ForensicAnalyzer:
 
     def run_reporting_phase(self, data: Dict, analysis: Dict, review: Dict) -> Dict:
         """Generate reports in multiple formats."""
-        print("\n" + "="*60)
-        print("PHASE 7: REPORT GENERATION")
-        print("="*60)
+        logger.info("\n" + "="*60)
+        logger.info("PHASE 7: REPORT GENERATION")
+        logger.info("="*60)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         reports = {}
@@ -1106,25 +1109,25 @@ class ForensicAnalyzer:
         # Filter analysis to only include human-verified findings
         # The forensic all-messages export (CSV/Excel) uses extracted_data directly
         # and is NOT affected by this filtering.
-        print("\n[*] Filtering analysis by review decisions...")
+        logger.info("\n[*] Filtering analysis by review decisions...")
         filtered_analysis = self._filter_analysis_by_review(analysis, review)
 
         # Use ForensicReporter for comprehensive reports
         forensic_reporter = ForensicReporter(self.forensic, config=self.config)
 
         # Generate all report formats (with filtered analysis)
-        print("\n[*] Generating comprehensive reports...")
+        logger.info("\n[*] Generating comprehensive reports...")
         generated_reports = forensic_reporter.generate_comprehensive_report(
             data, filtered_analysis, review
         )
 
         for format_name, path in generated_reports.items():
             reports[format_name] = str(path)
-            print(f"    {format_name.upper()} report: {path.name}")
+            logger.info(f"    {format_name.upper()} report: {path.name}")
 
         # Also generate separate Excel report if needed
         if 'excel' not in reports:
-            print("\n[*] Generating Excel report...")
+            logger.info("\n[*] Generating Excel report...")
             try:
                 enriched_data = data.copy()
 
@@ -1132,28 +1135,28 @@ class ForensicAnalyzer:
                 excel_path = Path(self.config.output_dir) / f"report_{timestamp}.xlsx"
                 excel_reporter.generate_report(enriched_data, filtered_analysis, review, excel_path)
                 reports['excel'] = str(excel_path)
-                print(f"    Saved to {excel_path}")
+                logger.info(f"    Saved to {excel_path}")
             except Exception as e:
-                print(f"    Error generating Excel report: {e}")
+                logger.info(f"    Error generating Excel report: {e}")
                 import traceback
                 traceback.print_exc()
 
         # Generate HTML/PDF report with inline images
-        print("\n[*] Generating HTML/PDF report (with inline images)...")
+        logger.info("\n[*] Generating HTML/PDF report (with inline images)...")
         try:
             html_reporter = HtmlReporter(self.forensic, config=self.config)
             html_base = Path(self.config.output_dir) / f"report_{timestamp}"
             html_paths = html_reporter.generate_report(data, filtered_analysis, review, html_base)
             for fmt, path in html_paths.items():
                 reports[fmt] = str(path)
-                print(f"    {fmt.upper()} report: {path.name}")
+                logger.info(f"    {fmt.upper()} report: {path.name}")
         except Exception as e:
-            print(f"    Error generating HTML/PDF report: {e}")
+            logger.info(f"    Error generating HTML/PDF report: {e}")
             import traceback
             traceback.print_exc()
 
         # Generate chat-bubble HTML report
-        print("\n[*] Generating chat-bubble HTML report...")
+        logger.info("\n[*] Generating chat-bubble HTML report...")
         try:
             from src.reporters.chat_reporter import ChatReporter
             chat_reporter = ChatReporter(self.forensic, config=self.config)
@@ -1161,28 +1164,28 @@ class ForensicAnalyzer:
             chat_paths = chat_reporter.generate_report(data, filtered_analysis, review, chat_base)
             for fmt, path in chat_paths.items():
                 reports[fmt] = str(path)
-                print(f"    {fmt.upper()} report: {path.name}")
+                logger.info(f"    {fmt.upper()} report: {path.name}")
         except Exception as e:
-            print(f"    Error generating chat report: {e}")
+            logger.info(f"    Error generating chat report: {e}")
             import traceback
             traceback.print_exc()
 
         # Generate JSON report if needed
         if 'json' not in reports:
-            print("\n[*] Generating JSON report...")
+            logger.info("\n[*] Generating JSON report...")
             try:
                 json_reporter = JSONReporter(self.forensic, config=self.config)
                 json_path = Path(self.config.output_dir) / f"report_{timestamp}.json"
                 json_reporter.generate_report(data, filtered_analysis, review, json_path)
                 reports['json'] = str(json_path)
-                print(f"    Saved to {json_path}")
+                logger.info(f"    Saved to {json_path}")
             except Exception as e:
-                print(f"    Error generating JSON report: {e}")
+                logger.info(f"    Error generating JSON report: {e}")
 
         # Generate legal team summary docx (after all reports so file table is complete)
         legal_text = getattr(forensic_reporter, '_legal_summary_text', None)
         if legal_text:
-            print("\n[*] Generating legal team summary document...")
+            logger.info("\n[*] Generating legal team summary document...")
             try:
                 summary_path = Path(self.config.output_dir) / f"legal_team_summary_{timestamp}.docx"
                 forensic_reporter._generate_legal_summary_docx(legal_text, summary_path, reports)
@@ -1193,26 +1196,26 @@ class ForensicAnalyzer:
                     f"Generated legal team summary with hash {file_hash}",
                     {"path": str(summary_path), "hash": file_hash}
                 )
-                print(f"    Saved to {summary_path.name}")
+                logger.info(f"    Saved to {summary_path.name}")
             except Exception as e:
-                print(f"    Error generating legal team summary: {e}")
+                logger.info(f"    Error generating legal team summary: {e}")
                 import traceback
                 traceback.print_exc()
 
         # Generate the READ ME FIRST cover sheet last so it can point at
         # every other file by actual filename. This is the document the
         # legal team should open first.
-        print("\n[*] Generating READ ME FIRST cover sheet...")
+        logger.info("\n[*] Generating READ ME FIRST cover sheet...")
         try:
             cover_path = forensic_reporter.generate_cover_sheet(reports, timestamp)
             reports['cover_sheet'] = str(cover_path)
-            print(f"    Saved to {cover_path.name}")
+            logger.info(f"    Saved to {cover_path.name}")
         except Exception as e:
-            print(f"    Error generating cover sheet: {e}")
+            logger.info(f"    Error generating cover sheet: {e}")
             import traceback
             traceback.print_exc()
 
-        print("\n[✓] Report generation complete")
+        logger.info("\n[✓] Report generation complete")
 
         self.manifest.add_operation("reporting", "success",
                                     {"report_formats": list(reports.keys())})
@@ -1223,23 +1226,23 @@ class ForensicAnalyzer:
     
     def run_documentation_phase(self, data: Dict, analysis_results: Dict = None) -> Dict:
         """Generate final documentation and chain of custody."""
-        print("\n" + "="*60)
-        print("PHASE 8: DOCUMENTATION")
-        print("="*60)
+        logger.info("\n" + "="*60)
+        logger.info("PHASE 8: DOCUMENTATION")
+        logger.info("="*60)
         
         # Generate chain of custody
-        print("\n[*] Generating chain of custody...")
+        logger.info("\n[*] Generating chain of custody...")
         chain_path = self.forensic.generate_chain_of_custody()
         if chain_path:
-            print(f"    Saved to {chain_path}")
+            logger.info(f"    Saved to {chain_path}")
         else:
-            print("    WARNING: Chain of custody generation failed")
+            logger.info("    WARNING: Chain of custody generation failed")
         
         # Generate timeline if we have message data
         timeline_path = None
         combined_data = data.get('messages', data.get('combined', []))
         if combined_data:
-            print("\n[*] Generating timeline...")
+            logger.info("\n[*] Generating timeline...")
             timeline_gen = TimelineGenerator(self.forensic, config=self.config)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             timeline_path = Path(self.config.output_dir) / f"timeline_{timestamp}.html"
@@ -1272,16 +1275,16 @@ class ForensicAnalyzer:
                                 df[col] = analysis_df[col].values
 
             timeline_gen.create_timeline(df, timeline_path, extracted_data=data)
-            print(f"    Saved to {timeline_path}")
+            logger.info(f"    Saved to {timeline_path}")
         else:
-            print("\n[!] Skipping timeline generation (no message data)")
+            logger.info("\n[!] Skipping timeline generation (no message data)")
         
         # Generate run manifest
-        print("\n[*] Generating run manifest...")
+        logger.info("\n[*] Generating run manifest...")
         manifest_path = self.manifest.generate_manifest()
-        print(f"    Saved to {manifest_path}")
+        logger.info(f"    Saved to {manifest_path}")
         
-        print("\n[✓] Documentation complete")
+        logger.info("\n[✓] Documentation complete")
         
         result = {}
         if chain_path:
@@ -1304,11 +1307,11 @@ class ForensicAnalyzer:
             resume: If True, skip extraction and analysis by loading
                     saved state from a previous run. Resumes at the review phase.
         """
-        print("\n" + "="*80)
-        print(" FORENSIC MESSAGE ANALYZER — PHASES 1-4 ")
-        print("="*80)
-        print(f"Session started: {datetime.now()}")
-        print(f"Output directory: {self.config.output_dir}")
+        logger.info("\n" + "="*80)
+        logger.info(" FORENSIC MESSAGE ANALYZER — PHASES 1-4 ")
+        logger.info("="*80)
+        logger.info(f"Session started: {datetime.now()}")
+        logger.info(f"Output directory: {self.config.output_dir}")
 
         resume_session_id = None
 
@@ -1320,11 +1323,11 @@ class ForensicAnalyzer:
                 resume_session_id = state.get("review_session_id")
 
                 if ext_path and ana_path and Path(ext_path).exists() and Path(ana_path).exists():
-                    print(f"\n[*] Resuming from saved state ({state.get('timestamp', 'unknown')})")
-                    print(f"    Extraction: {Path(ext_path).name}")
-                    print(f"    Analysis:   {Path(ana_path).name}")
+                    logger.info(f"\n[*] Resuming from saved state ({state.get('timestamp', 'unknown')})")
+                    logger.info(f"    Extraction: {Path(ext_path).name}")
+                    logger.info(f"    Analysis:   {Path(ana_path).name}")
                     if resume_session_id:
-                        print(f"    Review session: {resume_session_id}")
+                        logger.info(f"    Review session: {resume_session_id}")
 
                     with open(ext_path) as f:
                         extracted_data = json.load(f)
@@ -1334,12 +1337,12 @@ class ForensicAnalyzer:
                     self._extracted_data_path = Path(ext_path)
                     self._analysis_results_path = Path(ana_path)
 
-                    print("\n    Skipping Phases 1-3 (extraction, analysis, AI batch) — already completed.")
+                    logger.info("\n    Skipping Phases 1-3 (extraction, analysis, AI batch) — already completed.")
                 else:
-                    print("\n[!] State file found but data files missing. Starting fresh.")
+                    logger.info("\n[!] State file found but data files missing. Starting fresh.")
                     resume = False
             else:
-                print("\n[!] No resumable state found. Starting fresh.")
+                logger.info("\n[!] No resumable state found. Starting fresh.")
                 resume = False
 
         try:
@@ -1374,17 +1377,17 @@ class ForensicAnalyzer:
                 review_complete=True,
             )
 
-            print("\n" + "="*80)
-            print(" REVIEW COMPLETE — PIPELINE PAUSED ")
-            print("="*80)
-            print(f"\nRun directory: {self.config.output_dir}")
-            print(f"\nTo generate reports, run:")
-            print(f"  python3 run.py --finalize \"{self.config.output_dir}\"")
-            print(f"\nOr auto-detect the latest run:")
-            print(f"  python3 run.py --finalize")
+            logger.info("\n" + "="*80)
+            logger.info(" REVIEW COMPLETE — PIPELINE PAUSED ")
+            logger.info("="*80)
+            logger.info(f"\nRun directory: {self.config.output_dir}")
+            logger.info(f"\nTo generate reports, run:")
+            logger.info(f"  python3 run.py --finalize \"{self.config.output_dir}\"")
+            logger.info(f"\nOr auto-detect the latest run:")
+            logger.info(f"  python3 run.py --finalize")
 
         except Exception as e:
-            print(f"\n[ERROR] Workflow failed: {e}")
+            logger.info(f"\n[ERROR] Workflow failed: {e}")
             import traceback
             traceback.print_exc()
             raise
@@ -1396,11 +1399,11 @@ class ForensicAnalyzer:
         and review decisions from disk. Runs behavioral analysis, AI executive
         summary, reporting, and documentation.
         """
-        print("\n" + "="*80)
-        print(" FORENSIC MESSAGE ANALYZER — FINALIZE (POST-REVIEW) ")
-        print("="*80)
-        print(f"Session started: {datetime.now()}")
-        print(f"Output directory: {self.config.output_dir}")
+        logger.info("\n" + "="*80)
+        logger.info(" FORENSIC MESSAGE ANALYZER — FINALIZE (POST-REVIEW) ")
+        logger.info("="*80)
+        logger.info(f"Session started: {datetime.now()}")
+        logger.info(f"Output directory: {self.config.output_dir}")
 
         state = self._load_pipeline_state()
         if not state:
@@ -1429,10 +1432,10 @@ class ForensicAnalyzer:
             )
 
         # Load saved data
-        print(f"\n[*] Loading saved pipeline data...")
-        print(f"    Extraction: {Path(ext_path).name}")
-        print(f"    Analysis:   {Path(ana_path).name}")
-        print(f"    Review:     {Path(rev_path).name}")
+        logger.info(f"\n[*] Loading saved pipeline data...")
+        logger.info(f"    Extraction: {Path(ext_path).name}")
+        logger.info(f"    Analysis:   {Path(ana_path).name}")
+        logger.info(f"    Review:     {Path(rev_path).name}")
 
         with open(ext_path) as f:
             extracted_data = json.load(f)
@@ -1487,16 +1490,16 @@ class ForensicAnalyzer:
                 behavioral_results = self.run_behavioral_phase(extracted_data, analysis_results, review_results)
                 analysis_results['behavioral'] = behavioral_results
             except Exception as e:
-                print(f"\n[!] Behavioral analysis failed (non-fatal): {e}")
+                logger.info(f"\n[!] Behavioral analysis failed (non-fatal): {e}")
                 analysis_results['behavioral'] = {}
 
             # Update third-party contact data (screenshots may have added more during analysis)
             extracted_data['third_party_contacts'] = self.third_party_registry.get_all()
             tp_summary = self.third_party_registry.get_summary()
             if tp_summary['total'] > 0:
-                print(f"\n[*] Discovered {tp_summary['total']} third-party contacts")
+                logger.info(f"\n[*] Discovered {tp_summary['total']} third-party contacts")
                 for src, count in tp_summary['by_source'].items():
-                    print(f"    {src}: {count}")
+                    logger.info(f"    {src}: {count}")
 
             # Phase 6: Executive Summary (post-review)
             # Batch results already exist from Phase 3 (pre-review).
@@ -1504,9 +1507,9 @@ class ForensicAnalyzer:
             # summary model, incorporating the actual conversation messages.
             ai_results = analysis_results.get('ai_analysis', {})
             if ai_results and ai_results.get('total_messages', 0) > 0:
-                print("\n" + "="*60)
-                print("PHASE 6: EXECUTIVE SUMMARY (POST-REVIEW)")
-                print("="*60)
+                logger.info("\n" + "="*60)
+                logger.info("PHASE 6: EXECUTIVE SUMMARY (POST-REVIEW)")
+                logger.info("="*60)
                 try:
                     from src.analyzers.ai_analyzer import AIAnalyzer
                     from src.utils.pricing import get_pricing
@@ -1539,16 +1542,16 @@ class ForensicAnalyzer:
                                 (est_input / 1_000_000) * sp['input']
                                 + (est_output / 1_000_000) * sp['output']
                             )
-                            print(
+                            logger.info(
                                 f"    {len(summary_messages):,} messages for executive summary "
                                 f"(~{est_input:,} input tokens)"
                             )
-                            print(
+                            logger.info(
                                 f"    Estimated summary cost: ~${est_cost:.4f} "
                                 f"({ai_analyzer.summary_model})"
                             )
                             if est_cost > 1.00:
-                                print(
+                                logger.info(
                                     f"    Cost exceeds $1.00 — press Ctrl+C within "
                                     f"5 seconds to abort..."
                                 )
@@ -1556,7 +1559,7 @@ class ForensicAnalyzer:
                                     import time as _time
                                     _time.sleep(5)
                                 except KeyboardInterrupt:
-                                    print("\n    Summary generation aborted by user.")
+                                    logger.info("\n    Summary generation aborted by user.")
                                     summary_messages = None
 
                         if summary_messages is not None:
@@ -1564,15 +1567,15 @@ class ForensicAnalyzer:
                                 ai_results, messages=summary_messages
                             )
                             analysis_results['ai_analysis'] = ai_results
-                            print(f"    Executive summary generated")
+                            logger.info(f"    Executive summary generated")
                         else:
-                            print("    Executive summary skipped (user aborted)")
+                            logger.info("    Executive summary skipped (user aborted)")
                     else:
-                        print("    Executive summary skipped — AI not configured")
+                        logger.info("    Executive summary skipped — AI not configured")
                 except Exception as e:
-                    print(f"    Executive summary error (non-fatal): {e}")
+                    logger.info(f"    Executive summary error (non-fatal): {e}")
             else:
-                print("\n[*] No pre-screening results found — skipping executive summary")
+                logger.info("\n[*] No pre-screening results found — skipping executive summary")
 
             # Phase 7: Reporting
             reports = self.run_reporting_phase(extracted_data, analysis_results, review_results)
@@ -1580,21 +1583,21 @@ class ForensicAnalyzer:
             # Phase 8: Documentation (pass analysis_results for enriched timeline)
             documentation = self.run_documentation_phase(extracted_data, analysis_results)
 
-            print("\n" + "="*80)
-            print(" WORKFLOW COMPLETE ")
-            print("="*80)
-            print(f"\nAll outputs saved to: {self.config.output_dir}")
-            print("\nGenerated files:")
+            logger.info("\n" + "="*80)
+            logger.info(" WORKFLOW COMPLETE ")
+            logger.info("="*80)
+            logger.info(f"\nAll outputs saved to: {self.config.output_dir}")
+            logger.info("\nGenerated files:")
             for report_type, path in reports.items():
-                print(f"  - {report_type}: {Path(path).name}")
+                logger.info(f"  - {report_type}: {Path(path).name}")
             for doc_type, path in documentation.items():
-                print(f"  - {doc_type}: {Path(path).name}")
+                logger.info(f"  - {doc_type}: {Path(path).name}")
 
             # Clean up pipeline state file after successful completion
             self._clear_pipeline_state()
 
         except Exception as e:
-            print(f"\n[ERROR] Finalize failed: {e}")
+            logger.info(f"\n[ERROR] Finalize failed: {e}")
             import traceback
             traceback.print_exc()
             raise
@@ -1618,7 +1621,7 @@ def main(config: Config = None, resume: bool = False):
         analyzer.run_full_analysis(resume=resume)
         return True
     except Exception as e:
-        print(f"\n[ERROR] Analysis failed: {e}")
+        logger.info(f"\n[ERROR] Analysis failed: {e}")
         return False
 
 
@@ -1640,5 +1643,5 @@ def finalize(config: Config = None):
         analyzer.run_finalize()
         return True
     except Exception as e:
-        print(f"\n[ERROR] Finalize failed: {e}")
+        logger.info(f"\n[ERROR] Finalize failed: {e}")
         return False

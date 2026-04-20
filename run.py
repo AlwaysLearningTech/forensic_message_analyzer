@@ -28,6 +28,14 @@ from src.config import Config
 # Create config instance
 config = Config()
 
+# Route library logs to stdout so progress banners (previously print()) are visible by default. Libraries should not assume stdout ownership; the CLI tool owns formatting here.
+_log_level = getattr(logging, (config.log_level or "INFO").upper(), logging.INFO)
+logging.basicConfig(
+    level=_log_level,
+    format="%(message)s",
+    stream=sys.stdout,
+)
+
 
 def _find_latest_run_dir(base_dir: Path) -> Optional[Path]:
     """Find the most recent run directory with a pipeline state file."""
