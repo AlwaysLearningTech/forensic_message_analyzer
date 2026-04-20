@@ -405,12 +405,29 @@ class ForensicAnalyzer:
 
         if resume:
             state = self._load_pipeline_state()
-            if state and not state.get("review_complete"):
+            state_path = Path(self.config.output_dir) / "pipeline_state.json"
+            logger.info(f"\n[*] Resume requested. Looking for state at: {state_path}")
+            if state:
+                logger.info(f"    State found: review_complete={state.get('review_complete')}, "
+                            f"timestamp={state.get('timestamp', '?')}")
+            else:
+                logger.info(f"    No state file found at {state_path}")
+
+            if state and state.get("review_complete"):
+                logger.info("\n[!] Review was already completed. Nothing to resume.")
+                logger.info("    Run --finalize to generate reports, or delete pipeline_state.json to start fresh.")
+                return
+            elif state and not state.get("review_complete"):
                 ext_path = state.get("extracted_data_path")
                 ana_path = state.get("analysis_results_path")
                 resume_session_id = state.get("review_session_id")
 
-                if ext_path and ana_path and Path(ext_path).exists() and Path(ana_path).exists():
+                ext_exists = ext_path and Path(ext_path).exists()
+                ana_exists = ana_path and Path(ana_path).exists()
+                logger.info(f"    extracted_data_path: {ext_path} (exists={ext_exists})")
+                logger.info(f"    analysis_results_path: {ana_path} (exists={ana_exists})")
+
+                if ext_exists and ana_exists:
                     logger.info(f"\n[*] Resuming from saved state ({state.get('timestamp', 'unknown')})")
                     logger.info(f"    Extraction: {Path(ext_path).name}")
                     logger.info(f"    Analysis:   {Path(ana_path).name}")
@@ -430,7 +447,7 @@ class ForensicAnalyzer:
                     logger.info("\n[!] State file found but data files missing. Starting fresh.")
                     resume = False
             else:
-                logger.info("\n[!] No resumable state found. Starting fresh.")
+                logger.info("\n[!] No pipeline_state.json found. Starting fresh.")
                 resume = False
 
         try:
