@@ -56,11 +56,20 @@ class InteractiveReview:
         if not flagged_items:
             print("\n[*] No items flagged for review")
             return {'total': 0, 'confirmed': 0, 'rejected': 0}
-        
+
+        reviewer = (self.config.examiner_name or "").strip()
+        if not reviewer:
+            reviewer = input("Reviewer name (required for audit trail): ").strip()
+            if not reviewer:
+                print("\n[!] Reviewer name is required. Set EXAMINER_NAME in .env or enter at the prompt.")
+                return {'total': 0, 'confirmed': 0, 'rejected': 0}
+            self.config.examiner_name = reviewer
+
         print(f"\n{'='*80}")
         print(f" INTERACTIVE MANUAL REVIEW")
         print(f"{'='*80}")
-        print(f"\nTotal items flagged: {len(flagged_items)}")
+        print(f"\nReviewer: {reviewer}")
+        print(f"Total items flagged: {len(flagged_items)}")
         print(f"\nFor each flagged message, you'll see:")
         print(f"  - 5 messages BEFORE for context")
         print(f"  - The FLAGGED message (highlighted)")
@@ -165,17 +174,27 @@ class InteractiveReview:
                 print("  ✓ Confirmed as concerning")
             else:
                 decision = 'not_relevant'
-                notes = f"Rejected as false positive via interactive review on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                print("  Enter a short reason for rejecting this item (required):")
+                reason = input("    > ").strip()
+                while not reason:
+                    print("  A reason is required for 'not relevant' decisions.")
+                    reason = input("    > ").strip()
+                notes = f"Rejected as false positive via interactive review on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}. Reason: {reason}"
                 stats['rejected'] += 1
                 print("  ✗ Marked as false positive")
 
             # Save decision (auto-backup)
-            self.review_manager.add_review(
-                item_id=item.get('id', f'item_{idx}'),
-                item_type='threat',
-                decision=decision,
-                notes=notes
-            )
+            try:
+                self.review_manager.add_review(
+                    item_id=item.get('id', f'item_{idx}'),
+                    item_type='threat',
+                    decision=decision,
+                    notes=notes,
+                    reviewer=reviewer,
+                )
+            except ValueError as exc:
+                print(f"  [!] Could not record decision: {exc}")
+                continue
         
         print(f"\n{'='*80}")
         print(f" REVIEW COMPLETE")

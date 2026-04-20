@@ -58,46 +58,113 @@ class ManualReviewManager:
             {"review_dir": str(self.review_dir), "resumed": bool(session_id), "loaded_reviews": len(self.reviews)}
         )
     
-    def add_review(self, item_id: str, item_type: str, decision: str, notes: str = ""):
+    # Decisions whose forensic weight demands a written justification. A reviewer who marks an item not_relevant or uncertain must explain why, because that decision is what keeps the item OUT of the final report; opposing counsel will want to see the reasoning.
+    _DECISIONS_REQUIRING_NOTES = frozenset({"not_relevant", "uncertain"})
+    _VALID_DECISIONS = frozenset({"relevant", "not_relevant", "uncertain"})
+
+    def add_review(self, item_id: str, item_type: str, decision: str, notes: str = "", reviewer: Optional[str] = None):
         """
         Add a manual review decision.
-        
+
         Args:
-            item_id: Unique identifier for the reviewed item
-            item_type: Type of item (e.g., 'threat', 'pattern', 'behavioral')
-            decision: Review decision ('relevant', 'not_relevant', 'uncertain')
-            notes: Optional notes about the decision
+            item_id: Unique identifier for the reviewed item.
+            item_type: Type of item (e.g., 'threat', 'pattern', 'behavioral').
+            decision: Review decision ('relevant', 'not_relevant', 'uncertain').
+            notes: Notes about the decision. Required when decision is not_relevant or uncertain.
+            reviewer: Name/identifier of the reviewer. When None, falls back to config.examiner_name. An empty or missing name is rejected — decisions must be attributed to a named person.
+
+        Raises:
+            ValueError: if decision is unknown, notes missing on a rejection/uncertain, reviewer not identified, or the item_id has already been reviewed in this session (use amend_review to change a prior decision).
         """
+        if decision not in self._VALID_DECISIONS:
+            raise ValueError(f"Invalid decision {decision!r}; expected one of {sorted(self._VALID_DECISIONS)}")
+
+        if decision in self._DECISIONS_REQUIRING_NOTES and not (notes or "").strip():
+            raise ValueError(f"A {decision!r} decision requires explanatory notes for defensibility")
+
+        reviewer = (reviewer or getattr(self._config, "examiner_name", "") or "").strip()
+        if not reviewer:
+            raise ValueError("Reviewer identity is required; set EXAMINER_NAME in .env or pass reviewer=...")
+
+        # Reject duplicate decisions on the same item. Use amend_review() to modify an earlier decision — that path writes a new record rather than overwriting, preserving audit history.
+        if item_id in self.reviewed_item_ids:
+            raise ValueError(f"Item {item_id!r} already reviewed in this session; use amend_review() to change it")
+
         review = {
             "item_id": item_id,
             "item_type": item_type,
             "decision": decision,
             "notes": notes,
             "timestamp": datetime.now().isoformat(),
-            "reviewer": "analyst",  # Could be extended to track specific reviewers
-            "session_id": self.session_id
+            "reviewer": reviewer,
+            "session_id": self.session_id,
+            "amended": False,
+            "supersedes": None,
         }
-        
+
         self.reviews.append(review)
-        
+
         # Record the review action
         self.forensic.record_action(
             "manual_review_added",
-            f"Manual review added for {item_type} item {item_id}",
+            f"Manual review added for {item_type} item {item_id} by {reviewer}",
             {
                 "item_id": item_id,
                 "decision": decision,
-                "has_notes": bool(notes)
+                "has_notes": bool(notes),
+                "reviewer": reviewer,
             }
         )
-        
+
         # Auto-save after each review
+        self._save_reviews()
+
+    def amend_review(self, item_id: str, decision: str, notes: str, reviewer: Optional[str] = None):
+        """Amend a prior review decision with a new, fully-attributed record.
+
+        Prior decisions are never mutated: this appends a new record that supersedes the previous one, with 'amended=True' and 'supersedes' pointing back. Notes are always required on an amendment — the reviewer must explain why they changed their mind.
+        """
+        if decision not in self._VALID_DECISIONS:
+            raise ValueError(f"Invalid decision {decision!r}")
+        if not (notes or "").strip():
+            raise ValueError("Amendments require notes explaining the change")
+        reviewer = (reviewer or getattr(self._config, "examiner_name", "") or "").strip()
+        if not reviewer:
+            raise ValueError("Reviewer identity is required to amend a review")
+
+        prior = None
+        for r in reversed(self.reviews):
+            if r.get("item_id") == item_id and not r.get("superseded_by"):
+                prior = r
+                break
+        if prior is None:
+            raise ValueError(f"No prior review found for item {item_id!r}")
+
+        prior["superseded_by"] = datetime.now().isoformat()
+
+        review = {
+            "item_id": item_id,
+            "item_type": prior.get("item_type"),
+            "decision": decision,
+            "notes": notes,
+            "timestamp": datetime.now().isoformat(),
+            "reviewer": reviewer,
+            "session_id": self.session_id,
+            "amended": True,
+            "supersedes": prior.get("timestamp"),
+        }
+        self.reviews.append(review)
+        self.forensic.record_action(
+            "manual_review_amended",
+            f"Amended review for {item_id}: {prior.get('decision')} -> {decision} by {reviewer}",
+            {"item_id": item_id, "from": prior.get("decision"), "to": decision, "reviewer": reviewer},
+        )
         self._save_reviews()
     
     @property
     def reviewed_item_ids(self) -> set:
-        """Return set of item_ids that have already been reviewed."""
-        return {r['item_id'] for r in self.reviews}
+        """Return set of item_ids whose most recent decision is still active (not superseded)."""
+        return {r['item_id'] for r in self.reviews if not r.get('superseded_by')}
 
     def get_reviews_by_decision(self, decision: str) -> List[Dict]:
         """

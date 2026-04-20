@@ -371,6 +371,7 @@ class WebReview:
         index = data.get("index")
         decision = data.get("decision")
         notes = data.get("notes", "")
+        amend = bool(data.get("amend"))
 
         if decision not in ("relevant", "not_relevant", "uncertain"):
             return {"error": "Invalid decision value"}
@@ -381,13 +382,22 @@ class WebReview:
         item = self.flagged_items[index]
         item_id = item.get("id", f"item_{index}")
 
-        # Add the review
-        self.review_manager.add_review(
-            item_id=item_id,
-            item_type=item.get("type", "threat"),
-            decision=decision,
-            notes=notes,
-        )
+        try:
+            if amend:
+                self.review_manager.amend_review(
+                    item_id=item_id,
+                    decision=decision,
+                    notes=notes,
+                )
+            else:
+                self.review_manager.add_review(
+                    item_id=item_id,
+                    item_type=item.get("type", "threat"),
+                    decision=decision,
+                    notes=notes,
+                )
+        except ValueError as exc:
+            return {"error": str(exc)}
 
         self.reviewed_indices.add(index)
 
@@ -494,12 +504,15 @@ class WebReview:
 
         item_id = f"browse_{message_id}"
 
-        self.review_manager.add_review(
-            item_id=item_id,
-            item_type='user_flagged',
-            decision=decision,
-            notes=notes,
-        )
+        try:
+            self.review_manager.add_review(
+                item_id=item_id,
+                item_type='user_flagged',
+                decision=decision,
+                notes=notes,
+            )
+        except ValueError as exc:
+            return {"error": str(exc)}
 
         if self.forensic:
             self.forensic.record_action(
@@ -998,6 +1011,13 @@ function selectDecision(d) {{
 function submitDecision() {{
   if (!selectedDecision) return;
   const notes = document.getElementById('notesField').value.trim();
+
+  // Notes are required for rejection/uncertain — these are the decisions that keep the item OUT of the final report, so a reason must be recorded for defensibility.
+  if ((selectedDecision === 'not_relevant' || selectedDecision === 'uncertain') && !notes) {{
+    showToast('A brief explanation is required for this decision');
+    document.getElementById('notesField').focus();
+    return;
+  }}
 
   fetch('/api/decision', {{
     method: 'POST',
