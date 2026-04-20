@@ -125,6 +125,66 @@ class WebReview:
         def note_suggestions():
             return jsonify(self._get_note_suggestions())
 
+        @self.app.route("/api/note_suggestions", methods=["POST"])
+        def add_note_suggestion():
+            text = (request.json or {}).get("text", "").strip()
+            if not text:
+                return jsonify({"error": "text is required"}), 400
+            text = text[0].upper() + text[1:] if text else text
+            custom = self._load_custom_phrases()
+            key = " ".join(text.lower().split())
+            existing_keys = {" ".join(p.lower().split()) for p in custom["phrases"]}
+            if key in existing_keys:
+                return jsonify({"error": "phrase already exists"}), 409
+            custom["phrases"].append(text)
+            # Un-hide if it was previously hidden
+            if key in custom["hidden"]:
+                custom["hidden"].remove(key)
+            self._save_custom_phrases(custom)
+            return jsonify({"ok": True})
+
+        @self.app.route("/api/note_suggestions", methods=["PUT"])
+        def edit_note_suggestion():
+            body = request.json or {}
+            old_text = (body.get("old_text") or "").strip()
+            new_text = (body.get("new_text") or "").strip()
+            if not old_text or not new_text:
+                return jsonify({"error": "old_text and new_text are required"}), 400
+            new_text = new_text[0].upper() + new_text[1:] if new_text else new_text
+            custom = self._load_custom_phrases()
+            old_key = " ".join(old_text.lower().split())
+            # If editing a custom phrase, update it in place
+            updated = False
+            for i, phrase in enumerate(custom["phrases"]):
+                if " ".join(phrase.lower().split()) == old_key:
+                    custom["phrases"][i] = new_text
+                    updated = True
+                    break
+            if not updated:
+                # Editing a derived phrase: hide the old one, add the new as custom
+                if old_key not in custom["hidden"]:
+                    custom["hidden"].append(old_key)
+                custom["phrases"].append(new_text)
+            self._save_custom_phrases(custom)
+            return jsonify({"ok": True})
+
+        @self.app.route("/api/note_suggestions", methods=["DELETE"])
+        def delete_note_suggestion():
+            body = request.json or {}
+            text = (body.get("text") or "").strip()
+            is_custom = body.get("custom", False)
+            if not text:
+                return jsonify({"error": "text is required"}), 400
+            custom = self._load_custom_phrases()
+            key = " ".join(text.lower().split())
+            if is_custom:
+                custom["phrases"] = [p for p in custom["phrases"] if " ".join(p.lower().split()) != key]
+            else:
+                if key not in custom["hidden"]:
+                    custom["hidden"].append(key)
+            self._save_custom_phrases(custom)
+            return jsonify({"ok": True})
+
         @self.app.route("/api/start_index")
         def start_index():
             return jsonify({"index": self._first_unreviewed_index()})
@@ -529,11 +589,32 @@ class WebReview:
                 return i
         return 0
 
+    def _load_custom_phrases(self) -> Dict:
+        """Load custom phrases and hidden-phrase keys from review_dir/custom_phrases.json."""
+        path = self.review_manager.review_dir / "custom_phrases.json"
+        if path.exists():
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+                return {"phrases": data.get("phrases", []), "hidden": data.get("hidden", [])}
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {"phrases": [], "hidden": []}
+
+    def _save_custom_phrases(self, data: Dict) -> None:
+        """Persist custom phrases and hidden-phrase keys."""
+        path = self.review_manager.review_dir / "custom_phrases.json"
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+
     def _get_note_suggestions(self) -> Dict:
         """Return previously used note phrases ordered by frequency, most common first.
 
-        Surfaces prior wording so the examiner can reuse a phrase in one click — speeds up review and keeps language consistent across findings in the same case.
+        Surfaces prior wording so the examiner can reuse a phrase in one click — speeds up review and keeps language consistent across findings in the same case. Custom phrases and hidden-phrase overrides are merged from custom_phrases.json.
         """
+        custom = self._load_custom_phrases()
+        hidden_keys = set(custom.get("hidden", []))
+
         # Dedupe on a normalized key (lowercased, whitespace-collapsed) so "Discussing other people" and "discussing other people" coalesce into one chip. Display uses sentence case of the longest variant for consistency.
         groups: Dict[str, Dict] = {}
         for record in self.review_manager.reviews:
@@ -543,6 +624,8 @@ class WebReview:
             if not note:
                 continue
             key = " ".join(note.lower().split())
+            if key in hidden_keys:
+                continue
             entry = groups.setdefault(key, {"variants": {}, "count": 0})
             entry["count"] += 1
             entry["variants"][note] = entry["variants"].get(note, 0) + 1
@@ -552,10 +635,18 @@ class WebReview:
             display = max(entry["variants"].items(), key=lambda kv: (len(kv[0]), kv[1]))[0]
             # Normalize to sentence case: uppercase first char, rest as-is
             display = display[0].upper() + display[1:] if display else display
-            ordered.append((display, entry["count"]))
-        ordered.sort(key=lambda kv: (-kv[1], kv[0].lower()))
-        suggestions = [{"text": text, "count": count} for text, count in ordered[:40]]
-        return {"suggestions": suggestions}
+            ordered.append({"text": display, "count": entry["count"], "custom": False})
+        ordered.sort(key=lambda item: (-item["count"], item["text"].lower()))
+
+        # Append user-created custom phrases (not derived from reviews)
+        seen_keys = {" ".join(s["text"].lower().split()) for s in ordered}
+        for phrase in custom.get("phrases", []):
+            key = " ".join(phrase.lower().split())
+            if key not in seen_keys and key not in hidden_keys:
+                ordered.append({"text": phrase, "count": 0, "custom": True})
+                seen_keys.add(key)
+
+        return {"suggestions": ordered[:40]}
 
     def _get_progress(self) -> Dict:
         """Return review progress stats."""
@@ -908,6 +999,26 @@ class WebReview:
   .note-phrases .phrase-chip:hover .chip-count {{ background: rgba(255,255,255,0.22); }}
   .note-phrases .phrase-empty {{ color: #999; font-size: 11px; font-style: italic; padding: 2px 2px; }}
 
+  /* Edit mode for note phrases */
+  .note-phrases-header {{ display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }}
+  .note-phrases-header label {{ font-size: 13px; font-weight: 600; margin: 0; }}
+  .edit-phrases-btn {{ background: none; border: 1px solid #c5cae9; border-radius: 4px; padding: 2px 8px;
+                       font-size: 11px; color: #1a237e; cursor: pointer; line-height: 1.4; }}
+  .edit-phrases-btn:hover {{ background: #eef3ff; }}
+  .note-phrases .phrase-chip .chip-delete {{ display: none; background: none; border: none;
+                                             color: #c62828; font-size: 14px; font-weight: 700;
+                                             cursor: pointer; padding: 0 2px; line-height: 1; }}
+  .note-phrases.editing .phrase-chip .chip-delete {{ display: inline; }}
+  .note-phrases.editing .phrase-chip {{ border-style: dashed; }}
+  .note-phrases.editing .phrase-chip.custom-chip {{ border-color: #7986cb; background: #e8eaf6; }}
+  .note-phrases .phrase-add {{ display: inline-flex; align-items: center; gap: 4px;
+                               background: #fff; color: #1a237e; border: 1px dashed #7986cb;
+                               border-radius: 14px; padding: 3px 10px; font-size: 12px;
+                               cursor: pointer; }}
+  .note-phrases .phrase-add:hover {{ background: #e8eaf6; }}
+  .phrase-edit-input {{ border: 1px solid #1a237e; border-radius: 4px; font-size: 12px;
+                        padding: 3px 6px; width: 200px; outline: none; }}
+
   .submit-btn {{ width: 100%; padding: 10px; background: #1a237e; color: #fff; border: none;
                  border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
                  margin-top: 8px; }}
@@ -1060,6 +1171,9 @@ class WebReview:
     </div>
 
     <label style="font-size:13px; font-weight:600; margin-bottom:4px; display:block;">Notes</label>
+    <div class="note-phrases-header">
+      <button class="edit-phrases-btn" id="editPhrasesBtn" onclick="toggleEditPhrases()">Edit</button>
+    </div>
     <div id="notePhrases" class="note-phrases"></div>
     <textarea id="notesField" placeholder="Optional notes about your decision..."></textarea>
     <button class="submit-btn" id="submitBtn" onclick="submitDecision()" disabled>Submit Decision</button>
@@ -1367,7 +1481,7 @@ function escapeHtml(text) {{
 
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {{
-  if (e.target.tagName === 'TEXTAREA') return;
+  if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
   if (e.key === '1') selectDecision('relevant');
   else if (e.key === '2') selectDecision('not_relevant');
   else if (e.key === '3') selectDecision('uncertain');
@@ -1377,30 +1491,129 @@ document.addEventListener('keydown', e => {{
 }});
 
 // Quick-select note phrases
+let phraseEditMode = false;
+let cachedSuggestions = [];
+
 function loadNotePhrases() {{
   fetch('/api/note_suggestions')
     .then(r => r.json())
-    .then(data => renderNotePhrases(data.suggestions || []));
+    .then(data => {{
+      cachedSuggestions = data.suggestions || [];
+      renderNotePhrases(cachedSuggestions);
+    }});
 }}
 
 function renderNotePhrases(suggestions) {{
   const host = document.getElementById('notePhrases');
   if (!host) return;
-  if (!suggestions.length) {{
+  if (!suggestions.length && !phraseEditMode) {{
     host.innerHTML = '<span class="phrase-empty">No reusable phrases yet — your notes will appear here.</span>';
     return;
   }}
-  host.innerHTML = suggestions.map(s => {{
+  host.classList.toggle('editing', phraseEditMode);
+  const btn = document.getElementById('editPhrasesBtn');
+  if (btn) btn.textContent = phraseEditMode ? 'Done' : 'Edit';
+
+  let html = suggestions.map(s => {{
     const text = s.text || '';
-    const count = s.count || 1;
-    return '<span class="phrase-chip" title="' + escapeHtml(text) + '" onclick="applyPhrase(this)" data-text="' + escapeHtml(text) + '">'
+    const count = s.count || 0;
+    const isCustom = s.custom || false;
+    const chipClass = 'phrase-chip' + (isCustom ? ' custom-chip' : '');
+    const onclick = phraseEditMode
+      ? 'editPhrase(this)'
+      : 'applyPhrase(this)';
+    return '<span class="' + chipClass + '" title="' + escapeHtml(text) + '" onclick="' + onclick + '" data-text="' + escapeHtml(text) + '" data-custom="' + isCustom + '">'
          + '<span class="chip-text">' + escapeHtml(text) + '</span>'
          + (count > 1 ? '<span class="chip-count">' + count + '</span>' : '')
+         + '<button class="chip-delete" onclick="event.stopPropagation(); deletePhrase(this)" title="Remove">&times;</button>'
          + '</span>';
   }}).join('');
+
+  if (phraseEditMode) {{
+    html += '<span class="phrase-add" onclick="addPhrase()">+ Add phrase</span>';
+  }}
+  host.innerHTML = html;
+}}
+
+function toggleEditPhrases() {{
+  phraseEditMode = !phraseEditMode;
+  renderNotePhrases(cachedSuggestions);
+}}
+
+function deletePhrase(btn) {{
+  const chip = btn.closest('.phrase-chip');
+  const text = chip.getAttribute('data-text');
+  const isCustom = chip.getAttribute('data-custom') === 'true';
+  fetch('/api/note_suggestions', {{
+    method: 'DELETE',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{text: text, custom: isCustom}})
+  }}).then(() => loadNotePhrases());
+}}
+
+function editPhrase(el) {{
+  const chip = el.closest ? el.closest('.phrase-chip') || el : el;
+  const oldText = chip.getAttribute('data-text');
+  const chipText = chip.querySelector('.chip-text');
+  if (!chipText || chip.querySelector('.phrase-edit-input')) return;
+  const input = document.createElement('input');
+  input.className = 'phrase-edit-input';
+  input.value = oldText;
+  chipText.style.display = 'none';
+  chip.insertBefore(input, chipText.nextSibling);
+  input.focus();
+  input.select();
+  function commit() {{
+    const newText = input.value.trim();
+    if (newText && newText !== oldText) {{
+      fetch('/api/note_suggestions', {{
+        method: 'PUT',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{old_text: oldText, new_text: newText}})
+      }}).then(() => loadNotePhrases());
+    }} else {{
+      chipText.style.display = '';
+      input.remove();
+    }}
+  }}
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', function(e) {{
+    if (e.key === 'Enter') {{ e.preventDefault(); input.blur(); }}
+    if (e.key === 'Escape') {{ input.value = oldText; input.blur(); }}
+  }});
+}}
+
+function addPhrase() {{
+  const host = document.getElementById('notePhrases');
+  const addBtn = host.querySelector('.phrase-add');
+  if (host.querySelector('.phrase-edit-input')) return;
+  const input = document.createElement('input');
+  input.className = 'phrase-edit-input';
+  input.placeholder = 'New phrase...';
+  if (addBtn) host.insertBefore(input, addBtn);
+  else host.appendChild(input);
+  input.focus();
+  function commit() {{
+    const text = input.value.trim();
+    if (text) {{
+      fetch('/api/note_suggestions', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{text: text}})
+      }}).then(() => loadNotePhrases());
+    }} else {{
+      input.remove();
+    }}
+  }}
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', function(e) {{
+    if (e.key === 'Enter') {{ e.preventDefault(); input.blur(); }}
+    if (e.key === 'Escape') {{ input.value = ''; input.blur(); }}
+  }});
 }}
 
 function applyPhrase(el) {{
+  if (phraseEditMode) return;
   const phrase = el.getAttribute('data-text') || '';
   if (!phrase) return;
   const field = document.getElementById('notesField');
