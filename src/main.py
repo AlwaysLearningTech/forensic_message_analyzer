@@ -273,6 +273,38 @@ class ForensicAnalyzer:
         print(f"    Preserved {preserved_count} source files → {zip_path.name}")
 
     # ------------------------------------------------------------------
+    # Contact auto-mapping from vCard exports
+    # ------------------------------------------------------------------
+
+    def _apply_contact_automapping(self):
+        """Merge any vCard-derived contacts into config.contact_mappings.
+
+        Opt-in via CONTACTS_VCARD_DIR. Every merged entry is logged to the forensic chain so the provenance of an auto-mapped display name is auditable — a reviewer can later see that 'Alice Baker' came from /path/to/contacts/baker.vcf rather than being hand-typed.
+        """
+        vcard_dir = getattr(self.config, "contacts_vcard_dir", None)
+        if not vcard_dir:
+            return
+
+        from .utils.contact_automapper import load_vcards_from_dir, merge_into_config
+
+        mapping = load_vcards_from_dir(Path(vcard_dir))
+        if not mapping:
+            self.forensic.record_action(
+                "contact_automap_skipped",
+                f"No vCards found under {vcard_dir}",
+                {"dir": vcard_dir},
+            )
+            return
+
+        added = merge_into_config(self.config, mapping)
+        self.forensic.record_action(
+            "contact_automap_applied",
+            f"Auto-mapped {len(added)} contact(s) from vCards under {vcard_dir}",
+            {"dir": vcard_dir, "entries": {k: v for k, v in added.items()}},
+        )
+        print(f"\n[*] Auto-mapped {len(added)} contact(s) from vCards")
+
+    # ------------------------------------------------------------------
     # Working-copy routing (FRE 1002 — Best Evidence Rule)
     # ------------------------------------------------------------------
 
@@ -511,6 +543,9 @@ class ForensicAnalyzer:
 
         # Route every extractor through working copies so originals are never read during analysis (FRE 1002 best-evidence + Daubert reliability). Repoint config paths to the copies so extractors remain unchanged.
         self._route_sources_to_working_copies()
+
+        # Auto-map additional contacts from vCard exports so the "Unknown" third-party surface shrinks before analysis runs.
+        self._apply_contact_automapping()
 
         extractor = DataExtractor(self.forensic, third_party_registry=self.third_party_registry, config=self.config)
         
