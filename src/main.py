@@ -241,19 +241,25 @@ class ForensicAnalyzer:
     # Pipeline state (for resume after crash)
     # ------------------------------------------------------------------
 
-    def _save_pipeline_state(self, review_session_id: str = None,
-                             review_results_path: str = None,
-                             ai_batch_results_path: str = None,
-                             review_complete: bool = False):
-        """Save pipeline state so a crashed run can resume or finalize later."""
+    _UNSET = object()
+
+    def _save_pipeline_state(self, review_session_id=_UNSET,
+                             review_results_path=_UNSET,
+                             ai_batch_results_path=_UNSET,
+                             review_complete=_UNSET):
+        """Save pipeline state so a crashed run can resume or finalize later.
+
+        Fields not explicitly passed are preserved from any existing state file — this lets mid-phase saves (e.g. marking the review session_id when Phase 4 starts) update one field without clobbering paths set by earlier phases. Pass the value explicitly (including None) to overwrite.
+        """
+        existing = self._load_pipeline_state() or {}
         state = {
             "timestamp": datetime.now().isoformat(),
-            "extracted_data_path": str(self._extracted_data_path) if self._extracted_data_path else None,
-            "analysis_results_path": str(self._analysis_results_path) if self._analysis_results_path else None,
-            "ai_batch_results_path": ai_batch_results_path,
-            "review_results_path": review_results_path,
-            "review_session_id": review_session_id,
-            "review_complete": review_complete,
+            "extracted_data_path": str(self._extracted_data_path) if self._extracted_data_path else existing.get("extracted_data_path"),
+            "analysis_results_path": str(self._analysis_results_path) if self._analysis_results_path else existing.get("analysis_results_path"),
+            "ai_batch_results_path": existing.get("ai_batch_results_path") if ai_batch_results_path is self._UNSET else ai_batch_results_path,
+            "review_results_path": existing.get("review_results_path") if review_results_path is self._UNSET else review_results_path,
+            "review_session_id": existing.get("review_session_id") if review_session_id is self._UNSET else review_session_id,
+            "review_complete": existing.get("review_complete", False) if review_complete is self._UNSET else review_complete,
         }
         state_path = Path(self.config.output_dir) / "pipeline_state.json"
         with open(state_path, 'w') as f:
@@ -444,8 +450,10 @@ class ForensicAnalyzer:
                     with open(self._analysis_results_path, 'w') as f:
                         json.dump(analysis_results, f, indent=2, default=str)
 
-                # Save state so review can be resumed if process dies
-                self._save_pipeline_state()
+                # Save state so review can be resumed if process dies. Stamp ai_batch_results_path now — Phase 3 produced it and a crash during Phase 4 shouldn't lose the reference.
+                self._save_pipeline_state(
+                    ai_batch_results_path=str(self._ai_batch_results_path) if getattr(self, '_ai_batch_results_path', None) else None,
+                )
 
             # Phase 4: Manual Review (reviews local + AI findings)
             review_results = self.run_review_phase(analysis_results, extracted_data, resume_session_id=resume_session_id)
