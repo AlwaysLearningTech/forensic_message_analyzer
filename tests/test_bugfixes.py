@@ -157,19 +157,19 @@ class TestAIAnalyzerConfig:
         from src.analyzers.ai_analyzer import AIAnalyzer
         from src.forensic_utils import ForensicRecorder
         mock_config.ai_api_key = None
-        mock_config.ai_batch_model = "claude-haiku-4-20250506"
+        mock_config.ai_batch_model = "claude-haiku-4-5"
         recorder = ForensicRecorder(output_dir=tmp_output_dir)
         analyzer = AIAnalyzer(forensic_recorder=recorder, config=mock_config)
-        assert analyzer.batch_model == "claude-haiku-4-20250506"
+        assert analyzer.batch_model == "claude-haiku-4-5"
 
     def test_summary_model_custom(self, mock_config, tmp_output_dir):
         from src.analyzers.ai_analyzer import AIAnalyzer
         from src.forensic_utils import ForensicRecorder
         mock_config.ai_api_key = None
-        mock_config.ai_summary_model = "claude-sonnet-4-20250514"
+        mock_config.ai_summary_model = "claude-sonnet-4-6"
         recorder = ForensicRecorder(output_dir=tmp_output_dir)
         analyzer = AIAnalyzer(forensic_recorder=recorder, config=mock_config)
-        assert analyzer.summary_model == "claude-sonnet-4-20250514"
+        assert analyzer.summary_model == "claude-sonnet-4-6"
 
 
 class TestDataExtractorConfig:

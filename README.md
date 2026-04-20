@@ -11,7 +11,6 @@ A comprehensive digital forensics tool for analyzing message data from multiple 
 - [Usage](#usage)
 - [Legal Defensibility](#legal-defensibility)
 - [Architecture](#architecture)
-- [Testing](#testing)
 - [Output Files](#output-files)
 - [Contributing](#contributing)
 - [License](#license)
@@ -143,30 +142,22 @@ sudo apt-get install tesseract-ocr
 
 ## Configuration
 
-The `.env` file is stored **outside the repository** for security. The system looks for it in:
-1. `~/workspace/data/forensic-message-analyzer/.env` (primary location)
-2. Path specified in `DOTENV_PATH` environment variable
-3. Local `.env` in the project directory (not recommended)
+The analyzer loads `.env` from the project directory by default. If you prefer to keep it elsewhere (e.g. per-case, on an encrypted volume, outside the repo), point at it with `python3 run.py --env /path/to/.env` or set `DOTENV_PATH` in your shell.
 
 ### Setting Up Configuration
 
-1. Create the data directory structure:
+1. Copy the example configuration into the project directory:
 ```bash
-mkdir -p ~/workspace/data/forensic-message-analyzer
+cp .env.example .env
 ```
 
-2. Copy the example configuration to the data directory:
-```bash
-cp .env.example ~/workspace/data/forensic-message-analyzer/.env
-```
-
-3. Edit `~/workspace/data/forensic-message-analyzer/.env` with your settings:
+2. Edit `.env` with your settings:
 ```bash
 # Anthropic Claude API key (optional — enables pre-review screening and AI executive summary)
 AI_API_KEY=your-api-key
 # Two-model setup (the legacy single AI_MODEL was removed in v4.4.0):
-AI_BATCH_MODEL=claude-haiku-4-20250506      # cheap; per-message classification
-AI_SUMMARY_MODEL=claude-sonnet-4-20250514   # higher quality; executive summary
+AI_BATCH_MODEL=claude-haiku-4-5      # cheap; per-message classification
+AI_SUMMARY_MODEL=claude-sonnet-4-6   # higher quality; executive summary
 
 # Case identification — single value OR JSON array for consolidated runs.
 # CASE_NUMBERS (plural) is also accepted as a JSON array.
@@ -189,6 +180,34 @@ SCREENSHOT_SOURCE_DIR=~/workspace/data/forensic-message-analyzer/source_files/sc
 EMAIL_SOURCE_DIR=~/workspace/data/forensic-message-analyzer/source_files/email/
 TEAMS_SOURCE_DIR=~/workspace/data/forensic-message-analyzer/source_files/microsoft_teams_personal/
 ```
+
+### Signing Key (Optional but Recommended)
+
+Every run signs its manifest, chain of custody, and final reports with a detached Ed25519 signature. By default the analyzer generates a fresh key under `run_dir/keys/` each run — that's tamper-evident within the run, but each run has a different public key so an outside reader can't confirm that two reports came from the same examiner.
+
+For a persistent examiner identity, generate one keypair, keep the private key on an encrypted volume, and distribute the public half with your expert-witness disclosures.
+
+**1. Generate an Ed25519 private key (PKCS#8 PEM):**
+
+```bash
+mkdir -p ~/.forensic
+openssl genpkey -algorithm ED25519 -out ~/.forensic/examiner_ed25519.pem
+chmod 600 ~/.forensic/examiner_ed25519.pem
+```
+
+**2. Export the public key (PEM) to publish alongside your disclosures:**
+
+```bash
+openssl pkey -in ~/.forensic/examiner_ed25519.pem -pubout -out ~/.forensic/examiner_ed25519.pub.pem
+```
+
+**3. Point the analyzer at the private key by adding this to your `.env`:**
+
+```bash
+EXAMINER_SIGNING_KEY=~/.forensic/examiner_ed25519.pem
+```
+
+**4. To verify a signed output** you need three files: the output itself (e.g. `forensic_report_*.pdf`), the sibling `*.sig`, and either the run-bundled `*.sig.pub` or your published public-key PEM. Any mismatch means the file was altered after the run.
 
 ## Data Separation Strategy
 
@@ -355,14 +374,6 @@ Each person tab includes:
 - Threat information (threat_detected, threat_categories, threat_confidence)
 - Sentiment data (sentiment_score, sentiment_polarity, sentiment_subjectivity)
 
-### Embedding the analyzer in your own code
-
-Public Python API documentation — every class, method, and signature
-with usage examples — lives in [`DEVELOPER.md`](DEVELOPER.md). It is
-intended for developers integrating the analyzer into another tool or
-writing custom extractors / reporters; end-users do not need it.
-
-
 ## Legal Defensibility
 
 ### Federal Rules of Evidence Compliance
@@ -412,129 +423,14 @@ writing custom extractors / reporters; end-users do not need it.
 
 ## Architecture
 
-### Directory Structure
-```
-forensic-message-analyzer/
-├── src/
-│   ├── extractors/                 # Data extraction modules
-│   │   ├── base.py                 # MessageExtractor base class (shared init + _record helper)
-│   │   ├── data_extractor.py       # Unified extraction orchestrator
-│   │   ├── imessage_extractor.py   # iMessage database extraction
-│   │   ├── whatsapp_extractor.py   # WhatsApp export parsing (zip-bomb + zip-slip guards)
-│   │   ├── email_extractor.py      # Email .eml/.mbox extraction
-│   │   ├── teams_extractor.py      # Microsoft Teams export extraction
-│   │   ├── screenshot_extractor.py # Screenshot cataloging
-│   │   ├── sms_backup_extractor.py # Android SMS Backup & Restore XML
-│   │   ├── call_logs_extractor.py  # iOS CallHistory + Android call XML + CSV
-│   │   ├── voicemail_extractor.py  # iOS voicemail.db + audio + transcripts
-│   │   └── location_extractor.py   # Google Takeout + Apple plist + GPX
-│   ├── analyzers/                  # Analysis engines
-│   │   ├── ai_analyzer.py          # Anthropic Claude AI analysis (batch + sync)
-│   │   ├── threat_analyzer.py      # Threat detection
-│   │   ├── sentiment_analyzer.py   # Sentiment analysis
-│   │   ├── behavioral_analyzer.py  # Behavioral patterns
-│   │   ├── yaml_pattern_analyzer.py # YAML-defined patterns (DARVO, gaslighting, coercive control)
-│   │   ├── communication_metrics.py # Statistical metrics
-│   │   ├── screenshot_analyzer.py  # OCR processing
-│   │   └── attachment_processor.py # Attachment cataloging + EXIF / GPS / tamper scanning
-│   ├── pipeline/                   # Per-phase runners (delegated from ForensicAnalyzer)
-│   │   ├── extraction.py           # Phase 1
-│   │   ├── analysis.py             # Phase 2
-│   │   ├── ai_batch.py             # Phase 3
-│   │   ├── review.py               # Phase 4
-│   │   ├── behavioral.py           # Phase 5
-│   │   ├── reporting.py            # Phase 7
-│   │   └── documentation.py        # Phase 8 (includes events_timeline)
-│   ├── review/                     # Manual review management
-│   │   ├── manual_review_manager.py # Review decision tracking (required reviewer, append-only amendments)
-│   │   ├── redaction_manager.py    # Append-only span / regex redaction workflow
-│   │   ├── interactive_review.py   # CLI-based message review
-│   │   └── web_review.py           # Flask-based web review UI (hardened cookies, scoped attachments)
-│   ├── reporters/                  # Report generation
-│   │   ├── forensic_reporter.py    # Main reporter (Word + PDF + methodology DOCX + methodology PDF + JSON)
-│   │   ├── excel_reporter.py       # Standalone Excel report with multiple sheets
-│   │   ├── html_reporter.py        # HTML/PDF report with inline images, source badges, legal appendices
-│   │   ├── chat_reporter.py        # iMessage-style chat-bubble HTML report
-│   │   └── json_reporter.py        # JSON output
-│   ├── utils/                      # Utilities and helpers
-│   │   ├── conversation_threading.py # Thread detection and grouping
-│   │   ├── legal_compliance.py     # Legal standards + structured methodology/compliance rendering
-│   │   ├── timeline_generator.py   # Detailed minute-level HTML timeline
-│   │   ├── events_timeline.py      # Sparse executive-view timeline
-│   │   ├── run_manifest.py         # Run documentation (config snapshot, pattern hashes, signed)
-│   │   ├── evidence_preserver.py   # Hashing, archiving, working-copy routing, contact auto-map
-│   │   ├── signing.py              # Ed25519 detached signatures
-│   │   ├── contact_automapper.py   # vCard → contact_mappings merger
-│   │   └── pricing.py              # AI model pricing lookup
-│   ├── forensic_utils.py           # Chain of custody and integrity (HMAC-chained log)
-│   ├── third_party_registry.py     # Unmapped contact tracking
-│   ├── config.py                   # Configuration + snapshot() for manifest
-│   ├── schema.py                   # TypedDicts for Message / Finding / ReviewRecord
-│   └── main.py                     # Thin orchestrator; phase logic lives in src/pipeline/
-├── tests/                          # Unit and integration tests
-│   ├── test_imports.py             # Dependency verification
-│   ├── test_core_functionality.py  # Core component tests
-│   ├── test_integration.py         # End-to-end tests
-│   ├── test_forensic_utils.py      # Forensic utilities tests
-│   ├── test_teams_extractor.py     # Microsoft Teams extractor tests
-│   ├── test_third_party_registry.py # Third-party contact registry tests
-│   ├── test_timezone_dst.py        # DST + Apple-epoch round-trip coverage
-│   └── run_all_tests.sh            # Test runner script
-├── patterns/                       # YAML pattern definitions (with empirical citations)
-│   └── analysis_patterns.yaml
-├── .github/
-│   └── copilot-instructions.md     # Development guidelines
-├── validate_before_run.py          # Pre-run validation and cost estimation
-├── check_readiness.py              # System readiness checker
-├── generate_sample_output.py       # Regenerates sample_output/ from anonymized fixtures
-├── run.py                          # Main entry point
-├── ROADMAP.md                      # Deferred work (redaction UI, Signal/Telegram)
-├── requirements.txt                # Supported minimum versions
-├── requirements-lock.txt           # Pinned versions for reproducible installs
-└── .env.example                    # Configuration template
-```
+Eight-phase pipeline runs in two passes:
 
-### Data Flow
-```
-Source Data → Extraction → Analysis → Review → Reporting → Documentation
-     ↓            ↓           ↓         ↓          ↓            ↓
-  [Hashed]    [Hashed]    [Logged]  [Tracked]  [Hashed]   [Manifest]
-```
+- **Pass 1** (`python3 run.py`) — Phases 1–4: extract every configured source, hash and archive it, run local and optional AI analysis, and open the manual-review UI.
+- **Pass 2** (`python3 run.py --finalize`) — Phases 5–8: post-review behavioral analysis, AI executive summary, report generation in every format, and documentation (chain of custody, timelines, manifest).
 
-## Testing
+Every source file is copied to a hash-verified working copy before any extractor opens it; originals are never read during analysis. The forensic log is HMAC-chained so edits, deletions, or reorders break the chain at the first affected record. The final manifest, chain of custody, and every report get detached Ed25519 signatures.
 
-### Run All Tests
-```bash
-# Run all test suites
-./tests/run_all_tests.sh
-
-# Or use pytest directly
-python3 -m pytest tests/ -v
-```
-
-### Run Specific Test Suite
-```bash
-# Import tests
-python3 -m pytest tests/test_imports.py -v
-
-# Core functionality tests
-python3 -m pytest tests/test_core_functionality.py -v
-
-# Integration tests
-python3 -m pytest tests/test_integration.py -v
-
-# Forensic utilities tests
-python3 -m pytest tests/test_forensic_utils.py -v
-
-# Test with coverage
-python3 -m pytest --cov=src tests/
-```
-
-### Check System Readiness
-```bash
-# Verify configuration and dependencies
-python3 check_readiness.py
-```
+Full directory tree, per-module responsibilities, and the public Python API reference live in [`DEVELOPER.md`](DEVELOPER.md).
 
 ## Output Files
 
@@ -556,74 +452,35 @@ All outputs are timestamped and stored in the configured `OUTPUT_DIR` (default: 
   - **Manual Review**: Review decisions (if applicable)
   - Note: Random phone numbers and chat IDs are excluded (only shows legally relevant parties)
 
-- `READ_ME_FIRST_YYYYMMDD_HHMMSS.docx` - **One-page reading guide for the legal team**
-  - Open this first. Tells the reader, in one page, which file in the
-    package answers which question (methodology challenges → open the
-    methodology document; plain-English findings → open the legal team
-    summary; full record → open the forensic report PDF; etc.)
-  - References every other file in the package by actual filename so
-    attorneys / paralegals can navigate without guessing
+Every Word document has a PDF sibling with the same content, produced in the same phase. They are listed here as a single entry — treat `.docx` and `.pdf` as interchangeable for each item.
 
-- `forensic_report_YYYYMMDD_HHMMSS.docx` - Word document report with:
-  - Legal team summary (plain-language narrative explaining findings and output files)
-  - Executive summary
-  - Data extraction statistics (total messages, date range, sources, screenshots)
-  - Threat analysis (count and high-priority examples)
-  - Sentiment analysis (positive/neutral/negative distribution)
-  - Manual review breakdown
-  - Chain of custody reference
-  
-- `forensic_report_YYYYMMDD_HHMMSS.pdf` - PDF report for court submission
-  - Contains same content as Word document
-  - Formatted for legal distribution and printing
+- `READ_ME_FIRST_*` (`.docx` / `.pdf`) — **one-page reading guide for the legal team.** Open this first. In one page it tells the reader which file in the package answers which question (methodology challenges → methodology document; plain-English findings → legal team summary; full record → forensic report; etc.) and references every other file by actual filename.
 
-- `methodology_YYYYMMDD_HHMMSS.docx` / `methodology_YYYYMMDD_HHMMSS.pdf` - **Standalone Methodology Statement** (both formats)
+- `forensic_report_*` (`.docx` / `.pdf`) — comprehensive findings report.
+  - Legal team summary (plain-language narrative)
+  - Executive summary, extraction statistics, threat analysis, sentiment distribution
+  - Manual review breakdown, chain-of-custody reference
+
+- `methodology_*` (`.docx` / `.pdf`) — **standalone Methodology Statement.**
   - Plain-language, judge-readable walkthrough of every analysis phase
   - Explicitly maps each FRE / Daubert factor to how it was satisfied
-  - Component-level error-rate and known-failure-mode disclosures (pattern matching, sentiment, attributedBody decoding, OCR, EXIF, AI screening)
-  - Empirical citations for every threat / behavioural pattern matched (Stark 2007, Sweet 2019, Campbell 2003, Freyd 1997 / Harsey & Freyd 2020 for DARVO, etc.)
-  - Structured Standards Compliance section with real headings, bulleted list of standards, and term/definition pairs
-  - Included as separate documents so the legal team can review the methodology without wading through case-specific findings; PDF form exists for court exhibits and readers without Office
+  - Component-level error-rate disclosures (pattern matching, sentiment, attributedBody decoding, OCR, EXIF, AI screening)
+  - Empirical citations for every pattern (Stark 2007, Sweet 2019, Campbell 2003, Freyd 1997, etc.)
+  - Structured Standards Compliance section with real headings and term/definition pairs
 
-- `forensic_analysis_YYYYMMDD_HHMMSS.html` - HTML report with inline images
-  - Overview cards, per-person message tables, conversation threads
-  - Inline base64 attachment images (iMessage and WhatsApp)
-  - Risk indicators, executive summary, legal compliance footer
-  - Legal appendices: Appendix A (Methodology), Appendix B (Completeness Validation), Appendix C (Limitations)
+- `legal_team_summary_*` (`.docx` / `.pdf`) — narrative summary for attorneys, plain-language, with recommended next steps and cross-references to the other files.
 
-- `forensic_analysis_YYYYMMDD_HHMMSS.pdf` - PDF conversion of HTML report (via WeasyPrint)
+- `report_*.xlsx` — Excel report with person-organized tabs (Overview; one tab per configured person; Manual Review; Third-Party Contacts). Only legally relevant parties are shown.
 
-- `events_timeline_YYYYMMDD_HHMMSS.html` - **Big-picture events timeline** (court-facing)
-  - Sparse, executive-view chronology of the moments the case turns on
-  - Shows only reviewer-confirmed events: pattern-matched threats, AI-screened threats, coercive-control pattern clusters, sentiment shifts
-  - Category badges (THREAT / PATTERN / ESCALATION / DE-ESCALATION / MILESTONE) with per-event provenance reference
-  - Dates resolve against the message corpus even when the AI summary omits them
+- `forensic_analysis_*` (`.html` / `.pdf`) — HTML report with inline images, per-finding source badges (`pattern_matched`, `ai_screened`, `extracted`, `derived`), and the legal appendices (Methodology, Completeness Validation, Limitations). The PDF is rendered from the HTML via WeasyPrint.
 
-- `timeline_YYYYMMDD_HHMMSS.html` - Detailed minute-level timeline (analyst drill-down)
-  - Chronological message view with filtering
-  - Threat highlighting and sentiment indicators
-  - Email communications with subject lines (purple border for mapped persons, pink for third-party)
-  - Third-party emails (counselors, attorneys, family) provide corroborating evidence context
+- `events_timeline_*.html` — **big-picture events timeline** (court-facing). Sparse chronology showing only reviewer-confirmed moments (confirmed threats, coercive-control clusters, sentiment shifts) with category badges and per-event provenance reference.
 
-- `chat_report_YYYYMMDD_HHMMSS.html` - iMessage-style chat-bubble report
-  - Per-person conversation sections with left/right aligned message bubbles
-  - Inline attachment images, threat/sentiment visual indicators, conversation threading
-  - Edit history display for edited messages (original text and intermediate edits)
-  - Deleted message badges, URL preview blocks, shared location blocks
+- `timeline_*.html` — detailed minute-level timeline (analyst drill-down). Chronological message view with threat highlighting and sentiment indicators; includes email correspondence for third-party corroboration.
 
-- `legal_team_summary_YYYYMMDD_HHMMSS.docx` - Narrative summary for attorneys
-  - Explains key findings in plain language
-  - Describes how to use each output file
-  - Includes recommended next steps for the legal team
+- `chat_report_*.html` — iMessage-style chat-bubble transcript. Per-person conversation sections, inline attachments, edit-history display, URL-preview and shared-location blocks, deleted-message badges.
 
-- `all_messages_YYYYMMDD_HHMMSS.csv` - Complete unedited message record (CSV)
-  - All messages from all sources in chronological order
-  - No filtering or enrichment — raw forensic data
-  - SHA-256 hashed for chain of custody
-
-- `all_messages_YYYYMMDD_HHMMSS.xlsx` - Complete unedited message record (Excel)
-  - Same data as CSV, formatted for court readability
-  - Single "All Messages" sheet with auto-sized columns
+- `all_messages_*` (`.csv` / `.xlsx`) — complete unfiltered message record in chronological order. Same data in both formats; raw forensic export, SHA-256 hashed.
 
 ### Documentation
 - `chain_of_custody_YYYYMMDD_HHMMSS.json` - Complete audit trail with:

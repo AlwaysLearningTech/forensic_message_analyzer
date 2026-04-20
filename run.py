@@ -25,16 +25,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.main import main, finalize
 from src.config import Config
 
-# Create config instance
-config = Config()
 
-# Route library logs to stdout so progress banners (previously print()) are visible by default. Libraries should not assume stdout ownership; the CLI tool owns formatting here.
-_log_level = getattr(logging, (config.log_level or "INFO").upper(), logging.INFO)
-logging.basicConfig(
-    level=_log_level,
-    format="%(message)s",
-    stream=sys.stdout,
-)
+def _configure_logging(config: Config):
+    """Route library logs to stdout so progress banners are visible by default. Libraries should not assume stdout ownership; the CLI tool owns formatting here."""
+    level = getattr(logging, (config.log_level or "INFO").upper(), logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(message)s",
+        stream=sys.stdout,
+    )
 
 
 def _find_latest_run_dir(base_dir: Path) -> Optional[Path]:
@@ -47,7 +46,7 @@ def _find_latest_run_dir(base_dir: Path) -> Optional[Path]:
     return None
 
 
-def _pre_run_validation() -> bool:
+def _pre_run_validation(config: Config) -> bool:
     """Fail-fast checks to support legal defensibility and smooth runs.
     - Ensures config validates (paths, creds, mappings)
     - Confirms output directory is writable
@@ -89,7 +88,7 @@ def _pre_run_validation() -> bool:
     return True
 
 
-def _post_run_verification() -> None:
+def _post_run_verification(config: Config) -> None:
     """Lightweight verification that key artifacts were produced.
     Does not fail the run, but logs warnings if expected files are missing.
     """
@@ -112,7 +111,7 @@ def _post_run_verification() -> None:
         logging.info("Post-run verification passed: core artifacts present (manifest, chain of custody).")
 
 
-def _resolve_run_dir(path_arg: str) -> Path:
+def _resolve_run_dir(path_arg: str, config: Config) -> Path:
     """Resolve a run directory from a CLI argument or auto-detect the latest."""
     if path_arg != "auto":
         run_dir = Path(path_arg)
@@ -147,7 +146,16 @@ if __name__ == "__main__":
             "  1. Run 'python3 run.py' to extract, analyze, and review messages (Phases 1-3)\n"
             "  2. Complete manual review when prompted\n"
             "  3. Run 'python3 run.py --finalize' to generate reports (Phases 4-7)\n"
+            "\n"
+            "Configuration:\n"
+            "  By default the analyzer loads .env from the project root. Use --env to point\n"
+            "  at a different location (e.g. a per-case .env kept outside the repo).\n"
         ),
+    )
+    parser.add_argument(
+        "--env", default=None, metavar="PATH",
+        help="Path to the .env file. Defaults to the project-root .env. "
+             "Overrides DOTENV_PATH if set."
     )
     parser.add_argument(
         "--finalize", nargs="?", const="auto", default=None, metavar="RUN_DIR",
@@ -159,24 +167,28 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # Build config using the resolved .env location, then configure logging from it.
+    config = Config(env_path=args.env)
+    _configure_logging(config)
+
     try:
-        if not _pre_run_validation():
+        if not _pre_run_validation(config):
             sys.exit(2)
 
         if args.finalize is not None:
             # --finalize mode: load existing run directory, run Phases 4-7
-            run_dir = _resolve_run_dir(args.finalize)
+            run_dir = _resolve_run_dir(args.finalize, config)
             config.output_dir = str(run_dir)
             success = finalize(config)
             try:
-                _post_run_verification()
+                _post_run_verification(config)
             except Exception as _e:
                 logging.warning(f"Post-run verification encountered a non-fatal issue: {_e}")
             sys.exit(0 if success else 1)
 
         elif args.resume is not None:
             # --resume mode: load existing run directory, resume review
-            run_dir = _resolve_run_dir(args.resume)
+            run_dir = _resolve_run_dir(args.resume, config)
             config.output_dir = str(run_dir)
             success = main(config, resume=True)
             sys.exit(0 if success else 1)

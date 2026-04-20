@@ -20,30 +20,41 @@ class Config:
     """
     Manages configuration settings for the forensic message analyzer.
     Loads from .env file and provides validated access to settings.
+
+    Search order for .env (first hit wins):
+      1. ``env_path`` argument (typically from ``run.py --env <path>``).
+      2. ``DOTENV_PATH`` environment variable.
+      3. ``.env`` in the project root (the default for a fresh checkout).
+      4. ``.env`` in the current working directory (convenience fallback).
     """
-    
-    def __init__(self):
-        """Initialize configuration by loading environment variables."""
-        # Try multiple locations for .env file
-        env_locations = [
-            _PROJECT_ROOT / '.env',
-            Path(os.environ.get('DOTENV_PATH', '')),
-            Path('.env'),
-        ]
-        
-        # Try each location
+
+    def __init__(self, env_path=None):
+        """Initialize configuration by loading environment variables.
+
+        Args:
+            env_path: Optional explicit path to a .env file. When set, it wins over every other location — typically passed from ``run.py --env``. When ``None``, the default project-root ``.env`` is used.
+        """
+        env_locations = []
+        if env_path:
+            env_locations.append(Path(env_path).expanduser())
+        dotenv_env = os.environ.get('DOTENV_PATH', '').strip()
+        if dotenv_env:
+            env_locations.append(Path(dotenv_env).expanduser())
+        env_locations.append(_PROJECT_ROOT / '.env')
+        env_locations.append(Path('.env'))
+
         loaded = False
-        for env_path in env_locations:
-            if env_path and env_path.exists():
-                load_dotenv(env_path, override=True)
-                logger.info(f"Loaded .env from: {env_path}")
+        for candidate in env_locations:
+            if candidate and candidate.exists() and candidate.is_file():
+                load_dotenv(candidate, override=True)
+                logger.info(f"Loaded .env from: {candidate}")
                 loaded = True
                 break
-        
+
         if not loaded:
             logger.warning("No .env file found. Using system environment variables only.")
-            logger.info(f"Searched locations: {[str(p) for p in env_locations if p]}")
-        
+            logger.info(f"Searched locations: {[str(p) for p in env_locations]}")
+
         # Load configuration values
         self._load_config()
     

@@ -1571,7 +1571,7 @@ class ForensicReporter:
             model = (
                 self.config.ai_summary_model
                 or self.config.ai_batch_model
-                or 'claude-sonnet-4-20250514'
+                or 'claude-sonnet-4-6'
             )
             response = client.messages.create(
                 model=model,

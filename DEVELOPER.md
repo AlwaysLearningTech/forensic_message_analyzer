@@ -15,6 +15,8 @@ this file to run the analyzer.
 > change.
 
 ## Table of Contents
+- [Directory Structure](#directory-structure)
+- [Data Flow](#data-flow)
 - [Quick Example](#quick-example)
 - [Forensic Utilities](#forensic-utilities)
 - [Extractors](#extractors)
@@ -22,7 +24,101 @@ this file to run the analyzer.
 - [Reporters](#reporters)
 - [Review](#review)
 - [Utilities](#utilities)
-- [Data Flow](#data-flow)
+- [Testing](#testing)
+- [System Readiness](#system-readiness)
+
+## Directory Structure
+
+```text
+forensic-message-analyzer/
+├── src/
+│   ├── extractors/                   # Data extraction modules
+│   │   ├── base.py                   # MessageExtractor base class (shared init + _record helper)
+│   │   ├── data_extractor.py         # Unified extraction orchestrator
+│   │   ├── imessage_extractor.py     # iMessage database extraction
+│   │   ├── whatsapp_extractor.py     # WhatsApp export parsing (zip-bomb + zip-slip guards)
+│   │   ├── email_extractor.py        # Email .eml/.mbox extraction
+│   │   ├── teams_extractor.py        # Microsoft Teams export extraction
+│   │   ├── screenshot_extractor.py   # Screenshot cataloging
+│   │   ├── sms_backup_extractor.py   # Android SMS Backup & Restore XML
+│   │   ├── call_logs_extractor.py    # iOS CallHistory + Android call XML + CSV
+│   │   ├── voicemail_extractor.py    # iOS voicemail.db + audio + transcripts
+│   │   └── location_extractor.py     # Google Takeout + Apple plist + GPX
+│   ├── analyzers/                    # Analysis engines
+│   │   ├── ai_analyzer.py            # Anthropic Claude AI analysis (batch + sync)
+│   │   ├── threat_analyzer.py        # Threat detection
+│   │   ├── sentiment_analyzer.py     # Sentiment analysis
+│   │   ├── behavioral_analyzer.py    # Behavioral patterns
+│   │   ├── yaml_pattern_analyzer.py  # YAML-defined patterns (DARVO, gaslighting, coercive control)
+│   │   ├── communication_metrics.py  # Statistical metrics
+│   │   ├── screenshot_analyzer.py    # OCR processing
+│   │   └── attachment_processor.py   # Attachment cataloging + EXIF / GPS / tamper scanning
+│   ├── pipeline/                     # Per-phase runners (delegated from ForensicAnalyzer)
+│   │   ├── extraction.py             # Phase 1
+│   │   ├── analysis.py               # Phase 2
+│   │   ├── ai_batch.py               # Phase 3
+│   │   ├── review.py                 # Phase 4
+│   │   ├── behavioral.py             # Phase 5
+│   │   ├── reporting.py              # Phase 7
+│   │   └── documentation.py          # Phase 8 (includes events_timeline)
+│   ├── review/                       # Manual review management
+│   │   ├── manual_review_manager.py  # Review decision tracking (required reviewer, append-only amendments)
+│   │   ├── redaction_manager.py      # Append-only span / regex redaction workflow
+│   │   ├── interactive_review.py     # CLI-based message review
+│   │   └── web_review.py             # Flask-based web review UI (hardened cookies, scoped attachments)
+│   ├── reporters/                    # Report generation
+│   │   ├── forensic_reporter.py      # Main reporter (Word + PDF + methodology DOCX + PDF + JSON)
+│   │   ├── excel_reporter.py         # Standalone Excel report with multiple sheets
+│   │   ├── html_reporter.py          # HTML/PDF report with inline images, source badges, appendices
+│   │   ├── chat_reporter.py          # iMessage-style chat-bubble HTML report
+│   │   └── json_reporter.py          # JSON output
+│   ├── utils/                        # Utilities and helpers
+│   │   ├── conversation_threading.py # Thread detection and grouping
+│   │   ├── legal_compliance.py       # Legal standards + structured methodology rendering
+│   │   ├── timeline_generator.py     # Detailed minute-level HTML timeline
+│   │   ├── events_timeline.py        # Sparse executive-view timeline
+│   │   ├── run_manifest.py           # Run documentation (config snapshot, pattern hashes, signed)
+│   │   ├── evidence_preserver.py     # Hashing, archiving, working-copy routing, contact auto-map
+│   │   ├── signing.py                # Ed25519 detached signatures
+│   │   ├── contact_automapper.py     # vCard → contact_mappings merger
+│   │   └── pricing.py                # AI model pricing lookup
+│   ├── forensic_utils.py             # Chain of custody and integrity (HMAC-chained log)
+│   ├── third_party_registry.py       # Unmapped contact tracking
+│   ├── config.py                     # Configuration + snapshot() for manifest
+│   ├── schema.py                     # TypedDicts for Message / Finding / ReviewRecord
+│   └── main.py                       # Thin orchestrator; phase logic lives in src/pipeline/
+├── tests/                            # Unit and integration tests
+│   ├── test_imports.py               # Dependency verification
+│   ├── test_core_functionality.py    # Core component tests
+│   ├── test_integration.py           # End-to-end tests
+│   ├── test_forensic_utils.py        # Forensic utilities tests
+│   ├── test_teams_extractor.py       # Microsoft Teams extractor tests
+│   ├── test_third_party_registry.py  # Third-party contact registry tests
+│   ├── test_timezone_dst.py          # DST + Apple-epoch round-trip coverage
+│   └── run_all_tests.sh              # Test runner script
+├── patterns/                         # YAML pattern definitions (with empirical citations)
+│   └── analysis_patterns.yaml
+├── .github/
+│   └── copilot-instructions.md       # Development guidelines
+├── validate_before_run.py            # Pre-run validation and cost estimation
+├── check_readiness.py                # System readiness checker
+├── generate_sample_output.py         # Regenerates sample_output/ from anonymized fixtures
+├── run.py                            # Main entry point
+├── ROADMAP.md                        # Deferred work (redaction UI, Signal/Telegram)
+├── requirements.txt                  # Supported minimum versions
+├── requirements-lock.txt             # Pinned versions for reproducible installs
+└── .env.example                      # Configuration template
+```
+
+## Data Flow
+
+```text
+Source Data → Extraction → Analysis → Review → Reporting → Documentation
+     ↓            ↓           ↓         ↓          ↓            ↓
+  [Hashed]    [Hashed]    [Logged]  [Tracked]  [Hashed]   [Manifest]
+```
+
+Every stage records its actions (with timestamps and SHA-256 hashes where applicable) into the same `ForensicRecorder` instance, so the final `chain_of_custody_<timestamp>.json` covers the entire run end-to-end. The forensic JSONL log is HMAC-chained; final reports, manifest, and chain of custody are signed with detached Ed25519.
 
 ## Quick Example
 
@@ -332,14 +428,52 @@ The text generators behind every legal section of every report.
 - `convert_to_local(timestamp)`, `format_timestamp(...)` — timezone-aware
   human-readable formatting used everywhere user-facing text appears.
 
-## Data Flow
+## Testing
 
-```
-Source Data → Extraction → Analysis → Review → Reporting → Documentation
-     ↓            ↓           ↓         ↓          ↓            ↓
-  [Hashed]    [Hashed]    [Logged]  [Tracked]  [Hashed]   [Manifest]
+### Run all tests
+
+```bash
+# Full suite (integration + unit)
+python3 -m pytest tests/ -v
+
+# Non-integration subset (faster; doesn't require fixture data)
+python3 -m pytest tests/ --ignore=tests/test_integration.py
+
+# Shell wrapper
+./tests/run_all_tests.sh
 ```
 
-Every stage records its actions (with timestamps and SHA-256 hashes where
-applicable) into the same `ForensicRecorder` instance, so the final
-`chain_of_custody_<timestamp>.json` covers the entire run end-to-end.
+### Run a specific suite
+
+```bash
+python3 -m pytest tests/test_imports.py -v            # dependency verification
+python3 -m pytest tests/test_core_functionality.py -v # core components
+python3 -m pytest tests/test_forensic_utils.py -v     # chain of custody, HMAC log
+python3 -m pytest tests/test_timezone_dst.py -v       # DST + Apple-epoch coverage
+python3 -m pytest tests/test_integration.py -v        # end-to-end pipeline
+python3 -m pytest tests/test_teams_extractor.py -v
+python3 -m pytest tests/test_third_party_registry.py -v
+python3 -m pytest tests/test_counseling_extractor.py -v
+python3 -m pytest tests/test_bugfixes.py -v
+```
+
+### Coverage
+
+```bash
+python3 -m pytest --cov=src tests/
+```
+
+## System Readiness
+
+Before a real run, sanity-check that sources, credentials, and output paths are in place:
+
+```bash
+python3 check_readiness.py
+```
+
+For a deeper pre-run validation that also estimates AI costs (uses a small amount of API credits):
+
+```bash
+python3 validate_before_run.py            # 8-check validation with 5-message AI sample (~$0.01)
+python3 validate_before_run.py --no-ai    # Skip the AI sample; extraction stats + cost table only
+```
