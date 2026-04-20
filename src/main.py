@@ -670,7 +670,8 @@ class ForensicAnalyzer:
                     return False
             return True
 
-        # Add threats from local analyzers (Phase 2) for review
+        # Add threats from local analyzers (Phase 2) for review.
+        # These findings are stamped source="pattern_matched" because they come from deterministic regex/YAML rules; juries and opposing counsel treat them differently from AI-screened findings.
         if 'threats' in analysis_results:
             threat_details = analysis_results['threats'].get('details', [])
             # threat_details is a list of dicts, not a DataFrame
@@ -680,14 +681,17 @@ class ForensicAnalyzer:
                         items_for_review.append({
                             'id': f"threat_{idx}",
                             'type': 'threat',
+                            'source': 'pattern_matched',
+                            'method': 'yaml_patterns',
                             'content': item.get('content', ''),
                             'categories': item.get('threat_categories', ''),
                             'confidence': item.get('threat_confidence', 0),
                             'message_id': item.get('message_id', ''),
                         })
 
-        # Add AI-detected threats (Phase 3) for review
+        # AI-detected threats and coercive-control patterns carry source="ai_screened". These come from an LLM and are explicitly non-evidentiary until confirmed by a human reviewer; the source tag is what lets reports distinguish them in court.
         ai_analysis = analysis_results.get('ai_analysis', {})
+        ai_model_name = ai_analysis.get('model') or 'claude'
         ai_threats = ai_analysis.get('threat_assessment', {})
         if ai_threats.get('found'):
             for i, detail in enumerate(ai_threats.get('details', [])):
@@ -695,6 +699,8 @@ class ForensicAnalyzer:
                     items_for_review.append({
                         'id': f"ai_threat_{i}",
                         'type': 'ai_threat',
+                        'source': 'ai_screened',
+                        'method': ai_model_name,
                         'content': detail.get('quote', ''),
                         'categories': f"{detail.get('type', '')} — {detail.get('target', '')}",
                         'confidence': detail.get('severity', ''),
@@ -710,6 +716,8 @@ class ForensicAnalyzer:
                     items_for_review.append({
                         'id': f"ai_coercive_{i}",
                         'type': 'ai_coercive_control',
+                        'source': 'ai_screened',
+                        'method': ai_model_name,
                         'content': pattern.get('quote', ''),
                         'categories': f"Coercive control: {pattern.get('type', '')}",
                         'confidence': pattern.get('severity', ''),
@@ -735,6 +743,8 @@ class ForensicAnalyzer:
             items_for_review.append({
                 'id': f"email_{msg.get('message_id', '')}",
                 'type': item_type,
+                'source': 'extracted',
+                'method': 'email_import',
                 'content': content,
                 'categories': f"{'Third-Party ' if is_third_party else ''}Email: {sender} → {recipient}",
                 'confidence': 0.0,

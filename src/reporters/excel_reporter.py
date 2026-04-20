@@ -114,9 +114,18 @@ class ExcelReporter:
                         writer, extracted_data.get('messages', [])
                     )
 
-                # Manual Review sheet
+                # Manual Review sheet.
+                # Put source/method/reviewer up front so a reader can tell at a glance which decisions originated from deterministic pattern matching vs AI screening and who confirmed them.
                 if 'reviews' in review_decisions and review_decisions['reviews']:
                     df_reviews = pd.DataFrame(review_decisions['reviews'])
+                    preferred = [
+                        "timestamp", "reviewer", "item_id", "item_type",
+                        "source", "method", "decision", "notes",
+                        "amended", "supersedes", "superseded_by", "session_id",
+                    ]
+                    cols = [c for c in preferred if c in df_reviews.columns]
+                    cols += [c for c in df_reviews.columns if c not in cols]
+                    df_reviews = df_reviews.reindex(columns=cols)
                     df_reviews.to_excel(writer, sheet_name='Manual Review', index=False)
 
                 # Third Party Contacts sheet

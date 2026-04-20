@@ -62,6 +62,13 @@ REPORT_TEMPLATE = """\
   .legal-notice { font-size: 9px; color: #888; border-top: 1px solid #ccc;
                   margin-top: 40px; padding-top: 8px; }
   .page-break { page-break-before: always; }
+  .src-badge { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 9px;
+               font-weight: 700; letter-spacing: 0.03em; }
+  .src-pattern_matched { background: #e3f2fd; color: #0d47a1; border: 1px solid #bbdefb; }
+  .src-ai_screened     { background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; }
+  .src-extracted       { background: #f3e5f5; color: #4a148c; border: 1px solid #e1bee7; }
+  .src-derived         { background: #eceff1; color: #263238; border: 1px solid #cfd8dc; }
+  .src-unknown         { background: #eee; color: #555; border: 1px solid #ccc; }
 </style>
 </head>
 <body>
@@ -209,12 +216,24 @@ REPORT_TEMPLATE = """\
 {% if review_decisions %}
 <div class="page-break">
 <h2>Manual Review Decisions</h2>
+<p class="source-legend" style="font-size:11px;color:#555;margin-bottom:6px;">
+  <strong>Source legend:</strong>
+  <span class="src-badge src-pattern_matched">PATTERN-MATCHED</span> deterministic YAML/regex;
+  <span class="src-badge src-ai_screened">AI-SCREENED</span> LLM flagging (non-evidentiary until confirmed by reviewer);
+  <span class="src-badge src-extracted">EXTRACTED</span> raw message/email surfaced for review;
+  <span class="src-badge src-derived">DERIVED</span> computed from other findings.
+</p>
 <table>
-  <tr><th>Item ID</th><th>Decision</th><th>Notes</th><th>Reviewed At</th></tr>
+  <tr><th>Item ID</th><th>Source</th><th>Method</th><th>Decision</th><th>Reviewer</th><th>Notes</th><th>Reviewed At</th></tr>
   {% for d in review_decisions %}
   <tr>
-    <td>{{ d.item_id }}</td><td>{{ d.decision }}</td>
-    <td>{{ d.notes or '' }}</td><td>{{ d.reviewed_at or '' }}</td>
+    <td>{{ d.item_id }}</td>
+    <td><span class="src-badge src-{{ d.source or 'unknown' }}">{{ (d.source or 'unknown')|upper|replace('_', '-') }}</span></td>
+    <td>{{ d.method or '' }}</td>
+    <td>{{ d.decision }}</td>
+    <td>{{ d.reviewer or '' }}</td>
+    <td>{{ d.notes or '' }}</td>
+    <td>{{ d.timestamp or d.reviewed_at or '' }}</td>
   </tr>
   {% endfor %}
 </table>

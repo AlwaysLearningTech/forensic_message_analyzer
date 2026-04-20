@@ -348,6 +348,8 @@ class WebReview:
             "item": {
                 "id": item.get("id", f"item_{index}"),
                 "type": item.get("type", "threat"),
+                "source": item.get("source", "unknown"),
+                "method": item.get("method", ""),
                 "content": item_content,
                 "categories": item.get("categories", ""),
                 "confidence": item.get("confidence", 0),
@@ -395,6 +397,8 @@ class WebReview:
                     item_type=item.get("type", "threat"),
                     decision=decision,
                     notes=notes,
+                    source=item.get("source", "unknown"),
+                    method=item.get("method", ""),
                 )
         except ValueError as exc:
             return {"error": str(exc)}
@@ -749,6 +753,15 @@ class WebReview:
   .existing-badge {{ background: #e8f5e9; border: 1px solid #a5d6a7; padding: 8px 12px;
                      border-radius: 6px; margin-bottom: 12px; font-size: 13px; }}
 
+  /* Finding source badges — make the provenance of a finding visible so reviewers treat pattern-matched vs AI-screened results differently. */
+  .source-badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
+                   font-weight: 600; letter-spacing: 0.03em; margin-right: 6px; }}
+  .src-pattern_matched {{ background: #e3f2fd; color: #0d47a1; border: 1px solid #bbdefb; }}
+  .src-ai_screened    {{ background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; }}
+  .src-extracted      {{ background: #f3e5f5; color: #4a148c; border: 1px solid #e1bee7; }}
+  .src-derived        {{ background: #eceff1; color: #263238; border: 1px solid #cfd8dc; }}
+  .src-unknown        {{ background: #eee; color: #555; border: 1px solid #ccc; }}
+
   /* Tabs */
   .tabs {{ display: flex; background: #263238; }}
   .tab {{ padding: 10px 24px; border: none; background: transparent; color: #ccc;
@@ -839,6 +852,8 @@ class WebReview:
 
     <div class="item-details" id="itemDetails">
       <h2>Item Details</h2>
+      <div class="detail-row"><span class="label">Source:</span> <span id="detailSourceBadge"></span></div>
+      <div class="detail-row"><span class="label">Method:</span> <span id="detailMethod">-</span></div>
       <div class="detail-row"><span class="label">Type:</span> <span id="detailType">-</span></div>
       <div class="detail-row"><span class="label">Categories:</span> <span id="detailCats">-</span></div>
       <div class="detail-row"><span class="label">Confidence:</span> <span id="detailConf">-</span></div>
@@ -981,6 +996,12 @@ function msgBubble(m, isFlagged) {{
 
 function renderDetails(data) {{
   const item = data.item || {{}};
+  const source = item.source || 'unknown';
+  const labels = {{ pattern_matched: 'PATTERN-MATCHED', ai_screened: 'AI-SCREENED', extracted: 'EXTRACTED', derived: 'DERIVED', unknown: 'UNKNOWN' }};
+  const badge = document.getElementById('detailSourceBadge');
+  badge.innerHTML = '<span class="source-badge src-' + escapeHtml(source) + '">'
+                  + escapeHtml(labels[source] || source.toUpperCase()) + '</span>';
+  document.getElementById('detailMethod').textContent = item.method || '-';
   document.getElementById('detailType').textContent = item.type || '-';
   document.getElementById('detailCats').textContent = item.categories || '-';
   document.getElementById('detailConf').textContent = item.confidence ? (item.confidence * 100).toFixed(0) + '%' : '-';

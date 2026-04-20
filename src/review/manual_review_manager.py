@@ -62,7 +62,7 @@ class ManualReviewManager:
     _DECISIONS_REQUIRING_NOTES = frozenset({"not_relevant", "uncertain"})
     _VALID_DECISIONS = frozenset({"relevant", "not_relevant", "uncertain"})
 
-    def add_review(self, item_id: str, item_type: str, decision: str, notes: str = "", reviewer: Optional[str] = None):
+    def add_review(self, item_id: str, item_type: str, decision: str, notes: str = "", reviewer: Optional[str] = None, source: str = "unknown", method: str = ""):
         """
         Add a manual review decision.
 
@@ -93,6 +93,8 @@ class ManualReviewManager:
         review = {
             "item_id": item_id,
             "item_type": item_type,
+            "source": source,
+            "method": method,
             "decision": decision,
             "notes": notes,
             "timestamp": datetime.now().isoformat(),
@@ -111,6 +113,7 @@ class ManualReviewManager:
             {
                 "item_id": item_id,
                 "decision": decision,
+                "source": source,
                 "has_notes": bool(notes),
                 "reviewer": reviewer,
             }
