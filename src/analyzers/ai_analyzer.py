@@ -75,6 +75,27 @@ def _extract_json(text: str) -> dict:
     return json.loads(cleaned)
 
 
+def _sanitize_endpoint(endpoint: Optional[str]) -> str:
+    """Return an endpoint safe to write to forensic logs.
+
+    Strips embedded userinfo (``https://user:token@host``) and any query
+    string that might carry credentials, leaving scheme + host + path.
+    """
+    if not endpoint:
+        return "api.anthropic.com"
+    try:
+        from urllib.parse import urlsplit, urlunsplit
+        parts = urlsplit(endpoint)
+        # Drop userinfo by taking only the hostname[:port]
+        netloc = parts.hostname or ""
+        if parts.port:
+            netloc = f"{netloc}:{parts.port}"
+        # Drop query and fragment in case they carry tokens
+        return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+    except Exception:
+        return "<redacted>"
+
+
 class AIAnalyzer:
     """
     AI-powered analysis using Anthropic Claude Opus.
@@ -146,7 +167,7 @@ class AIAnalyzer:
                         "model": self.model,
                         "batch_model": self.batch_model,
                         "summary_model": self.summary_model,
-                        "endpoint": self.endpoint or "api.anthropic.com",
+                        "endpoint": _sanitize_endpoint(self.endpoint),
                         "batch_api": self.use_batch_api,
                     },
                 )
