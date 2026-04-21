@@ -10,6 +10,8 @@ A comprehensive digital forensics tool for analyzing message data from multiple 
 - [Data Separation Strategy](#data-separation-strategy)
 - [Usage](#usage)
 - [Legal Defensibility](#legal-defensibility)
+- [Scope Limitations and Error Characteristics](#scope-limitations-and-error-characteristics)
+- [Reproducibility](#reproducibility)
 - [Architecture](#architecture)
 - [Output Files](#output-files)
 - [Contributing](#contributing)
@@ -315,11 +317,13 @@ This executes Phases 1-4 (extraction through review):
    - Maps all participants to configured person names
    - Adds sender and recipient fields to all messages
    - Detects and tracks third-party contacts not in person mappings
-2. **Local Analysis**: Runs all configured non-AI analyzers
-   - Threat detection with pattern matching
-   - Sentiment analysis (polarity and subjectivity)
-   - YAML-based pattern analysis
-   - Communication metrics
+2. **Local Analysis**: Runs four independent automated analyzers:
+   - **Threat detection** — regex matches against a published catalogue of physical-threat, stalking, harassment, intimidation, property-damage, and extortion phrases (defined in `patterns/analysis_patterns.yaml`, with empirical citations in the file header)
+   - **Sentiment analysis** — TextBlob computes a polarity score (−1.0 negative … +1.0 positive) and a subjectivity score for each message
+   - **Behavioral pattern detection** — additional regex families for emotional manipulation, gaslighting, controlling behavior, isolation, and love-bombing, each tied to empirical literature on intimate-partner coercive control
+   - **Communication metrics** — message volume, frequency, time-of-day distribution, and inter-message gap statistics by participant
+
+   These analyzers are intentionally tuned for high recall (over-flagging). False positives are expected and removed in the manual-review phase; the goal is to surface candidates a human can review in minutes rather than reading every message.
 3. **Optional AI Pre-Screening**: If configured, submits messages to Claude to surface additional review candidates
 4. **Manual Review**: Examiner reviews and confirms every flagged item before it can appear in the final reports
 
@@ -383,52 +387,79 @@ Each person tab includes:
 
 ## Legal Defensibility
 
-### Federal Rules of Evidence Compliance
+This tool is designed for use in legal proceedings under the Federal Rules of Evidence and the Daubert standard. The following explains in plain language how each requirement is satisfied.
 
-#### Authentication (FRE 901)
-- SHA-256 hashing of all source files and outputs
-- Precise timestamp logging via `ForensicRecorder`
-- Read-only access to original evidence
-- Complete audit trail in chain of custody
+### Federal Rules of Evidence
 
-#### Best Evidence Rule (FRE 1002)
-- Full metadata preservation
-- Deterministic, reproducible extractions
-- Unaltered content export alongside analysis
+#### FRE 901 — Authentication
 
-#### Business Records Exception (FRE 803(6))
-- Retains original message metadata
-- Documents regular course of communication
-- No content modification during processing
+Every source file is hashed (SHA-256) before any processing, and the hash is recorded in the chain-of-custody log. The same hash can be re-computed at any time to prove the evidence has not been altered. All source files are opened read-only; the extractors work exclusively from hash-verified working copies.
 
-### Daubert Standards
+#### FRE 1001-1008 — Best Evidence Rule
 
-#### Testability
-- Comprehensive unit and integration tests
-- Deterministic processing (same input → same output)
-- Hash verification for reproducibility
+Source files are opened read-only. Working copies are hash-verified against the originals before any extraction runs; mismatches are rejected. Original metadata (timestamps, sender/recipient identifiers, attachment references) is preserved in the extracted record. The original evidence is never modified.
 
-#### Peer Review
-- Uses established libraries (pandas, Pillow, pytesseract)
-- Open-source for community review
-- Documented methodology in reports
+#### FRE 803(6) — Business Records Exception
 
-#### Error Rate
-- Logs all extraction/analysis anomalies
-- Validation statistics in metrics
-- Documented limitations in reports
+Messages were captured in the regular course of communication on the device's normal messaging applications. The analyzer adds no content; it only re-organizes and indexes what was already there.
 
-#### Standards and Controls
-- SWGDE/NIST-aligned workflow
-- Configurable via `.env`
-- No hidden state or processing
+#### FRE 106 — Rule of Completeness
 
-#### General Acceptance
-- Standard output formats (JSON, XLSX, DOCX, PDF)
-- Verifiable logs and hashes
-- Industry-standard tools and methods
+The completeness validation step checks every conversation for one-sided extraction and for >24-hour gaps. Flagged conversations are listed by ID with the specific issue so the legal team can request supplemental production if needed.
 
-## Architecture
+### Daubert Standard (FRE 702)
+
+The methodology satisfies all five Daubert criteria:
+
+**Testability.** An open-source test suite re-runs the entire pipeline against synthetic data on every commit. The same source files (verified by SHA-256) and the same configuration (preserved in the run manifest) produce byte-identical extraction and local-analysis output.
+
+**Peer review.** The core libraries — pandas, Pillow, TextBlob, openpyxl, python-docx, reportlab, anthropic — are widely adopted, peer-reviewed, and MIT/BSD-licensed. The analyzer itself is open-source so opposing counsel and the court can inspect every line of code that processed the evidence.
+
+**Known error rate.** Pattern analyzers are intentionally tuned for high recall (low precision) to surface candidates for human review; false positives are the expected mode of failure and are filtered in the manual-review phase. Sentiment scores are indexing aids, not evidence of intent; no finding rests on a sentiment score alone. Component-level error disclosures are in the Methodology Statement distributed with every run — see [Scope Limitations and Error Characteristics](#scope-limitations-and-error-characteristics) below.
+
+**Standards compliance.** The workflow follows SWGDE Best Practices and NIST SP 800-86 (see below).
+
+**General acceptance.** Output formats (JSON, XLSX, DOCX, PDF, HTML) and methods (SHA-256 hashing, read-only evidence handling, chain-of-custody logging) are standard in digital-forensics practice.
+
+### SWGDE Best Practices
+
+The Scientific Working Group on Digital Evidence standards for handling, hashing, and preserving digital evidence are followed throughout: every source file is hashed before processing, originals are never written, and a chain-of-custody document covers every action in the run. See https://www.swgde.org/documents for the published guidance.
+
+### NIST SP 800-86
+
+NIST's *Guide to Integrating Forensic Techniques into Incident Response* was the procedural template for the eight-phase pipeline. Key practices applied: read-only media handling, working-copy hash verification, timestamped audit logging, and hash-based output integrity.
+
+## Scope Limitations and Error Characteristics
+
+Daubert requires disclosure of a methodology's known or potential error rate. The analyzer distinguishes deterministic components (identical output run to run given the same input) from non-deterministic components (where output may vary and the exact prompt is logged).
+
+**Pattern matching (deterministic).** The YAML pattern library (`patterns/analysis_patterns.yaml`) is pure regular-expression matching. Given the same input and the same pattern file (whose SHA-256 hash is in the run manifest), the same flags are produced every time. The library is tuned for recall; false positives are the expected mode of failure and are removed in manual review. Known failure modes: (a) short messages with incidental keyword matches (*"I'll kill for that last cookie"*); (b) paraphrased threats that avoid the listed vocabulary; (c) non-English or code-switched messages for which no patterns exist.
+
+**Sentiment analysis (deterministic, library-based).** TextBlob's polarity/subjectivity is a deterministic function of input text, trained on a general-English corpus. Documented miscalibration modes: sarcasm inversion, domain-specific vocabulary, emoji-heavy text, and non-English content. Sentiment scores are indexing aids; no finding rests on a score alone.
+
+**`attributedBody` decoding (iMessage).** The analyzer attempts three decoders in order: `pytypedstream` (full typedstream deserialization), a `streamtyped` byte-pattern heuristic, and a printable-text heuristic. The first decoder that yields non-empty text wins; if all three fail, the message text is left empty and the failure is recorded in the forensic log. Known failure mode: extremely short blobs (single-emoji tapbacks) may be silently skipped by all three decoders; the tapback is still recorded via the `associated_message_type` column.
+
+**OCR (screenshot analyzer).** Tesseract (via pytesseract, when `ENABLE_OCR=true`) accuracy is publicly documented; the analyzer does not publish an independent F1 score. OCR output is labeled as such in any reports that include it so a reviewer can weigh the literal screenshot against the OCR transcription.
+
+**EXIF/metadata extraction (attachment processor).** Pillow's `getexif()` is a pass-through of what the image file reports. A photo with stripped EXIF returns an `exif_stripped` anomaly; a photo with a `Software` tag naming a raster editor returns an `edited_by:` anomaly — neither asserts that the edit was substantive. These are flags for human review, not conclusions.
+
+**AI screening (non-deterministic).** When `AI_API_KEY` is configured, the Anthropic Claude batch API provides a second flagging pass. The model, prompt, token counts, batch ID, and sample output are recorded with each run. The analyzer does not treat AI output as evidentiary: every AI-flagged item goes through the same manual-review process as a pattern-matched item, and only items confirmed by a named reviewer appear in the final report. The `source` field on each finding (`ai_screened` vs `pattern_matched`) lets reports and reviewers weight findings appropriately. Known limitations of large language models — hallucination, sensitivity to prompt phrasing, and the lack of peer-reviewed forensic validation — are acknowledged.
+
+**General scope limitations:**
+- The analyzer does not interpret intent, credibility, or truthfulness — those are matters for the trier of fact.
+- The analyzer cannot recover messages deleted before the source data was preserved, or messages exchanged on platforms not configured as a source.
+- Completeness validation flags one-sided conversations and multi-day gaps; it does not prove that no deletion occurred.
+- Every flagged item must pass manual review before appearing in the findings; a reviewer's "not relevant" decision requires written justification and is recorded in the chain of custody.
+
+## Reproducibility
+
+Given the same source files (verified by SHA-256 hash) and the same configuration (preserved in the run manifest), running the analyzer again produces byte-identical extraction output. The local analyzers are fully deterministic.
+
+When AI is configured for pre-review screening or the executive summary, calls to the model are non-deterministic by design, but the model name, prompt, and token counts are recorded so the call can be audited. AI is never the sole basis for any finding — see [Analysis Capabilities](#analysis-capabilities) for how screening and review interact.
+
+The run manifest embeds the complete configuration snapshot (API keys redacted) and the SHA-256 hash of every pattern YAML file, so a reviewer can confirm exactly which rules and settings were active during a given run.
+
+
 
 Eight-phase pipeline runs in two passes:
 
