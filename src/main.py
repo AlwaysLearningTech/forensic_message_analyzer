@@ -181,10 +181,48 @@ class ForensicAnalyzer:
         preserved_count = 0
         image_count = 0
         missing_count = 0
+        compressed_count = 0
+        bytes_saved = 0
 
         IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.heic', '.heif', '.tiff', '.bmp', '.webp'}
 
         logger.info("\n[*] Preserving attachment files (FRE 1002 — Best Evidence Rule)...")
+
+        def _preserve_one(src: Path) -> Optional[Path]:
+            """Compress (if eligible) → create_working_copy. Returns the preserved path."""
+            nonlocal compressed_count, bytes_saved
+            from .utils.attachment_utils import should_compress, compress_image
+            if should_compress(src, self.config):
+                scratch = dest_dir / "_compress_scratch"
+                scratch.mkdir(parents=True, exist_ok=True)
+                temp = scratch / f"{src.stem}.jpg"
+                summary = compress_image(src, temp, self.config)
+                if summary and temp.exists():
+                    copy_path = self.integrity.create_working_copy(temp, dest_dir)
+                    try:
+                        temp.unlink()
+                    except OSError:
+                        pass
+                    if copy_path:
+                        self.forensic.record_action(
+                            "attachment_compressed",
+                            f"Re-encoded {src.name} to JPEG (quality={summary['jpeg_quality']}, max_dim={summary['max_dimension_px']}px)",
+                            {
+                                "original_path": summary["original_path"],
+                                "working_copy": str(copy_path),
+                                "original_hash": summary["original_hash"],
+                                "compressed_hash": summary["compressed_hash"],
+                                "original_size": summary["original_size"],
+                                "compressed_size": summary["compressed_size"],
+                                "ratio": summary["ratio"],
+                                "jpeg_quality": summary["jpeg_quality"],
+                                "max_dimension_px": summary["max_dimension_px"],
+                            },
+                        )
+                        compressed_count += 1
+                        bytes_saved += max(0, summary["original_size"] - summary["compressed_size"])
+                        return copy_path
+            return self.integrity.create_working_copy(src, dest_dir)
 
         for msg in messages:
             # Handle primary attachment path
@@ -195,7 +233,7 @@ class ForensicAnalyzer:
                     # Already copied — just update the reference
                     msg['attachment'] = str(preserved[att_path_str])
                 elif att_path.is_file():
-                    copy_path = self.integrity.create_working_copy(att_path, dest_dir)
+                    copy_path = _preserve_one(att_path)
                     if copy_path:
                         preserved[att_path_str] = copy_path
                         msg['attachment'] = str(copy_path)
@@ -219,7 +257,7 @@ class ForensicAnalyzer:
                 if att_list_path_str in preserved:
                     att['path'] = str(preserved[att_list_path_str])
                 elif att_list_path.is_file():
-                    copy_path = self.integrity.create_working_copy(att_list_path, dest_dir)
+                    copy_path = _preserve_one(att_list_path)
                     if copy_path:
                         att['path'] = str(copy_path)
                         if att_list_path_str not in preserved:
@@ -231,9 +269,22 @@ class ForensicAnalyzer:
                     if att_list_path_str not in preserved:
                         missing_count += 1
 
+        # Cleanup scratch dir if empty
+        scratch = dest_dir / "_compress_scratch"
+        if scratch.exists():
+            try:
+                scratch.rmdir()
+            except OSError:
+                pass
+
         other_count = preserved_count - image_count
         logger.info(f"    Preserved {preserved_count} attachment files "
               f"({image_count} images, {other_count} other)")
+        if compressed_count:
+            logger.info(
+                f"    Compressed {compressed_count} image(s), saved "
+                f"{bytes_saved / (1024*1024):.1f} MB"
+            )
         if missing_count:
             logger.info(f"    WARNING: {missing_count} attachment files not found on disk")
 
