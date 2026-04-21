@@ -85,6 +85,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .tapbacks span { font-size: 16px; margin-right: 2px; }
 .reply-indicator { font-size: 11px; color: #6c757d; font-style: italic; margin-bottom: 4px;
                    border-left: 2px solid #adb5bd; padding-left: 6px; }
+.msg.reply-nested { max-width: 55%; padding: 6px 10px; margin-bottom: 2px;
+                    font-size: 12px; opacity: 0.75; background: #f0f0f0;
+                    border-left: 3px solid #999; }
+.msg.reply-nested.sent { margin-left: auto; float: right; background: #e8f2ec;
+                         border-left: none; border-right: 3px solid #999; }
+.msg.reply-nested .reply-label { font-size: 10px; color: #888; text-transform: uppercase;
+                                 letter-spacing: 0.5px; margin-bottom: 2px; }
+.msg.reply-nested .bubble-content { font-style: italic; }
 .edit-history { margin-top: 6px; padding: 6px 8px; background: #f8f9fa;
                border-left: 3px solid #dee2e6; font-size: 12px; }
 .edit-history-label { font-weight: bold; color: #6c757d; margin-bottom: 2px; }
@@ -125,6 +133,7 @@ class ChatReporter:
             threats = analysis_results.get('threats', {}).get('details', [])
             threat_ids = self._build_threat_set(threats)
             tapback_map = self._build_tapback_map(messages)
+            self._guid_to_msg = {m['guid']: m for m in messages if m.get('guid')}
 
             mapped_persons = list(self.config.contact_mappings.keys())
             persons = sorted(p for p in mapped_persons if p != self.person1)
@@ -319,10 +328,23 @@ class ChatReporter:
 
         parts = [f'<div class="{css_class}" id="msg-{escape(mid)}">']
 
-        # Reply indicator
-        reply_to = msg.get('thread_originator_guid', '')
-        if reply_to:
-            parts.append(f'<div class="reply-indicator">Reply to message</div>')
+        # Reply target as a nested bubble. iMessage's thread_originator_guid may carry a "p:N/" part-prefix (pointing to one part of a multipart message); strip it before lookup.
+        reply_guid = msg.get('thread_originator_guid') or msg.get('reply_to_guid')
+        if reply_guid:
+            lookup_guid = reply_guid.split('/', 1)[-1] if reply_guid.startswith('p:') else reply_guid
+            orig = getattr(self, '_guid_to_msg', {}).get(lookup_guid)
+            if orig:
+                orig_sender = orig.get('sender', '')
+                orig_content = (orig.get('content') or '')[:200]
+                orig_sent = (orig_sender == self.person1)
+                nested_class = 'msg reply-nested sent' if orig_sent else 'msg reply-nested received'
+                parts.append(f'<div class="{nested_class}">')
+                parts.append('<div class="reply-label">&#8617; In reply to</div>')
+                parts.append(f'<div class="bubble-meta"><strong>{escape(orig_sender)}</strong></div>')
+                parts.append(f'<div class="bubble-content">{escape(orig_content)}</div>')
+                parts.append('</div>')
+            else:
+                parts.append('<div class="reply-indicator">&#8617; Reply to an earlier message</div>')
 
         # Meta line: sender + source badge + flag badges
         source_html = self._source_badge(msg.get('source', ''))
