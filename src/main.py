@@ -595,8 +595,9 @@ class ForensicAnalyzer:
             )
         if not state.get("review_complete"):
             raise RuntimeError(
-                "Review is not yet complete. Run the full pipeline or "
-                "resume review (python3 run.py --resume) before finalizing."
+                "Review is not yet complete. Options:\n"
+                "  a) Resume and click 'Complete Review':  python3 run.py --resume\n"
+                "  b) If all items are already tagged:     python3 run.py --mark-review-complete"
             )
 
         # Validate all required paths exist
@@ -802,8 +803,10 @@ class ForensicAnalyzer:
                 "Run the full pipeline first and finish the review."
             )
         if not state.get("review_complete"):
-            raise RuntimeError(
-                "Review is not yet complete. Finish or resume review before refreshing attachments."
+            logger.warning(
+                "[!] review_complete is not set — review may still be in progress. "
+                "Reports will reflect decisions made so far. "
+                "When review is finished, run:  python3 run.py --mark-review-complete"
             )
 
         ana_path = state.get("analysis_results_path")
@@ -853,6 +856,46 @@ class ForensicAnalyzer:
             traceback.print_exc()
             raise
 
+    def mark_review_complete(self):
+        """Set review_complete=True in pipeline state after verifying review results exist.
+
+        Used when the examiner finished tagging but exited the review UI via Pause or
+        browser close instead of clicking 'Complete Review'. Requires a non-empty
+        review_results file; records a forensic action for the audit trail.
+        """
+        state = self._load_pipeline_state()
+        if not state:
+            raise RuntimeError("No pipeline state found.")
+        if state.get("review_complete"):
+            logger.info("[mark-review-complete] Already marked complete — nothing to do.")
+            return
+
+        rev_path = state.get("review_results_path")
+        if not rev_path or not Path(rev_path).exists():
+            raise RuntimeError(
+                "No review_results file found. Resume the review before marking complete."
+            )
+
+        with open(rev_path) as f:
+            rev_data = json.load(f)
+        total = rev_data.get("total_reviewed", 0)
+        if total == 0:
+            raise RuntimeError(
+                "review_results exists but has 0 reviewed items. "
+                "Tag at least one item before marking complete."
+            )
+
+        self._save_pipeline_state(review_complete=True)
+        self.forensic.record_action(
+            "review_marked_complete",
+            "Examiner manually marked review complete via --mark-review-complete",
+            {"review_results_path": rev_path, "total_reviewed": total},
+        )
+        logger.info(
+            f"[✓] Review marked complete ({total} reviewed items). "
+            f"You can now run --finalize or --refresh-attachments."
+        )
+
 
 def main(config: Config = None, resume: bool = False):
     """Main entry point for the forensic analyzer (Phases 1-4).
@@ -887,6 +930,21 @@ def refresh_attachments(config: Config = None):
         return True
     except Exception as e:
         logger.info(f"\n[ERROR] Refresh failed: {e}")
+        return False
+
+
+def mark_review_complete(config: Config = None):
+    """Entry point to mark the review complete from the CLI.
+
+    Used when the examiner finished tagging but exited the web UI via Pause or
+    browser close instead of clicking 'Complete Review'. Unlocks --finalize.
+    """
+    try:
+        analyzer = ForensicAnalyzer(config)
+        analyzer.mark_review_complete()
+        return True
+    except Exception as e:
+        logger.info(f"\n[ERROR] mark-review-complete failed: {e}")
         return False
 
 

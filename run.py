@@ -22,7 +22,7 @@ from typing import Optional
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.main import main, finalize, refresh_attachments
+from src.main import main, finalize, refresh_attachments, mark_review_complete
 from src.config import Config
 
 
@@ -172,6 +172,13 @@ if __name__ == "__main__":
              "(preserves AI batch + review decisions). Run after downloading "
              "iCloud-evicted attachments. Optionally specify run directory path."
     )
+    parser.add_argument(
+        "--mark-review-complete", dest="mark_review_complete",
+        nargs="?", const="auto", default=None, metavar="RUN_DIR",
+        help="Mark the review as complete when the 'Complete Review' button was not clicked "
+             "(e.g. session ended via Pause or browser close). Requires a review_results "
+             "file to already exist. Unlocks --finalize. Optionally specify run directory path."
+    )
     args = parser.parse_args()
 
     # Build config using the resolved .env location, then configure logging from it.
@@ -202,6 +209,13 @@ if __name__ == "__main__":
                 _post_run_verification(config)
             except Exception as _e:
                 logging.warning(f"Post-run verification encountered a non-fatal issue: {_e}")
+            sys.exit(0 if success else 1)
+
+        elif args.mark_review_complete is not None:
+            # --mark-review-complete: set review_complete=True when Complete button wasn't clicked
+            run_dir = _resolve_run_dir(args.mark_review_complete, config)
+            config.output_dir = str(run_dir)
+            success = mark_review_complete(config)
             sys.exit(0 if success else 1)
 
         elif args.resume is not None:
