@@ -730,7 +730,7 @@ class IMessageExtractor:
                         attachments = self._get_attachments_for_message(cursor, r['message_id'], att_cols)
                         for att in attachments:
                             ext = Path(att['path']).suffix.lower()
-                            if ext in self.IMAGE_EXTENSIONS and Path(att['path']).exists():
+                            if ext in self.IMAGE_EXTENSIONS:
                                 msg_dict['attachment'] = att['path']
                                 msg_dict['attachment_name'] = att['name']
                                 break
