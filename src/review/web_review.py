@@ -403,6 +403,9 @@ class WebReview:
         self.flagged_items = flagged_items
         self.screenshots = screenshots or []
 
+        # GUID → message lookup used by _serialise_msg to resolve reply targets. Only iMessage messages carry a 'guid'; other sources are naturally absent.
+        self._guid_to_msg = {m['guid']: m for m in messages if m.get('guid')}
+
         logger.info(f"    Web review loaded: {len(self.messages)} messages, {len(self.flagged_items)} flagged items, {len(self.screenshots)} screenshots")
 
         # Seed reviewed_indices from prior session so progress/badges reflect existing decisions on resume.
@@ -1050,6 +1053,28 @@ class WebReview:
             else:
                 result["attachment_url"] = f"/attachments/{att_name}"
             result["attachment_name"] = att_name
+
+        # Reply target — only iMessage carries thread_originator_guid / reply_to_guid. iMessage may prefix with "p:N/" to pin to a specific part of a multipart message; strip it before the lookup.
+        reply_guid = msg.get("thread_originator_guid") or msg.get("reply_to_guid")
+        if reply_guid and getattr(self, "_guid_to_msg", None):
+            lookup_guid = reply_guid.split("/", 1)[-1] if reply_guid.startswith("p:") else reply_guid
+            orig = self._guid_to_msg.get(lookup_guid)
+            if orig:
+                reply_preview = (orig.get("content") or "")[:200]
+                reply_entry = {
+                    "sender": orig.get("sender", ""),
+                    "content": reply_preview,
+                    "timestamp": self._format_local_ts(orig.get("timestamp", "")),
+                    "message_id": orig.get("message_id"),
+                }
+                if orig.get("attachment_name"):
+                    att_name = orig["attachment_name"]
+                    if orig.get("attachment", "").startswith("/"):
+                        reply_entry["attachment_url"] = f"/attachments{orig['attachment']}"
+                    else:
+                        reply_entry["attachment_url"] = f"/attachments/{att_name}"
+                    reply_entry["attachment_name"] = att_name
+                result["reply_to"] = reply_entry
         return result
 
     # ------------------------------------------------------------------
@@ -1289,6 +1314,15 @@ class WebReview:
   .browse-msg .flag-btn.flagged {{ background: #43a047; color: #fff; border-color: #43a047; }}
   .browse-msg .attachment img {{ max-width: 100%; max-height: 300px; border-radius: 4px;
                                  border: 1px solid #ccc; margin-top: 6px; }}
+  .browse-msg.reply-nested {{ margin-left: 24px; margin-bottom: 2px; padding: 6px 10px;
+                              font-size: 12px; opacity: 0.75; background: #f0f0f0;
+                              border-left: 3px solid #999; max-width: 70%; }}
+  .browse-msg.reply-nested.sent {{ margin-left: auto; margin-right: 24px; background: #e8f2ec;
+                                   border-left: none; border-right: 3px solid #999; }}
+  .browse-msg.reply-nested .reply-label {{ font-size: 10px; color: #888; text-transform: uppercase;
+                                           letter-spacing: 0.5px; margin-bottom: 2px; }}
+  .browse-msg.reply-nested .content {{ font-style: italic; }}
+  .browse-msg.reply-nested .attachment img {{ max-height: 120px; }}
   .browse-pagination {{ display: flex; justify-content: center; align-items: center; gap: 12px;
                         padding: 12px; border-top: 1px solid #eee; background: #fafafa; }}
   .browse-pagination button {{ padding: 6px 14px; border: 1px solid #ccc; border-radius: 4px;
@@ -2137,6 +2171,19 @@ function renderBrowseResults(data) {{
       const btnClass = m.already_flagged ? 'flag-btn flagged' : 'flag-btn';
       const btnLabel = m.already_flagged ? 'Queued' : 'Flag';
       const btnDisabled = m.already_flagged ? ' disabled' : '';
+      if (m.reply_to) {{
+        const replySent = (m.reply_to.sender === person1) ? ' sent' : '';
+        html += '<div class="browse-msg reply-nested' + replySent + '">'
+              + '<div class="reply-label">&#8617; In reply to</div>'
+              + '<div class="meta">' + escapeHtml(m.reply_to.timestamp || '')
+              + ' &mdash; ' + escapeHtml(m.reply_to.sender || '') + '</div>'
+              + '<div class="content">' + escapeHtml(m.reply_to.content || '') + '</div>';
+        if (m.reply_to.attachment_url) {{
+          html += '<div class="attachment"><img src="' + escapeHtml(m.reply_to.attachment_url)
+                + '" alt="' + escapeHtml(m.reply_to.attachment_name || 'photo') + '"></div>';
+        }}
+        html += '</div>';
+      }}
       html += '<div class="browse-msg' + sentClass + flaggedClass + '">'
             + '<button class="' + btnClass + '"' + btnDisabled
             + ' onclick="flagFromBrowse(this, \\'' + escapeHtml(m.message_id || '')
