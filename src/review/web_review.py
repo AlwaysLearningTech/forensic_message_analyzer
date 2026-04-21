@@ -1072,12 +1072,18 @@ class WebReview:
 
   /* Messages */
   .msg {{ margin-bottom: 10px; padding: 10px 14px; border-radius: 8px; max-width: 85%;
-          font-size: 14px; line-height: 1.5; }}
+          font-size: 14px; line-height: 1.5; position: relative; }}
   .msg.sent {{ background: #d1e7dd; margin-left: auto; }}
   .msg.received {{ background: #fff; border: 1px solid #ddd; }}
-  .msg.flagged {{ background: #fff3cd; border: 2px solid #e65100; position: relative; }}
-  .msg .meta {{ font-size: 11px; color: #757575; margin-bottom: 4px; }}
+  .msg.flagged {{ background: #fff3cd; border: 2px solid #e65100; }}
+  .msg .meta {{ font-size: 11px; color: #757575; margin-bottom: 4px; padding-right: 60px; }}
   .msg .content {{ word-wrap: break-word; }}
+  .msg .flag-btn {{ position: absolute; top: 8px; right: 8px; padding: 3px 9px;
+                    border: 1px solid #43a047; border-radius: 4px; background: rgba(255,255,255,0.85);
+                    color: #43a047; cursor: pointer; font-size: 11px; }}
+  .msg .flag-btn:hover {{ background: #43a047; color: #fff; }}
+  .msg .flag-btn.flagged {{ background: #43a047; color: #fff; border-color: #43a047; }}
+  .msg .flag-btn:disabled {{ cursor: default; }}
   .flag-label {{ display: inline-block; background: #e65100; color: #fff; font-size: 10px;
                  padding: 2px 6px; border-radius: 4px; margin-bottom: 6px; }}
 
@@ -1537,6 +1543,10 @@ function msgBubble(m, isFlagged) {{
               : (m.sender === person1 ? 'msg sent' : 'msg received');
   let html = '<div class="' + cls + '">';
   if (isFlagged) html += '<span class="flag-label">FLAGGED</span>';
+  if (!isFlagged && m.message_id) {{
+    html += '<button class="flag-btn" data-mid="' + escapeHtml(m.message_id)
+          + '" onclick="flagFromReview(this)" title="Add to review queue">Flag</button>';
+  }}
   html += '<div class="meta">' + escapeHtml(m.timestamp || '') + ' &mdash; '
         + escapeHtml(m.sender || '') + ' &rarr; ' + escapeHtml(m.recipient || '') + '</div>';
   html += '<div class="content">' + escapeHtml(m.content || '') + '</div>';
@@ -1546,6 +1556,30 @@ function msgBubble(m, isFlagged) {{
   }}
   html += '</div>';
   return html;
+}}
+
+function flagFromReview(btn) {{
+  const messageId = btn.dataset.mid;
+  if (!messageId) {{ showToast('No message ID'); return; }}
+  btn.disabled = true;
+  fetch('/api/browse/flag', {{
+    method: 'POST',
+    headers: {{ 'Content-Type': 'application/json' }},
+    body: JSON.stringify({{ message_id: messageId }})
+  }})
+  .then(r => r.json())
+  .then(data => {{
+    if (data.error) {{
+      showToast('Error: ' + data.error);
+      if (data.item_id) {{ btn.textContent = 'Queued'; btn.classList.add('flagged'); }}
+      else {{ btn.disabled = false; }}
+      return;
+    }}
+    showToast('Added to review queue (' + data.total + ' total)');
+    btn.textContent = 'Queued';
+    btn.classList.add('flagged');
+  }})
+  .catch(() => {{ showToast('Flag failed'); btn.disabled = false; }});
 }}
 
 function renderDetails(data) {{
