@@ -1729,7 +1729,7 @@ function renderNotesOverview(noteGroups, suggestions) {{
           +   '<span class="note-group-count">' + g.count + ' item' + (g.count !== 1 ? 's' : '') + '</span>'
           +   '<div class="note-group-actions">'
           +     '<button onclick="startBulkEdit(' + idx + ', this)" data-text="' + escapeHtml(g.text) + '">Edit</button>'
-          +     '<button onclick="deleteNotePhrase(\'' + escapeHtml(g.text).replace(/'/g, "&#39;") + '\', false)">Hide</button>'
+          +     '<button data-text="' + escapeHtml(g.text) + '" onclick="deleteNotePhrase(this.dataset.text, false)">Hide</button>'
           +   '</div>'
           + '</div>'
           + '<div class="note-group-items">'
@@ -1753,7 +1753,7 @@ function renderNotesOverview(noteGroups, suggestions) {{
             + '<div class="note-group-header">'
             +   '<span class="note-group-text" style="font-style:italic;">' + escapeHtml(s.text) + '</span>'
             +   '<div class="note-group-actions">'
-            +     '<button onclick="deleteNotePhrase(\'' + escapeHtml(s.text).replace(/'/g, "&#39;") + '\', true)">Delete</button>'
+            +     '<button data-text="' + escapeHtml(s.text) + '" onclick="deleteNotePhrase(this.dataset.text, true)">Delete</button>'
             +   '</div>'
             + '</div>'
             + '</div>';
@@ -1772,8 +1772,8 @@ function startBulkEdit(idx, btn) {{
   }}
   editDiv.style.display = 'flex';
   editDiv.innerHTML = '<input type="text" value="' + escapeHtml(text) + '" id="bulkEditInput_' + idx + '">'
-    + '<button onclick="submitBulkEdit(' + idx + ', \'' + escapeHtml(text).replace(/'/g, "&#39;") + '\')">Save</button>'
-    + '<button class="cancel-btn" onclick="document.getElementById(\'bulkEdit_' + idx + '\').style.display=\'none\'">Cancel</button>';
+    + '<button data-text="' + escapeHtml(text) + '" onclick="submitBulkEdit(' + idx + ', this.dataset.text)">Save</button>'
+    + '<button class="cancel-btn" onclick="this.parentElement.style.display=&quot;none&quot;">Cancel</button>';
   const input = document.getElementById('bulkEditInput_' + idx);
   input.focus();
   input.select();
