@@ -188,6 +188,15 @@ class Config:
 
         # Optional: path to a long-lived examiner Ed25519 private key (PEM). When set, signed outputs chain back to the examiner's published public key. When unset, a per-run ephemeral key is generated in run_dir/keys/ — still tamper-evident within the run, but not anchored to an external identity.
         self.examiner_signing_key = self._expand_path(os.getenv('EXAMINER_SIGNING_KEY'))
+
+        # Attachment handling
+        # DOWNLOAD_ICLOUD_ATTACHMENTS: before extraction, walk ~/Library/Messages/Attachments and force-download iCloud-evicted files via `brctl download`. Default off; the user must also disable "Optimize Mac Storage" in Messages for fully-evicted files to be recoverable.
+        self.download_icloud_attachments = os.getenv('DOWNLOAD_ICLOUD_ATTACHMENTS', 'false').lower() == 'true'
+        # COMPRESS_ATTACHMENTS: re-encode large PNG/JPEG copies in output/attachments/ to save disk. HEIC passes through unchanged (iPhone-native; re-encoding would be a lossy derivative). Originals at ~/Library/Messages/Attachments/ are never modified.
+        self.compress_attachments = os.getenv('COMPRESS_ATTACHMENTS', 'false').lower() == 'true'
+        self.attachment_compress_threshold_mb = float(os.getenv('ATTACHMENT_COMPRESS_THRESHOLD_MB', '5.0'))
+        self.attachment_jpeg_quality = int(os.getenv('ATTACHMENT_JPEG_QUALITY', '75'))
+        self.attachment_max_dimension_px = int(os.getenv('ATTACHMENT_MAX_DIMENSION_PX', '2048'))
         
         # Ensure critical directories exist
         self._ensure_directories()
@@ -280,6 +289,13 @@ class Config:
             "review_ui": {
                 "port": self.review_port,
                 "mode": self.review_mode,
+            },
+            "attachments": {
+                "download_icloud_attachments": self.download_icloud_attachments,
+                "compress_attachments": self.compress_attachments,
+                "compress_threshold_mb": self.attachment_compress_threshold_mb,
+                "jpeg_quality": self.attachment_jpeg_quality,
+                "max_dimension_px": self.attachment_max_dimension_px,
             },
         }
 
