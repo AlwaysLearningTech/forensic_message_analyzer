@@ -868,7 +868,7 @@ class WebReview:
         message_id = data.get('message_id', '')
 
         target_msg = next(
-            (m for m in self.messages if m.get('message_id') == message_id),
+            (m for m in self.messages if str(m.get('message_id', '')) == str(message_id)),
             None,
         )
         if target_msg is None:
