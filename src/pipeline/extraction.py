@@ -48,6 +48,15 @@ def run(analyzer) -> Dict:
     analyzer._route_sources_to_working_copies()
     analyzer._apply_contact_automapping()
 
+    if getattr(analyzer.config, "download_icloud_attachments", False):
+        from ..utils.icloud_downloader import download_messages_attachments
+        attachments_dir = Path.home() / "Library/Messages/Attachments"
+        logger.info(f"\n[*] iCloud attachment download enabled — scanning {attachments_dir}")
+        try:
+            download_messages_attachments(attachments_dir, forensic_recorder=analyzer.forensic)
+        except Exception as e:
+            logger.warning(f"    iCloud download pass failed: {e}")
+
     extractor = DataExtractor(analyzer.forensic, third_party_registry=analyzer.third_party_registry, config=analyzer.config)
 
     logger.info("\n[*] Extracting message data from all sources...")
