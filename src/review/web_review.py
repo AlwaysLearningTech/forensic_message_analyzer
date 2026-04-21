@@ -11,7 +11,7 @@ import os
 import threading
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, time, timezone
 from typing import Dict, List, Optional
 import pandas as pd
 import pytz
@@ -27,6 +27,31 @@ except ImportError:
     FLASK_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_iso_ts(value) -> Optional[datetime]:
+    """Parse an ISO-8601 timestamp (with or without UTC offset) to tz-aware datetime."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _parse_filter_date(value: str, end_of_day: bool = False) -> Optional[datetime]:
+    """Parse a YYYY-MM-DD string from a date input to tz-aware datetime."""
+    if not value:
+        return None
+    try:
+        day = datetime.strptime(value, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        return None
+    t = time.max if end_of_day else time.min
+    return datetime.combine(day, t, tzinfo=timezone.utc)
 
 
 class WebReview:
@@ -820,49 +845,49 @@ class WebReview:
         }
 
     def _submit_browse_flag(self, data: Dict) -> Dict:
-        """Flag a message found during browse mode."""
+        """Add a browse-mode message to the flagged items queue for normal review."""
         message_id = data.get('message_id', '')
-        decision = data.get('decision', 'relevant')
-        notes = data.get('notes', '')
 
-        if decision not in ('relevant', 'not_relevant', 'uncertain'):
-            return {"error": "Invalid decision value"}
-
-        target_msg = None
-        for msg in self.messages:
-            if msg.get('message_id') == message_id:
-                target_msg = msg
-                break
-
+        target_msg = next(
+            (m for m in self.messages if m.get('message_id') == message_id),
+            None,
+        )
         if target_msg is None:
             return {"error": "Message not found"}
 
         item_id = f"browse_{message_id}"
+        if any(it.get('id') == item_id for it in self.flagged_items):
+            return {"error": "Already in review queue", "item_id": item_id}
 
-        try:
-            self.review_manager.add_review(
-                item_id=item_id,
-                item_type='user_flagged',
-                decision=decision,
-                notes=notes,
-            )
-        except ValueError as exc:
-            return {"error": str(exc)}
+        new_item = {
+            "id": item_id,
+            "type": "user_flagged",
+            "source": "user_flagged",
+            "method": "browse_flag",
+            "content": target_msg.get('content', ''),
+            "categories": "",
+            "confidence": 1.0,
+            "threat_type": "",
+            "severity": "",
+        }
+        self.flagged_items.append(new_item)
 
         if self.forensic:
             self.forensic.record_action(
-                "browse_flag_decision",
-                f"User flagged message {message_id} as '{decision}' from browse mode",
+                "browse_flag_enqueued",
+                f"User added message {message_id} to review queue from browse mode",
                 {
                     "item_id": item_id,
                     "message_id": message_id,
-                    "decision": decision,
-                    "has_notes": bool(notes),
-                    "reviewed_via": "web_browse",
-                }
+                    "source": "browse",
+                },
             )
 
-        return {"status": "saved", "item_id": item_id, "decision": decision}
+        return {
+            "status": "queued",
+            "item_id": item_id,
+            "total": len(self.flagged_items),
+        }
 
     def _search_messages(self, q: str, sender: str,
                          date_from: str, date_to: str,
@@ -870,8 +895,8 @@ class WebReview:
         """Search messages by content, sender, and date range."""
         page_size = min(max(page_size, 1), 200)
 
-        from_dt = self.threader._parse_timestamp(date_from) if date_from else None
-        to_dt = self.threader._parse_timestamp(date_to) if date_to else None
+        from_dt = _parse_filter_date(date_from)
+        to_dt = _parse_filter_date(date_to, end_of_day=True)
 
         q_lower = q.lower() if q else ''
         sender_lower = sender.lower() if sender else ''
@@ -886,7 +911,7 @@ class WebReview:
                 if sender_lower not in msg_sender and sender_lower not in msg_recipient:
                     continue
             if from_dt or to_dt:
-                msg_ts = self.threader._parse_timestamp(msg.get('timestamp'))
+                msg_ts = _parse_iso_ts(msg.get('timestamp'))
                 if msg_ts is None:
                     continue
                 if from_dt and msg_ts < from_dt:
@@ -2092,20 +2117,25 @@ function renderBrowsePagination(data) {{
 
 function flagFromBrowse(btn, messageId) {{
   if (!messageId) {{ showToast('No message ID'); return; }}
-  const notes = prompt('Notes (optional):') || '';
+  btn.disabled = true;
   fetch('/api/browse/flag', {{
     method: 'POST',
     headers: {{ 'Content-Type': 'application/json' }},
-    body: JSON.stringify({{ message_id: messageId, decision: 'relevant', notes: notes }})
+    body: JSON.stringify({{ message_id: messageId }})
   }})
   .then(r => r.json())
   .then(data => {{
-    if (data.error) {{ showToast('Error: ' + data.error); return; }}
-    showToast('Message flagged as relevant');
-    btn.textContent = 'Flagged';
+    if (data.error) {{
+      showToast('Error: ' + data.error);
+      btn.disabled = (data.item_id ? true : false);
+      if (data.item_id) {{ btn.textContent = 'Queued'; btn.classList.add('flagged'); }}
+      return;
+    }}
+    showToast('Added to review queue (' + data.total + ' total)');
+    btn.textContent = 'Queued';
     btn.classList.add('flagged');
-    btn.disabled = true;
-  }});
+  }})
+  .catch(() => {{ showToast('Flag failed'); btn.disabled = false; }});
 }}
 
 // --- Search ---
