@@ -812,6 +812,23 @@ class WebReview:
         result.sort(key=lambda c: c['message_count'], reverse=True)
         return result
 
+    def _flagged_lookup(self) -> tuple:
+        """Return (flagged_ids, flagged_contents) for marking already-flagged messages."""
+        flagged_ids = {it.get('id') for it in self.flagged_items}
+        flagged_contents = {
+            it.get('content') for it in self.flagged_items if it.get('content')
+        }
+        return flagged_ids, flagged_contents
+
+    def _mark_flagged(self, serialized: Dict, raw_content: str,
+                      flagged_ids: set, flagged_contents: set) -> None:
+        """Stamp `already_flagged` on a serialized message if it matches the queue."""
+        mid = serialized.get('message_id') or ''
+        serialized['already_flagged'] = (
+            (mid and f"browse_{mid}" in flagged_ids)
+            or (raw_content and raw_content in flagged_contents)
+        )
+
     def _get_browse_page(self, page: int, page_size: int, conversation: str) -> Dict:
         """Return a page of messages for browse mode."""
         page_size = min(max(page_size, 1), 200)
@@ -828,11 +845,13 @@ class WebReview:
         end = min(start + page_size, total)
         page_msgs = source_msgs[start:end]
 
+        flagged_ids, flagged_contents = self._flagged_lookup()
         serialized = []
         for msg in page_msgs:
             s = self._serialise_msg(msg)
             if s:
                 s['message_id'] = msg.get('message_id', '')
+                self._mark_flagged(s, msg.get('content', ''), flagged_ids, flagged_contents)
                 serialized.append(s)
 
         return {
@@ -925,11 +944,13 @@ class WebReview:
         end = min(start + page_size, total)
         page_msgs = matching[start:end]
 
+        flagged_ids, flagged_contents = self._flagged_lookup()
         serialized = []
         for msg in page_msgs:
             s = self._serialise_msg(msg)
             if s:
                 s['message_id'] = msg.get('message_id', '')
+                self._mark_flagged(s, msg.get('content', ''), flagged_ids, flagged_contents)
                 serialized.append(s)
 
         return {
@@ -1254,6 +1275,11 @@ class WebReview:
                  font-size: 14px; line-height: 1.5; background: #fff; border: 1px solid #eee;
                  position: relative; }}
   .browse-msg.sent {{ background: #d1e7dd; }}
+  .browse-msg.already-flagged {{ background: #fff3cd; border: 2px solid #e65100; }}
+  .browse-msg.already-flagged.sent {{ background: #fff3cd; }}
+  .browse-msg .queued-badge {{ display: inline-block; background: #e65100; color: #fff;
+                               font-size: 10px; padding: 2px 6px; border-radius: 4px;
+                               margin-right: 6px; letter-spacing: 0.5px; }}
   .browse-msg .meta {{ font-size: 11px; color: #757575; margin-bottom: 4px; }}
   .browse-msg .content {{ word-wrap: break-word; }}
   .browse-msg .flag-btn {{ position: absolute; top: 8px; right: 8px; padding: 4px 10px;
@@ -2107,10 +2133,17 @@ function renderBrowseResults(data) {{
     data.messages.forEach(m => {{
       if (!m) return;
       const sentClass = (m.sender === person1) ? ' sent' : '';
-      html += '<div class="browse-msg' + sentClass + '">'
-            + '<button class="flag-btn" onclick="flagFromBrowse(this, \\'' + escapeHtml(m.message_id || '')
-            + '\\')">Flag</button>'
-            + '<div class="meta">' + escapeHtml(m.timestamp || '')
+      const flaggedClass = m.already_flagged ? ' already-flagged' : '';
+      const btnClass = m.already_flagged ? 'flag-btn flagged' : 'flag-btn';
+      const btnLabel = m.already_flagged ? 'Queued' : 'Flag';
+      const btnDisabled = m.already_flagged ? ' disabled' : '';
+      html += '<div class="browse-msg' + sentClass + flaggedClass + '">'
+            + '<button class="' + btnClass + '"' + btnDisabled
+            + ' onclick="flagFromBrowse(this, \\'' + escapeHtml(m.message_id || '')
+            + '\\')">' + btnLabel + '</button>'
+            + '<div class="meta">'
+            + (m.already_flagged ? '<span class="queued-badge">IN REVIEW QUEUE</span>' : '')
+            + escapeHtml(m.timestamp || '')
             + ' &mdash; ' + escapeHtml(m.sender || '')
             + ' &rarr; ' + escapeHtml(m.recipient || '')
             + ' <em style="color:#aaa;">(' + escapeHtml(m.source || '') + ')</em></div>'
