@@ -331,10 +331,10 @@ class ForensicAnalyzer:
         if state_path.exists():
             state_path.unlink()
         
-    def run_extraction_phase(self) -> Dict:
+    def run_extraction_phase(self, refresh_mode: bool = False) -> Dict:
         """Phase 1: data extraction. Delegates to src.pipeline.extraction."""
         from .pipeline import extraction
-        return extraction.run(self)
+        return extraction.run(self, refresh_mode=refresh_mode)
     
     def run_analysis_phase(self, data: Dict) -> Dict:
         """Phase 2: automated analysis. Delegates to src.pipeline.analysis."""
@@ -629,26 +629,44 @@ class ForensicAnalyzer:
         self._extracted_data_path = Path(ext_path)
         self._analysis_results_path = Path(ana_path)
 
-        # Reconstruct enriched DataFrame for Phase 4 behavioral analysis. During the initial run, Phase 2 enriches a DataFrame with threat/sentiment/pattern columns and saves it as self._enriched_df. Since finalize runs in a new process, we must rebuild it from the saved analysis results.
+        self.forensic.record_action(
+            "finalize_started",
+            "Post-review finalization started from saved pipeline state",
+            {"state_timestamp": state.get("timestamp", "unknown")},
+        )
+
+        try:
+            self._run_post_review_phases(extracted_data, analysis_results, review_results)
+        except Exception as e:
+            logger.info(f"\n[ERROR] Finalize failed: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+    def _run_post_review_phases(self, extracted_data, analysis_results, review_results):
+        """Shared Phase 5-8 runner used by both finalize and refresh.
+
+        Rebuilds the enriched DataFrame from saved analysis_results, then runs
+        behavioral analysis, executive summary, reporting, and documentation.
+        Clears the pipeline state file on success.
+        """
+        # Reconstruct enriched DataFrame for Phase 5 behavioral analysis. During the initial run, Phase 2 enriches a DataFrame with threat/sentiment/pattern columns and saves it as self._enriched_df. Since finalize/refresh runs in a new process, we must rebuild it from the saved analysis results.
         import pandas as pd
         messages = extracted_data.get('messages', [])
         if messages:
             enriched_df = pd.DataFrame(messages)
-            # Merge threat columns from analysis details
             threat_details = analysis_results.get('threats', {}).get('details', [])
             if threat_details and len(threat_details) == len(enriched_df):
                 threat_df = pd.DataFrame(threat_details)
                 for col in ['threat_detected', 'threat_categories', 'threat_confidence', 'harmful_content']:
                     if col in threat_df.columns and col not in enriched_df.columns:
                         enriched_df[col] = threat_df[col].values
-            # Merge sentiment columns
             sentiment_data = analysis_results.get('sentiment', [])
             if sentiment_data and len(sentiment_data) == len(enriched_df):
                 sentiment_df = pd.DataFrame(sentiment_data)
                 for col in ['sentiment_score', 'sentiment_polarity', 'sentiment_subjectivity']:
                     if col in sentiment_df.columns and col not in enriched_df.columns:
                         enriched_df[col] = sentiment_df[col].values
-            # Merge pattern columns
             pattern_data = analysis_results.get('patterns', [])
             if pattern_data and len(pattern_data) == len(enriched_df):
                 pattern_df = pd.DataFrame(pattern_data)
@@ -657,123 +675,180 @@ class ForensicAnalyzer:
                         enriched_df[col] = pattern_df[col].values
             self._enriched_df = enriched_df
 
+        # Phase 5: Behavioral Analysis (post-review)
+        try:
+            behavioral_results = self.run_behavioral_phase(extracted_data, analysis_results, review_results)
+            analysis_results['behavioral'] = behavioral_results
+        except Exception as e:
+            logger.info(f"\n[!] Behavioral analysis failed (non-fatal): {e}")
+            analysis_results['behavioral'] = {}
+
+        # Update third-party contact data (screenshots may have added more during analysis)
+        extracted_data['third_party_contacts'] = self.third_party_registry.get_all()
+        tp_summary = self.third_party_registry.get_summary()
+        if tp_summary['total'] > 0:
+            logger.info(f"\n[*] Discovered {tp_summary['total']} third-party contacts")
+            for src, count in tp_summary['by_source'].items():
+                logger.info(f"    {src}: {count}")
+
+        # Phase 6: Executive Summary (post-review). Batch results already exist from Phase 3 (pre-review). Now generate summary, risks, and recommendations using the summary model, incorporating the actual conversation messages.
+        ai_results = analysis_results.get('ai_analysis', {})
+        if ai_results and ai_results.get('total_messages', 0) > 0:
+            logger.info("\n" + "="*60)
+            logger.info("PHASE 6: EXECUTIVE SUMMARY (POST-REVIEW)")
+            logger.info("="*60)
+            try:
+                from src.analyzers.ai_analyzer import AIAnalyzer
+                from src.utils.pricing import get_pricing
+                ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic, config=self.config)
+                if ai_analyzer.client:
+                    # Build message list for the summary using the same contact filter as Phase 3 (AI batch analysis).
+                    ai_contacts = self.config.ai_contacts
+                    ai_specified = self.config.ai_contacts_specified
+                    summary_messages = [
+                        m for m in extracted_data.get('messages', [])
+                        if m.get('source') != 'counseling'
+                        and m.get('sender') in ai_contacts
+                        and m.get('recipient') in ai_contacts
+                        and (ai_specified is None
+                             or m.get('sender') in ai_specified
+                             or m.get('recipient') in ai_specified)
+                    ]
+                    summary_messages.sort(key=lambda m: m.get('timestamp', ''))
+
+                    # Show accurate cost estimate before calling the API
+                    if summary_messages:
+                        sample_text, msg_count, _ = (
+                            ai_analyzer._format_messages_for_summary(summary_messages)
+                        )
+                        est_input = ai_analyzer._estimate_tokens(sample_text) + 500
+                        est_output = 4096
+                        sp = get_pricing(ai_analyzer.summary_model)
+                        est_cost = (
+                            (est_input / 1_000_000) * sp['input']
+                            + (est_output / 1_000_000) * sp['output']
+                        )
+                        logger.info(
+                            f"    {len(summary_messages):,} messages for executive summary "
+                            f"(~{est_input:,} input tokens)"
+                        )
+                        logger.info(
+                            f"    Estimated summary cost: ~${est_cost:.4f} "
+                            f"({ai_analyzer.summary_model})"
+                        )
+                        if est_cost > 1.00:
+                            logger.info(
+                                f"    Cost exceeds $1.00 — press Ctrl+C within "
+                                f"5 seconds to abort..."
+                            )
+                            try:
+                                import time as _time
+                                _time.sleep(5)
+                            except KeyboardInterrupt:
+                                logger.info("\n    Summary generation aborted by user.")
+                                summary_messages = None
+
+                    if summary_messages is not None:
+                        ai_results = ai_analyzer.generate_post_review_summary(
+                            ai_results, messages=summary_messages
+                        )
+                        analysis_results['ai_analysis'] = ai_results
+                        logger.info(f"    Executive summary generated")
+                    else:
+                        logger.info("    Executive summary skipped (user aborted)")
+                else:
+                    logger.info("    Executive summary skipped — AI not configured")
+            except Exception as e:
+                logger.info(f"    Executive summary error (non-fatal): {e}")
+        else:
+            logger.info("\n[*] No pre-screening results found — skipping executive summary")
+
+        # Phase 7: Reporting
+        reports = self.run_reporting_phase(extracted_data, analysis_results, review_results)
+
+        # Phase 8: Documentation (pass review so the events timeline can show only reviewer-confirmed findings)
+        documentation = self.run_documentation_phase(extracted_data, analysis_results, review_results)
+
+        logger.info("\n" + "="*80)
+        logger.info(" WORKFLOW COMPLETE ")
+        logger.info("="*80)
+        logger.info(f"\nAll outputs saved to: {self.config.output_dir}")
+        logger.info("\nGenerated files:")
+        for report_type, path in reports.items():
+            logger.info(f"  - {report_type}: {Path(path).name}")
+        for doc_type, path in documentation.items():
+            logger.info(f"  - {doc_type}: {Path(path).name}")
+
+        # Clean up pipeline state file after successful completion
+        self._clear_pipeline_state()
+
+    def run_refresh_attachments(self):
+        """Re-run extraction + reporting against an already-reviewed run, preserving AI batch and review decisions.
+
+        Use case: the user has downloaded previously-evicted iCloud attachments (or enabled DOWNLOAD_ICLOUD_ATTACHMENTS) and wants updated reports with the images embedded, without re-running the expensive Phase 3 AI batch or re-doing manual review tagging.
+
+        Safety: re-running Phase 1 produces a bit-identical message set (SQLite ROWIDs are stable; the message-skip condition is unchanged; only previously-blank attachment fields are now populated), so ``threat_{idx}`` review IDs remain valid.
+        """
+        logger.info("\n" + "="*80)
+        logger.info(" FORENSIC MESSAGE ANALYZER — REFRESH ATTACHMENTS ")
+        logger.info("="*80)
+        logger.info(f"Session started: {datetime.now()}")
+        logger.info(f"Run directory:   {self.config.output_dir}")
+
+        state = self._load_pipeline_state()
+        if not state:
+            raise RuntimeError(
+                "No pipeline state found. --refresh-attachments requires a completed run. "
+                "Run the full pipeline first and finish the review."
+            )
+        if not state.get("review_complete"):
+            raise RuntimeError(
+                "Review is not yet complete. Finish or resume review before refreshing attachments."
+            )
+
+        ana_path = state.get("analysis_results_path")
+        rev_path = state.get("review_results_path")
+        missing = []
+        for label, path in [("Analysis results", ana_path), ("Review results", rev_path)]:
+            if not path or not Path(path).exists():
+                missing.append(f"{label}: {path or '(not set)'}")
+        if missing:
+            raise RuntimeError(
+                "Pipeline state references missing files:\n  " + "\n  ".join(missing)
+            )
+
+        logger.info(f"\n[*] Loading saved analysis + review decisions...")
+        logger.info(f"    Analysis: {Path(ana_path).name}")
+        logger.info(f"    Review:   {Path(rev_path).name}")
+
+        with open(ana_path) as f:
+            analysis_results = json.load(f)
+        with open(rev_path) as f:
+            review_results = json.load(f)
+
+        self._analysis_results_path = Path(ana_path)
+
         self.forensic.record_action(
-            "finalize_started",
-            "Post-review finalization started from saved pipeline state",
-            {"state_timestamp": state.get("timestamp", "unknown")},
+            "refresh_attachments_started",
+            "Re-extracting attachments against existing review + AI batch",
+            {
+                "state_timestamp": state.get("timestamp", "unknown"),
+                "prior_extracted_data_path": state.get("extracted_data_path"),
+            },
         )
 
         try:
-            # Phase 5: Behavioral Analysis (post-review)
-            try:
-                behavioral_results = self.run_behavioral_phase(extracted_data, analysis_results, review_results)
-                analysis_results['behavioral'] = behavioral_results
-            except Exception as e:
-                logger.info(f"\n[!] Behavioral analysis failed (non-fatal): {e}")
-                analysis_results['behavioral'] = {}
+            # Phase 1 (refresh mode): re-extract, preserve fresh attachment copies to output/attachments/
+            extracted_data = self.run_extraction_phase(refresh_mode=True)
 
-            # Update third-party contact data (screenshots may have added more during analysis)
-            extracted_data['third_party_contacts'] = self.third_party_registry.get_all()
-            tp_summary = self.third_party_registry.get_summary()
-            if tp_summary['total'] > 0:
-                logger.info(f"\n[*] Discovered {tp_summary['total']} third-party contacts")
-                for src, count in tp_summary['by_source'].items():
-                    logger.info(f"    {src}: {count}")
+            # Update pipeline_state.json so the new extracted_data_path is recorded
+            self._save_pipeline_state()
 
-            # Phase 6: Executive Summary (post-review)
-            # Batch results already exist from Phase 3 (pre-review). Now generate summary, risks, and recommendations using the summary model, incorporating the actual conversation messages.
-            ai_results = analysis_results.get('ai_analysis', {})
-            if ai_results and ai_results.get('total_messages', 0) > 0:
-                logger.info("\n" + "="*60)
-                logger.info("PHASE 6: EXECUTIVE SUMMARY (POST-REVIEW)")
-                logger.info("="*60)
-                try:
-                    from src.analyzers.ai_analyzer import AIAnalyzer
-                    from src.utils.pricing import get_pricing
-                    ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic, config=self.config)
-                    if ai_analyzer.client:
-                        # Build message list for the summary using the same contact filter as Phase 3 (AI batch analysis).
-                        ai_contacts = self.config.ai_contacts
-                        ai_specified = self.config.ai_contacts_specified
-                        summary_messages = [
-                            m for m in extracted_data.get('messages', [])
-                            if m.get('source') != 'counseling'
-                            and m.get('sender') in ai_contacts
-                            and m.get('recipient') in ai_contacts
-                            and (ai_specified is None
-                                 or m.get('sender') in ai_specified
-                                 or m.get('recipient') in ai_specified)
-                        ]
-                        summary_messages.sort(key=lambda m: m.get('timestamp', ''))
-
-                        # Show accurate cost estimate before calling the API
-                        if summary_messages:
-                            sample_text, msg_count, _ = (
-                                ai_analyzer._format_messages_for_summary(summary_messages)
-                            )
-                            est_input = ai_analyzer._estimate_tokens(sample_text) + 500
-                            est_output = 4096
-                            sp = get_pricing(ai_analyzer.summary_model)
-                            est_cost = (
-                                (est_input / 1_000_000) * sp['input']
-                                + (est_output / 1_000_000) * sp['output']
-                            )
-                            logger.info(
-                                f"    {len(summary_messages):,} messages for executive summary "
-                                f"(~{est_input:,} input tokens)"
-                            )
-                            logger.info(
-                                f"    Estimated summary cost: ~${est_cost:.4f} "
-                                f"({ai_analyzer.summary_model})"
-                            )
-                            if est_cost > 1.00:
-                                logger.info(
-                                    f"    Cost exceeds $1.00 — press Ctrl+C within "
-                                    f"5 seconds to abort..."
-                                )
-                                try:
-                                    import time as _time
-                                    _time.sleep(5)
-                                except KeyboardInterrupt:
-                                    logger.info("\n    Summary generation aborted by user.")
-                                    summary_messages = None
-
-                        if summary_messages is not None:
-                            ai_results = ai_analyzer.generate_post_review_summary(
-                                ai_results, messages=summary_messages
-                            )
-                            analysis_results['ai_analysis'] = ai_results
-                            logger.info(f"    Executive summary generated")
-                        else:
-                            logger.info("    Executive summary skipped (user aborted)")
-                    else:
-                        logger.info("    Executive summary skipped — AI not configured")
-                except Exception as e:
-                    logger.info(f"    Executive summary error (non-fatal): {e}")
-            else:
-                logger.info("\n[*] No pre-screening results found — skipping executive summary")
-
-            # Phase 7: Reporting
-            reports = self.run_reporting_phase(extracted_data, analysis_results, review_results)
-
-            # Phase 8: Documentation (pass review so the events timeline can show only reviewer-confirmed findings)
-            documentation = self.run_documentation_phase(extracted_data, analysis_results, review_results)
-
-            logger.info("\n" + "="*80)
-            logger.info(" WORKFLOW COMPLETE ")
-            logger.info("="*80)
-            logger.info(f"\nAll outputs saved to: {self.config.output_dir}")
-            logger.info("\nGenerated files:")
-            for report_type, path in reports.items():
-                logger.info(f"  - {report_type}: {Path(path).name}")
-            for doc_type, path in documentation.items():
-                logger.info(f"  - {doc_type}: {Path(path).name}")
-
-            # Clean up pipeline state file after successful completion
-            self._clear_pipeline_state()
+            # Phases 5-8 against fresh extraction + existing analysis + existing review
+            self._run_post_review_phases(extracted_data, analysis_results, review_results)
 
         except Exception as e:
-            logger.info(f"\n[ERROR] Finalize failed: {e}")
+            logger.info(f"\n[ERROR] Refresh failed: {e}")
             import traceback
             traceback.print_exc()
             raise
@@ -798,6 +873,20 @@ def main(config: Config = None, resume: bool = False):
         return True
     except Exception as e:
         logger.info(f"\n[ERROR] Analysis failed: {e}")
+        return False
+
+
+def refresh_attachments(config: Config = None):
+    """Entry point for re-extracting attachments on an already-reviewed run.
+
+    Preserves AI batch results and review decisions; re-runs Phase 1 against the existing working copies and then Phases 5-8. Use after downloading iCloud-evicted attachments locally.
+    """
+    try:
+        analyzer = ForensicAnalyzer(config)
+        analyzer.run_refresh_attachments()
+        return True
+    except Exception as e:
+        logger.info(f"\n[ERROR] Refresh failed: {e}")
         return False
 
 

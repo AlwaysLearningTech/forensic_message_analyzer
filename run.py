@@ -22,7 +22,7 @@ from typing import Optional
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.main import main, finalize
+from src.main import main, finalize, refresh_attachments
 from src.config import Config
 
 
@@ -165,6 +165,13 @@ if __name__ == "__main__":
         "--resume", nargs="?", const="auto", default=None, metavar="RUN_DIR",
         help="Resume interrupted review session. Optionally specify run directory path."
     )
+    parser.add_argument(
+        "--refresh-attachments", dest="refresh_attachments",
+        nargs="?", const="auto", default=None, metavar="RUN_DIR",
+        help="Re-extract and re-report against an already-reviewed run "
+             "(preserves AI batch + review decisions). Run after downloading "
+             "iCloud-evicted attachments. Optionally specify run directory path."
+    )
     args = parser.parse_args()
 
     # Build config using the resolved .env location, then configure logging from it.
@@ -180,6 +187,17 @@ if __name__ == "__main__":
             run_dir = _resolve_run_dir(args.finalize, config)
             config.output_dir = str(run_dir)
             success = finalize(config)
+            try:
+                _post_run_verification(config)
+            except Exception as _e:
+                logging.warning(f"Post-run verification encountered a non-fatal issue: {_e}")
+            sys.exit(0 if success else 1)
+
+        elif args.refresh_attachments is not None:
+            # --refresh-attachments: re-extract against an existing completed run
+            run_dir = _resolve_run_dir(args.refresh_attachments, config)
+            config.output_dir = str(run_dir)
+            success = refresh_attachments(config)
             try:
                 _post_run_verification(config)
             except Exception as _e:

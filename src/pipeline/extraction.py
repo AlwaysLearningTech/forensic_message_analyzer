@@ -17,10 +17,16 @@ from ..utils.run_manifest import RunManifest
 logger = logging.getLogger(__name__)
 
 
-def run(analyzer) -> Dict:
-    """Run the data extraction phase against analyzer.config and return the extraction results dict."""
+def run(analyzer, refresh_mode: bool = False) -> Dict:
+    """Run the data extraction phase against analyzer.config and return the extraction results dict.
+
+    When ``refresh_mode`` is True, skip the one-time source-preservation steps (the
+    working copies already exist from the original run) and re-extract against them.
+    This is the path used by ``--refresh-attachments`` after the user has downloaded
+    iCloud-evicted files locally and wants updated reports without re-running AI.
+    """
     logger.info("\n" + "=" * 60)
-    logger.info("PHASE 1: DATA EXTRACTION")
+    logger.info(f"PHASE 1: DATA EXTRACTION{' (REFRESH MODE)' if refresh_mode else ''}")
     logger.info("=" * 60)
 
     # Ensure we are writing into a run subfolder. If the caller (e.g. direct ForensicAnalyzer usage without run.py) didn't create one, do it now so nothing lands in the base output dir.
@@ -44,8 +50,11 @@ def run(analyzer) -> Dict:
         analyzer.evidence = EvidencePreserver(analyzer.config, analyzer.forensic, analyzer.integrity, analyzer.manifest)
 
     analyzer._hash_source_files()
-    analyzer._preserve_source_files()
-    analyzer._route_sources_to_working_copies()
+    if not refresh_mode:
+        analyzer._preserve_source_files()
+        analyzer._route_sources_to_working_copies()
+    else:
+        logger.info("    [refresh] Skipping source preservation — working copies already exist")
     analyzer._apply_contact_automapping()
 
     if getattr(analyzer.config, "download_icloud_attachments", False):
