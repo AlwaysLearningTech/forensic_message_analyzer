@@ -84,7 +84,7 @@ def run(analyzer, data: Dict) -> Dict:
     results["ai_analysis"] = {}
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = Path(analyzer.config.output_dir) / f"analysis_results_{timestamp}.json"
+    output_file = analyzer.config.analysis_dir() / f"analysis_results_{timestamp}.json"
     with open(output_file, "w") as f:
         json.dump(results, f, indent=2, default=str)
 

@@ -75,7 +75,7 @@ def _build_events_timeline(analyzer, data: Dict, analysis_results: Optional[Dict
         logger.info("    Skipping events timeline — no confirmed events to plot")
         return None
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out = Path(analyzer.config.output_dir) / f"events_timeline_{timestamp}.html"
+    out = analyzer.config.reports_dir() / f"events_timeline_{timestamp}.html"
     render_events_timeline(
         events,
         out,
@@ -98,7 +98,7 @@ def _build_timeline(analyzer, data: Dict, analysis_results: Optional[Dict]) -> O
     logger.info("\n[*] Generating timeline...")
     timeline_gen = TimelineGenerator(analyzer.forensic, config=analyzer.config)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    timeline_path = Path(analyzer.config.output_dir) / f"timeline_{timestamp}.html"
+    timeline_path = analyzer.config.reports_dir() / f"timeline_{timestamp}.html"
 
     import pandas as pd
     df = pd.DataFrame(combined_data) if isinstance(combined_data, list) else combined_data

@@ -43,7 +43,7 @@ def run(analyzer, data: Dict, analysis: Dict, review: Dict) -> Dict:
         logger.info("\n[*] Generating Excel report...")
         try:
             excel_reporter = ExcelReporter(analyzer.forensic, config=analyzer.config)
-            excel_path = Path(analyzer.config.output_dir) / f"report_{timestamp}.xlsx"
+            excel_path = analyzer.config.reports_dir() / f"report_{timestamp}.xlsx"
             excel_reporter.generate_report(data.copy(), filtered_analysis, review, excel_path)
             reports["excel"] = str(excel_path)
             logger.info(f"    Saved to {excel_path}")
@@ -54,7 +54,7 @@ def run(analyzer, data: Dict, analysis: Dict, review: Dict) -> Dict:
     logger.info("\n[*] Generating HTML/PDF report (with inline images)...")
     try:
         html_reporter = HtmlReporter(analyzer.forensic, config=analyzer.config)
-        html_base = Path(analyzer.config.output_dir) / f"report_{timestamp}"
+        html_base = analyzer.config.reports_dir() / f"report_{timestamp}"
         for fmt, path in html_reporter.generate_report(data, filtered_analysis, review, html_base).items():
             reports[fmt] = str(path)
             logger.info(f"    {fmt.upper()} report: {path.name}")
@@ -66,7 +66,7 @@ def run(analyzer, data: Dict, analysis: Dict, review: Dict) -> Dict:
     try:
         from ..reporters.chat_reporter import ChatReporter
         chat_reporter = ChatReporter(analyzer.forensic, config=analyzer.config)
-        chat_base = Path(analyzer.config.output_dir) / f"report_{timestamp}"
+        chat_base = analyzer.config.reports_dir() / f"report_{timestamp}"
         for fmt, path in chat_reporter.generate_report(data, filtered_analysis, review, chat_base).items():
             reports[fmt] = str(path)
             logger.info(f"    {fmt.upper()} report: {path.name}")
@@ -78,7 +78,7 @@ def run(analyzer, data: Dict, analysis: Dict, review: Dict) -> Dict:
         logger.info("\n[*] Generating JSON report...")
         try:
             json_reporter = JSONReporter(analyzer.forensic, config=analyzer.config)
-            json_path = Path(analyzer.config.output_dir) / f"report_{timestamp}.json"
+            json_path = analyzer.config.reports_dir() / f"report_{timestamp}.json"
             json_reporter.generate_report(data, filtered_analysis, review, json_path)
             reports["json"] = str(json_path)
             logger.info(f"    Saved to {json_path}")
@@ -93,21 +93,22 @@ def run(analyzer, data: Dict, analysis: Dict, review: Dict) -> Dict:
     if legal_text:
         logger.info("\n[*] Generating legal team summary document (DOCX + PDF)...")
         try:
-            summary_docx = Path(analyzer.config.output_dir) / f"legal_team_summary_{timestamp}.docx"
+            summary_docx = analyzer.config.reports_dir() / f"legal_team_summary_{timestamp}.docx"
             forensic_reporter._generate_legal_summary_docx(legal_text, summary_docx, reports)
-            summary_pdf = forensic_reporter._docx_to_pdf(summary_docx)
             reports["legal_summary"] = str(summary_docx)
-            reports["legal_summary_pdf"] = str(summary_pdf)
             docx_hash = analyzer.forensic.compute_hash(summary_docx)
-            pdf_hash = analyzer.forensic.compute_hash(summary_pdf)
-            analyzer.forensic.record_action(
-                "legal_summary_generated",
-                f"Generated legal team summary (DOCX {docx_hash[:12]}, PDF {pdf_hash[:12]})",
-                {"docx": str(summary_docx), "pdf": str(summary_pdf), "docx_hash": docx_hash, "pdf_hash": pdf_hash},
-            )
+            meta = {"docx": str(summary_docx), "docx_hash": docx_hash}
+            summary_pdf = forensic_reporter._docx_to_pdf(summary_docx)
+            if summary_pdf is not None:
+                reports["legal_summary_pdf"] = str(summary_pdf)
+                pdf_hash = analyzer.forensic.compute_hash(summary_pdf)
+                meta.update({"pdf": str(summary_pdf), "pdf_hash": pdf_hash})
+                analyzer._sign_artifact(summary_pdf)
+                logger.info(f"    Saved {summary_docx.name} and {summary_pdf.name}")
+            else:
+                logger.info(f"    Saved {summary_docx.name} (PDF conversion skipped)")
+            analyzer.forensic.record_action("legal_summary_generated", f"Generated legal team summary (DOCX {docx_hash[:12]})", meta)
             analyzer._sign_artifact(summary_docx)
-            analyzer._sign_artifact(summary_pdf)
-            logger.info(f"    Saved {summary_docx.name} and {summary_pdf.name}")
         except Exception as e:
             logger.info(f"    Error generating legal team summary: {e}")
             traceback.print_exc()

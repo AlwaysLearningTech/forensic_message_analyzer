@@ -22,7 +22,7 @@ from typing import Optional
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.main import main, finalize, refresh_attachments, mark_review_complete
+from src.main import main, finalize, refresh_attachments, mark_review_complete, recover_state
 from src.config import Config
 
 
@@ -37,11 +37,11 @@ def _configure_logging(config: Config):
 
 
 def _find_latest_run_dir(base_dir: Path) -> Optional[Path]:
-    """Find the most recent run directory with a pipeline state file."""
+    """Find the most recent run directory with a pipeline state file (new or legacy layout)."""
     run_dirs = sorted(base_dir.glob("run_*"), reverse=True)
     for d in run_dirs:
-        state_file = d / "pipeline_state.json"
-        if state_file.exists():
+        # New layout: analysis/pipeline_state.json; legacy: pipeline_state.json at root
+        if (d / "analysis" / "pipeline_state.json").exists() or (d / "pipeline_state.json").exists():
             return d
     return None
 
@@ -97,9 +97,14 @@ def _post_run_verification(config: Config) -> None:
         "run_manifest_*.json",
     ]
     output_path = Path(config.output_dir)
+    forensic_path = output_path / "forensic"
     missing = []
     for pattern in required_globs:
-        if not any(output_path.glob(pattern)):
+        # New layout: forensic/ subdir; legacy: run root
+        found = any(forensic_path.glob(pattern)) if forensic_path.is_dir() else False
+        if not found:
+            found = any(output_path.glob(pattern))
+        if not found:
             missing.append(pattern)
     if missing:
         logging.warning(
@@ -129,11 +134,13 @@ def _resolve_run_dir(path_arg: str, config: Config) -> Path:
         )
         sys.exit(2)
 
-    # Show which directory was auto-detected
-    state_file = run_dir / "pipeline_state.json"
-    with open(state_file) as f:
-        state = json.load(f)
-    logging.info(f"Auto-detected run directory: {run_dir.name} ({state.get('timestamp', 'unknown')})")
+    # Show which directory was auto-detected (check new layout then legacy)
+    for candidate in [run_dir / "analysis" / "pipeline_state.json", run_dir / "pipeline_state.json"]:
+        if candidate.exists():
+            with open(candidate) as f:
+                state = json.load(f)
+            logging.info(f"Auto-detected run directory: {run_dir.name} ({state.get('timestamp', 'unknown')})")
+            break
     return run_dir
 
 
@@ -179,6 +186,14 @@ if __name__ == "__main__":
              "(e.g. session ended via Pause or browser close). Requires a review_results "
              "file to already exist. Unlocks --finalize. Optionally specify run directory path."
     )
+    parser.add_argument(
+        "--recover-state", dest="recover_state",
+        default=None, metavar="RUN_DIR",
+        help="Reconstruct pipeline_state.json from artifacts already present in RUN_DIR. "
+             "Use when --refresh-attachments or --finalize cleared the state file but all "
+             "artifacts (extracted_data, analysis_results, etc.) are still on disk. "
+             "Requires an explicit run directory path (no auto-detect — this is a manual repair)."
+    )
     args = parser.parse_args()
 
     # Build config using the resolved .env location, then configure logging from it.
@@ -189,7 +204,17 @@ if __name__ == "__main__":
         if not _pre_run_validation(config):
             sys.exit(2)
 
-        if args.finalize is not None:
+        if args.recover_state is not None:
+            # --recover-state: manual repair; requires explicit path
+            run_dir = Path(args.recover_state)
+            if not run_dir.is_dir():
+                logging.error(f"Run directory does not exist: {run_dir}")
+                sys.exit(2)
+            config.output_dir = str(run_dir)
+            success = recover_state(config)
+            sys.exit(0 if success else 1)
+
+        elif args.finalize is not None:
             # --finalize mode: load existing run directory, run Phases 4-7
             run_dir = _resolve_run_dir(args.finalize, config)
             config.output_dir = str(run_dir)

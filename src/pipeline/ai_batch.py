@@ -66,7 +66,7 @@ def run(analyzer, extracted_data: Dict) -> Dict:
         )
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        ai_output_file = Path(analyzer.config.output_dir) / f"ai_batch_results_{timestamp}.json"
+        ai_output_file = analyzer.config.analysis_dir() / f"ai_batch_results_{timestamp}.json"
         with open(ai_output_file, "w") as f:
             json.dump(ai_results, f, indent=2, default=str)
         analyzer._ai_batch_results_path = ai_output_file

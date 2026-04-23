@@ -36,7 +36,7 @@ class ForensicAnalyzer:
                     to the desired run-specific directory (see run.py).
         """
         self.config = config if config is not None else Config()
-        self.forensic = ForensicRecorder(Path(self.config.output_dir), config=self.config)
+        self.forensic = ForensicRecorder(self.config.forensic_dir(), config=self.config)
         self.integrity = ForensicIntegrity(self.forensic)
         self.manifest = RunManifest(self.forensic, config=self.config)
         self.third_party_registry = ThirdPartyRegistry(self.forensic, self.config)
@@ -175,7 +175,7 @@ class ForensicAnalyzer:
         Copies each original attachment to output_dir/attachments/ and updates the message dicts to reference the preserved copy. Deduplicates so the same source file is only copied once even if referenced by multiple messages.
         """
         messages = extracted_data.get('messages', [])
-        dest_dir = Path(self.config.output_dir) / "attachments"
+        dest_dir = self.config.sources_dir() / "attachments"
 
         preserved = {}   # {original_path_str: preserved_path}
         preserved_count = 0
@@ -312,24 +312,26 @@ class ForensicAnalyzer:
             "review_session_id": existing.get("review_session_id") if review_session_id is self._UNSET else review_session_id,
             "review_complete": existing.get("review_complete", False) if review_complete is self._UNSET else review_complete,
         }
-        state_path = Path(self.config.output_dir) / "pipeline_state.json"
+        state_path = self.config.analysis_dir() / "pipeline_state.json"
         with open(state_path, 'w') as f:
             json.dump(state, f, indent=2)
         self.forensic.record_action("pipeline_state_saved", f"Pipeline state saved for resume", {"state_path": str(state_path)})
 
     def _load_pipeline_state(self) -> Optional[Dict]:
-        """Load pipeline state from a previous run. Returns None if no state file."""
-        state_path = Path(self.config.output_dir) / "pipeline_state.json"
-        if not state_path.exists():
-            return None
-        with open(state_path) as f:
-            return json.load(f)
+        """Load pipeline state. Checks analysis/ subdir first (new layout), then root (legacy)."""
+        out_dir = Path(self.config.output_dir)
+        for candidate in [out_dir / "analysis" / "pipeline_state.json", out_dir / "pipeline_state.json"]:
+            if candidate.exists():
+                with open(candidate) as f:
+                    return json.load(f)
+        return None
 
     def _clear_pipeline_state(self):
-        """Remove pipeline state file after successful completion."""
-        state_path = Path(self.config.output_dir) / "pipeline_state.json"
-        if state_path.exists():
-            state_path.unlink()
+        """Remove pipeline state file after successful completion (checks both new and legacy locations)."""
+        out_dir = Path(self.config.output_dir)
+        for candidate in [out_dir / "analysis" / "pipeline_state.json", out_dir / "pipeline_state.json"]:
+            if candidate.exists():
+                candidate.unlink()
         
     def run_extraction_phase(self, refresh_mode: bool = False) -> Dict:
         """Phase 1: data extraction. Delegates to src.pipeline.extraction."""
@@ -456,13 +458,15 @@ class ForensicAnalyzer:
 
         if resume:
             state = self._load_pipeline_state()
-            state_path = Path(self.config.output_dir) / "pipeline_state.json"
-            logger.info(f"\n[*] Resume requested. Looking for state at: {state_path}")
+            out_dir = Path(self.config.output_dir)
+            # Log which location was checked (new layout first, then legacy root)
+            state_path = (out_dir / "analysis" / "pipeline_state.json") if (out_dir / "analysis" / "pipeline_state.json").exists() else (out_dir / "pipeline_state.json")
+            logger.info(f"\n[*] Resume requested. Looking for state in: {out_dir.name}")
             if state:
                 logger.info(f"    State found: review_complete={state.get('review_complete')}, "
                             f"timestamp={state.get('timestamp', '?')}")
             else:
-                logger.info(f"    No state file found at {state_path}")
+                logger.info(f"    No state file found in {out_dir}")
 
             if state and state.get("review_complete"):
                 logger.info("\n[!] Review was already completed. Nothing to resume.")
@@ -504,10 +508,11 @@ class ForensicAnalyzer:
                     raise RuntimeError("Resume failed: required data files missing. Refusing to start a fresh run to protect against unintended AI API costs.")
             else:
                 logger.error("\n[!] RESUME ABORTED: No pipeline_state.json found in this run directory.")
-                logger.error(f"    Looked in: {state_path}")
+                logger.error(f"    Looked in: {out_dir} (analysis/ and root)")
                 logger.error("    Cannot resume a run that has no saved state. Options:")
-                logger.error("      1. Check that you specified the correct run directory")
-                logger.error("      2. Start a fresh run with: python3 run.py")
+                logger.error("      1. Use --recover-state to rebuild state from artifacts: python3 run.py --recover-state <run_dir>")
+                logger.error("      2. Check that you specified the correct run directory")
+                logger.error("      3. Start a fresh run with: python3 run.py")
                 raise RuntimeError("Resume failed: no pipeline_state.json found. Refusing to start a fresh run to protect against unintended AI API costs.")
 
         try:
@@ -644,12 +649,92 @@ class ForensicAnalyzer:
             traceback.print_exc()
             raise
 
-    def _run_post_review_phases(self, extracted_data, analysis_results, review_results):
+    def _run_executive_summary(self, extracted_data, analysis_results):
+        """Phase 6: generate AI executive summary post-review. Factored out so refresh can skip it."""
+        ai_results = analysis_results.get('ai_analysis', {})
+        if not (ai_results and ai_results.get('total_messages', 0) > 0):
+            logger.info("\n[*] No pre-screening results found — skipping executive summary")
+            return
+
+        logger.info("\n" + "="*60)
+        logger.info("PHASE 6: EXECUTIVE SUMMARY (POST-REVIEW)")
+        logger.info("="*60)
+        try:
+            from src.analyzers.ai_analyzer import AIAnalyzer
+            from src.utils.pricing import get_pricing
+            ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic, config=self.config)
+            if not ai_analyzer.client:
+                logger.info("    Executive summary skipped — AI not configured")
+                return
+
+            ai_contacts = self.config.ai_contacts
+            ai_specified = self.config.ai_contacts_specified
+            summary_messages = [
+                m for m in extracted_data.get('messages', [])
+                if m.get('source') != 'counseling'
+                and m.get('sender') in ai_contacts
+                and m.get('recipient') in ai_contacts
+                and (ai_specified is None
+                     or m.get('sender') in ai_specified
+                     or m.get('recipient') in ai_specified)
+            ]
+            summary_messages.sort(key=lambda m: m.get('timestamp', ''))
+
+            if summary_messages:
+                sample_text, msg_count, _ = (
+                    ai_analyzer._format_messages_for_summary(summary_messages)
+                )
+                est_input = ai_analyzer._estimate_tokens(sample_text) + 500
+                est_output = 4096
+                sp = get_pricing(ai_analyzer.summary_model)
+                est_cost = (
+                    (est_input / 1_000_000) * sp['input']
+                    + (est_output / 1_000_000) * sp['output']
+                )
+                logger.info(
+                    f"    {len(summary_messages):,} messages for executive summary "
+                    f"(~{est_input:,} input tokens)"
+                )
+                logger.info(
+                    f"    Estimated summary cost: ~${est_cost:.4f} "
+                    f"({ai_analyzer.summary_model})"
+                )
+                if est_cost > 1.00:
+                    logger.info(
+                        f"    Cost exceeds $1.00 — press Ctrl+C within "
+                        f"5 seconds to abort..."
+                    )
+                    try:
+                        import time as _time
+                        _time.sleep(5)
+                    except KeyboardInterrupt:
+                        logger.info("\n    Summary generation aborted by user.")
+                        return
+
+            if summary_messages is not None:
+                updated = ai_analyzer.generate_post_review_summary(
+                    ai_results, messages=summary_messages
+                )
+                analysis_results['ai_analysis'] = updated
+                logger.info(f"    Executive summary generated")
+            else:
+                logger.info("    Executive summary skipped (user aborted)")
+        except Exception as e:
+            logger.info(f"    Executive summary error (non-fatal): {e}")
+
+    def _run_post_review_phases(self, extracted_data, analysis_results, review_results,
+                                skip_ai_summary: bool = False,
+                                clear_state_on_success: bool = True):
         """Shared Phase 5-8 runner used by both finalize and refresh.
 
         Rebuilds the enriched DataFrame from saved analysis_results, then runs
         behavioral analysis, executive summary, reporting, and documentation.
-        Clears the pipeline state file on success.
+
+        Args:
+            skip_ai_summary: When True, skip the expensive Phase 6 AI executive summary.
+                             Used by --refresh-attachments to avoid re-spending AI credits.
+            clear_state_on_success: When False, leave pipeline_state.json intact after completion.
+                             Used by --refresh-attachments since the run may still need --finalize.
         """
         # Reconstruct enriched DataFrame for Phase 5 behavioral analysis. During the initial run, Phase 2 enriches a DataFrame with threat/sentiment/pattern columns and saves it as self._enriched_df. Since finalize/refresh runs in a new process, we must rebuild it from the saved analysis results.
         import pandas as pd
@@ -692,77 +777,11 @@ class ForensicAnalyzer:
             for src, count in tp_summary['by_source'].items():
                 logger.info(f"    {src}: {count}")
 
-        # Phase 6: Executive Summary (post-review). Batch results already exist from Phase 3 (pre-review). Now generate summary, risks, and recommendations using the summary model, incorporating the actual conversation messages.
-        ai_results = analysis_results.get('ai_analysis', {})
-        if ai_results and ai_results.get('total_messages', 0) > 0:
-            logger.info("\n" + "="*60)
-            logger.info("PHASE 6: EXECUTIVE SUMMARY (POST-REVIEW)")
-            logger.info("="*60)
-            try:
-                from src.analyzers.ai_analyzer import AIAnalyzer
-                from src.utils.pricing import get_pricing
-                ai_analyzer = AIAnalyzer(forensic_recorder=self.forensic, config=self.config)
-                if ai_analyzer.client:
-                    # Build message list for the summary using the same contact filter as Phase 3 (AI batch analysis).
-                    ai_contacts = self.config.ai_contacts
-                    ai_specified = self.config.ai_contacts_specified
-                    summary_messages = [
-                        m for m in extracted_data.get('messages', [])
-                        if m.get('source') != 'counseling'
-                        and m.get('sender') in ai_contacts
-                        and m.get('recipient') in ai_contacts
-                        and (ai_specified is None
-                             or m.get('sender') in ai_specified
-                             or m.get('recipient') in ai_specified)
-                    ]
-                    summary_messages.sort(key=lambda m: m.get('timestamp', ''))
-
-                    # Show accurate cost estimate before calling the API
-                    if summary_messages:
-                        sample_text, msg_count, _ = (
-                            ai_analyzer._format_messages_for_summary(summary_messages)
-                        )
-                        est_input = ai_analyzer._estimate_tokens(sample_text) + 500
-                        est_output = 4096
-                        sp = get_pricing(ai_analyzer.summary_model)
-                        est_cost = (
-                            (est_input / 1_000_000) * sp['input']
-                            + (est_output / 1_000_000) * sp['output']
-                        )
-                        logger.info(
-                            f"    {len(summary_messages):,} messages for executive summary "
-                            f"(~{est_input:,} input tokens)"
-                        )
-                        logger.info(
-                            f"    Estimated summary cost: ~${est_cost:.4f} "
-                            f"({ai_analyzer.summary_model})"
-                        )
-                        if est_cost > 1.00:
-                            logger.info(
-                                f"    Cost exceeds $1.00 — press Ctrl+C within "
-                                f"5 seconds to abort..."
-                            )
-                            try:
-                                import time as _time
-                                _time.sleep(5)
-                            except KeyboardInterrupt:
-                                logger.info("\n    Summary generation aborted by user.")
-                                summary_messages = None
-
-                    if summary_messages is not None:
-                        ai_results = ai_analyzer.generate_post_review_summary(
-                            ai_results, messages=summary_messages
-                        )
-                        analysis_results['ai_analysis'] = ai_results
-                        logger.info(f"    Executive summary generated")
-                    else:
-                        logger.info("    Executive summary skipped (user aborted)")
-                else:
-                    logger.info("    Executive summary skipped — AI not configured")
-            except Exception as e:
-                logger.info(f"    Executive summary error (non-fatal): {e}")
+        # Phase 6: Executive Summary (post-review). Skip when called from --refresh-attachments.
+        if skip_ai_summary:
+            logger.info("\n[refresh] Skipping Phase 6 executive summary (preserves existing AI spend)")
         else:
-            logger.info("\n[*] No pre-screening results found — skipping executive summary")
+            self._run_executive_summary(extracted_data, analysis_results)
 
         # Phase 7: Reporting
         reports = self.run_reporting_phase(extracted_data, analysis_results, review_results)
@@ -780,8 +799,10 @@ class ForensicAnalyzer:
         for doc_type, path in documentation.items():
             logger.info(f"  - {doc_type}: {Path(path).name}")
 
-        # Clean up pipeline state file after successful completion
-        self._clear_pipeline_state()
+        if clear_state_on_success:
+            self._clear_pipeline_state()
+        else:
+            logger.info("[refresh] Leaving pipeline_state.json intact (run may still need --finalize)")
 
     def run_refresh_attachments(self):
         """Re-run extraction + reporting against an already-reviewed run, preserving AI batch and review decisions.
@@ -847,8 +868,14 @@ class ForensicAnalyzer:
             # Update pipeline_state.json so the new extracted_data_path is recorded
             self._save_pipeline_state()
 
-            # Phases 5-8 against fresh extraction + existing analysis + existing review
-            self._run_post_review_phases(extracted_data, analysis_results, review_results)
+            # Phases 5-8 against fresh extraction + existing analysis + existing review.
+            # Skip AI executive summary (no re-spend) and keep pipeline_state intact
+            # (the run may still need --finalize or --mark-review-complete + --finalize).
+            self._run_post_review_phases(
+                extracted_data, analysis_results, review_results,
+                skip_ai_summary=True,
+                clear_state_on_success=False,
+            )
 
         except Exception as e:
             logger.info(f"\n[ERROR] Refresh failed: {e}")
@@ -895,6 +922,70 @@ class ForensicAnalyzer:
             f"[✓] Review marked complete ({total} reviewed items). "
             f"You can now run --finalize or --refresh-attachments."
         )
+
+
+    def recover_pipeline_state(self):
+        """Reconstruct pipeline_state.json from artifacts found in the run directory.
+
+        Use case: --refresh-attachments or --finalize cleared the state file, but
+        all artifacts (extracted_data, analysis_results, ai_batch_results, review_results)
+        still exist on disk. This lets --resume work without losing forensic chain.
+        """
+        out_dir = Path(self.config.output_dir)
+        # Write recovered state to analysis/ (new layout); also check root (legacy) for existing state
+        state_path = self.config.analysis_dir() / "pipeline_state.json"
+        if state_path.exists() or (out_dir / "pipeline_state.json").exists():
+            raise RuntimeError("pipeline_state.json already exists in this run_dir — nothing to recover.")
+
+        def _latest(glob_pat):
+            # Check analysis/ subdir first (new layout), then root (legacy)
+            hits = sorted((out_dir / "analysis").glob(glob_pat)) if (out_dir / "analysis").is_dir() else []
+            if not hits:
+                hits = sorted(out_dir.glob(glob_pat))
+            return hits[-1] if hits else None
+
+        ext = _latest("extracted_data_*.json")
+        ana = _latest("analysis_results_*.json")
+        aib = _latest("ai_batch_results_*.json")
+        rev = _latest("review_results_*.json")
+
+        missing = [name for name, p in [("extraction", ext), ("analysis", ana)] if not p]
+        if missing:
+            raise RuntimeError(f"Cannot recover — missing required artifacts: {', '.join(missing)}")
+
+        def _h(p):
+            return self.forensic.compute_hash(p) if p else None
+
+        recovered = {
+            "timestamp": datetime.now().isoformat(),
+            "extracted_data_path": str(ext),
+            "analysis_results_path": str(ana),
+            "ai_batch_results_path": str(aib) if aib else None,
+            "review_results_path": str(rev) if rev else None,
+            "review_session_id": None,
+            "review_complete": False,
+        }
+        state_path.write_text(json.dumps(recovered, indent=2))
+
+        self.forensic.record_action(
+            "pipeline_state_recovered",
+            "Reconstructed pipeline_state.json from existing artifacts after state was cleared",
+            {
+                "run_dir": str(out_dir),
+                "extracted_data": {"path": str(ext), "sha256": _h(ext)},
+                "analysis_results": {"path": str(ana), "sha256": _h(ana)},
+                "ai_batch_results": {"path": str(aib) if aib else None, "sha256": _h(aib)},
+                "review_results": {"path": str(rev) if rev else None, "sha256": _h(rev)},
+            },
+        )
+        logger.info(f"[✓] Recovered pipeline state from {out_dir.name}.")
+        if rev:
+            logger.info(f"    review_results found — if review is complete, run:")
+            logger.info(f"      python3 run.py --mark-review-complete \"{out_dir}\"")
+            logger.info(f"      python3 run.py --finalize \"{out_dir}\"")
+        else:
+            logger.info(f"    No review_results found — resume review with:")
+            logger.info(f"      python3 run.py --resume \"{out_dir}\"")
 
 
 def main(config: Config = None, resume: bool = False):
@@ -945,6 +1036,28 @@ def mark_review_complete(config: Config = None):
         return True
     except Exception as e:
         logger.info(f"\n[ERROR] mark-review-complete failed: {e}")
+        return False
+
+
+def recover_state(config: Config = None):
+    """Entry point to recover pipeline_state.json from existing run artifacts.
+
+    Used when --refresh-attachments or --finalize cleared the state file but all
+    pipeline artifacts are still on disk. Records the recovery forensically and
+    prints next-step instructions.
+
+    Args:
+        config: Configuration instance. ``config.output_dir`` must point to the run directory.
+
+    Returns:
+        bool: True if recovery succeeded, False otherwise.
+    """
+    try:
+        analyzer = ForensicAnalyzer(config)
+        analyzer.recover_pipeline_state()
+        return True
+    except Exception as e:
+        logger.info(f"\n[ERROR] Recover-state failed: {e}")
         return False
 
 

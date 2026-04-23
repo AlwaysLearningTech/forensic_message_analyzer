@@ -482,13 +482,38 @@ class Config:
         
         return unique_expanded
     
+    # ------------------------------------------------------------------
+    # Subfolder helpers (run-directory layout)
+    # ------------------------------------------------------------------
+
+    def _subdir(self, name: str) -> Path:
+        p = Path(self.output_dir) / name
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def reports_dir(self) -> Path:
+        """Subfolder for user-facing deliverables (reports, timelines, cover sheets)."""
+        return self._subdir("reports")
+
+    def forensic_dir(self) -> Path:
+        """Subfolder for audit-chain artifacts (COC, forensic log, HMAC key, manifest)."""
+        return self._subdir("forensic")
+
+    def analysis_dir(self) -> Path:
+        """Subfolder for pipeline intermediates (extracted_data, analysis, ai_batch, review results, pipeline_state)."""
+        return self._subdir("analysis")
+
+    def sources_dir(self) -> Path:
+        """Subfolder for preserved source inputs (working_copies, attachments, preserved_sources.zip)."""
+        return self._subdir("sources")
+
     def _ensure_directories(self):
         """Create necessary directories if they don't exist."""
         directories = [
             self.output_dir,
             self.review_dir,
         ]
-        
+
         for dir_path in directories:
             if dir_path:
                 path = Path(dir_path)

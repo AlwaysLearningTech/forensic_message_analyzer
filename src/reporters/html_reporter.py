@@ -384,8 +384,18 @@ class HtmlReporter:
                 WeasyprintHTML(string=html_content, base_url=str(html_path.parent)).write_pdf(pdf_path)
                 self._record_output(pdf_path, 'pdf')
                 paths['pdf'] = pdf_path
+            except ModuleNotFoundError:
+                logger.warning(
+                    "[!] WeasyPrint not installed — HTML→PDF conversion skipped.\n"
+                    "    Install:  pip install weasyprint\n"
+                    "    Also requires system libraries:  brew install pango glib gobject-introspection\n"
+                    "    (HTML report is still produced.)"
+                )
             except Exception as e:
-                logger.error(f"PDF generation failed (HTML still available): {e}")
+                logger.warning(
+                    f"[!] HTML→PDF conversion failed: {e}\n"
+                    "    If the error mentions libgobject/pango, run:  brew install pango glib gobject-introspection"
+                )
 
         return paths
 

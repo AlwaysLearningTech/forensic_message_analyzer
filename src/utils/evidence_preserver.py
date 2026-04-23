@@ -78,12 +78,13 @@ class EvidencePreserver:
     # --- archive -------------------------------------------------------
 
     def preserve_sources(self) -> Optional[Path]:
-        """Copy every source file into run_dir/preserved_sources/ and zip it.
+        """Copy every source file into sources/preserved_sources/ and zip it.
 
         Returns the path to the generated zip or None if nothing was preserved.
         """
         run_dir = Path(self.config.output_dir)
-        staging = run_dir / "preserved_sources"
+        sources_root = self.config.sources_dir()
+        staging = sources_root / "preserved_sources"
         staging.mkdir(parents=True, exist_ok=True)
         logger.info("\n[*] Preserving source evidence files...")
 
@@ -145,7 +146,7 @@ class EvidencePreserver:
             shutil.rmtree(staging, ignore_errors=True)
             return None
 
-        zip_path = run_dir / "preserved_sources.zip"
+        zip_path = sources_root / "preserved_sources.zip"
         logger.info(f"    Archiving {preserved_count} source files...")
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for f in sorted(staging.rglob("*")):
@@ -169,8 +170,7 @@ class EvidencePreserver:
 
     def route_to_working_copies(self):
         """Repoint every configured source at a hash-verified working copy."""
-        run_dir = Path(self.config.output_dir)
-        working_root = run_dir / "working_copies"
+        working_root = self.config.sources_dir() / "working_copies"
         working_root.mkdir(parents=True, exist_ok=True)
         logger.info("\n[*] Creating working copies for extraction (originals will not be read)...")
 

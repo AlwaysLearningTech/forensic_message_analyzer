@@ -712,10 +712,15 @@ class WebReview:
 
     def _get_notes_overview(self) -> Dict:
         """Return all note phrases with associated item details and flagged-item indices for linking."""
-        # Build item_id → flagged index lookup
+        # Build item_id → flagged index and content preview lookups
         id_to_idx = {}
+        id_to_preview = {}
         for i, item in enumerate(self.flagged_items):
-            id_to_idx[item.get("id", f"item_{i}")] = i
+            iid = item.get("id", f"item_{i}")
+            id_to_idx[iid] = i
+            raw = (item.get("content") or "").strip()
+            first_line = raw.splitlines()[0] if raw else ""
+            id_to_preview[iid] = first_line[:80] + ("…" if len(first_line) > 80 else "")
 
         # Group active reviews by normalized note text
         groups: Dict[str, Dict] = {}
@@ -731,6 +736,7 @@ class WebReview:
             item_id = record.get("item_id", "")
             entry["items"].append({
                 "item_id": item_id,
+                "item_preview": id_to_preview.get(item_id, ""),
                 "decision": record.get("decision", ""),
                 "flagged_index": id_to_idx.get(item_id),
                 "timestamp": record.get("timestamp", ""),
@@ -1854,10 +1860,12 @@ function renderNotesOverview(noteGroups, suggestions) {{
           + '<div class="note-group-items">'
           + items.map(it => {{
               const cls = 'note-item-link decision-' + (it.decision || 'uncertain');
-              const idx = (it.flagged_index != null) ? it.flagged_index : -1;
-              const onclick = idx >= 0 ? 'onclick="jumpToItem(' + idx + ')"' : '';
-              return '<span class="' + cls + '" ' + onclick + ' title="' + escapeHtml(it.item_id) + '">'
-                   + escapeHtml(it.item_id) + '</span>';
+              const jumpIdx = (it.flagged_index != null) ? it.flagged_index : -1;
+              const onclick = jumpIdx >= 0 ? 'onclick="jumpToItem(' + jumpIdx + ')"' : '';
+              const label = it.item_preview || it.item_id;
+              const tip = it.item_id + (it.item_preview ? ' — ' + it.item_preview : '');
+              return '<span class="' + cls + '" ' + onclick + ' title="' + escapeHtml(tip) + '">'
+                   + escapeHtml(label) + '</span>';
             }}).join('')
           + '</div>'
           + '<div class="note-bulk-edit" id="bulkEdit_' + idx + '" style="display:none;"></div>'

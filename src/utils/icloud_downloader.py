@@ -17,12 +17,33 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 
+def _try_fileproviderctl(subdir: Path, timeout: int = 60) -> tuple:
+    """Run `fileproviderctl materialize` on a directory. Returns (returncode, output)."""
+    try:
+        proc = subprocess.run(
+            ["fileproviderctl", "materialize", str(subdir)],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return proc.returncode, proc.stdout + proc.stderr
+    except subprocess.TimeoutExpired:
+        return -1, "timeout"
+    except FileNotFoundError:
+        return -2, "fileproviderctl not found"
+    except Exception as exc:
+        return -3, str(exc)
+
+
 def download_messages_attachments(
     attachments_dir: Path,
     forensic_recorder=None,
     timeout_per_dir: int = 600,
 ) -> Dict[str, int]:
     """Walk attachments_dir and invoke `brctl download` on each subdirectory.
+
+    If brctl fails or recovers 0 files, falls back to `fileproviderctl materialize`
+    which targets the File Provider domain used by Messages (brctl targets iCloud Drive).
 
     Returns a summary dict with counts of directories walked, files present before,
     files present after, and files still missing. The forensic recorder (if provided)
@@ -36,6 +57,8 @@ def download_messages_attachments(
         "recovered": 0,
         "still_missing": 0,
         "brctl_failures": 0,
+        "fileproviderctl_attempted": False,
+        "fileproviderctl_failures": 0,
     }
 
     if not attachments_dir.exists():
@@ -83,6 +106,31 @@ def download_messages_attachments(
                 )
             return summary
 
+    mid = _scan(attachments_dir)
+    brctl_recovered = max(0, mid["files"] - before["files"])
+
+    # If brctl recovered nothing (or failed on most dirs), try fileproviderctl materialize.
+    # Messages attachments live under a Files-provider domain, not iCloud Drive, so
+    # fileproviderctl is the correct API; brctl targets iCloud Drive only.
+    if brctl_recovered == 0 or summary["brctl_failures"] > summary["walked_dirs"] // 2:
+        logger.info(
+            "[iCloud] brctl recovered 0 files (Messages uses a Files-provider domain, not iCloud Drive). "
+            "Falling back to fileproviderctl materialize..."
+        )
+        summary["fileproviderctl_attempted"] = True
+        fp_failures = 0
+        for sub in _iter_dirs(attachments_dir):
+            rc, out = _try_fileproviderctl(sub, timeout=min(timeout_per_dir, 120))
+            if rc == -2:
+                # fileproviderctl not available at all — stop trying
+                logger.warning("[iCloud] fileproviderctl not found. Skipping.")
+                summary["fileproviderctl_failures"] += 1
+                break
+            if rc != 0:
+                fp_failures += 1
+                logger.debug(f"[iCloud] fileproviderctl rc={rc} on {sub.name}: {out[:200]}")
+        summary["fileproviderctl_failures"] = fp_failures
+
     after = _scan(attachments_dir)
     summary["files_after"] = after["files"]
     summary["recovered"] = max(0, after["files"] - before["files"])
@@ -95,9 +143,11 @@ def download_messages_attachments(
     )
     if summary["still_missing"] > 0:
         logger.info(
-            "[iCloud] Fully-evicted Messages attachments cannot be recovered with brctl alone. "
-            "Disable 'Optimize Mac Storage' in System Settings → Apple ID → iCloud → Messages "
-            "and wait for the full sync, or open the affected conversations in Messages.app."
+            "[iCloud] Fully-evicted Messages attachments cannot be recovered automatically. "
+            "Options:\n"
+            "  1. Disable 'Optimize Mac Storage' in System Settings → [Your Name] → iCloud → Drive button.\n"
+            "  2. Open affected conversations in Messages.app to trigger manual download.\n"
+            "  The forensic report will document how many attachments were unrecoverable."
         )
 
     if forensic_recorder:

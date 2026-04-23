@@ -94,7 +94,7 @@ def run(analyzer, refresh_mode: bool = False) -> Dict:
         logger.info("    No screenshot directory configured")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = Path(analyzer.config.output_dir) / f"extracted_data_{timestamp}.json"
+    output_file = analyzer.config.analysis_dir() / f"extracted_data_{timestamp}.json"
 
     extraction_results = {
         "messages": all_messages,

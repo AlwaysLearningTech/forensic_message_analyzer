@@ -44,9 +44,12 @@ def run(analyzer, analysis_results: Dict, extracted_data: Dict, resume_session_i
 
     analyzer._save_pipeline_state(review_session_id=manager.session_id)
 
-    # Only pass mapped-contact messages to the review UI.
+    # Only pass mapped-contact messages to the review UI, sorted chronologically
+    # so multi-source corpora (iMessage + WhatsApp) interleave by real send time.
+    # Extraction order (and threat_{idx} IDs) is unchanged; this is display-only.
     all_messages = extracted_data.get("messages", [])
     messages = [m for m in all_messages if _is_mapped(analyzer, m)]
+    messages.sort(key=lambda m: m.get("timestamp", ""))
     screenshots = extracted_data.get("screenshots", [])
 
     logger.info(f"    {len(all_messages)} total messages, {len(messages)} from mapped contacts, {len(screenshots)} screenshots")
@@ -115,7 +118,7 @@ def run(analyzer, analysis_results: Dict, extracted_data: Dict, resume_session_i
     )
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    review_output = Path(analyzer.config.output_dir) / f"review_results_{timestamp}.json"
+    review_output = analyzer.config.analysis_dir() / f"review_results_{timestamp}.json"
     with open(review_output, "w") as f:
         json.dump(review_summary, f, indent=2, default=str)
     analyzer._review_results_path = review_output

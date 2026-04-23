@@ -25,7 +25,20 @@ class ExcelReporter:
         """Initialize Excel reporter."""
         self.config = config if config is not None else Config()
         self.forensic = forensic_recorder
-        self.output_dir = Path(self.config.output_dir)
+        self.output_dir = self.config.reports_dir()  # deliverables go under reports/
+
+    @staticmethod
+    def _strip_tz(df: pd.DataFrame) -> pd.DataFrame:
+        """Strip timezone from tz-aware datetime columns for openpyxl compatibility."""
+        df = df.copy()
+        for col in df.columns:
+            if pd.api.types.is_datetime64tz_dtype(df[col]):
+                df[col] = df[col].dt.tz_localize(None)
+        return df
+
+    def _safe_to_excel(self, df: pd.DataFrame, writer, **kwargs):
+        """Strip tz-aware datetimes then write to Excel."""
+        self._strip_tz(df).to_excel(writer, **kwargs)
 
     def _format_local_timestamp(self, ts) -> str:
         """Convert a timestamp value to local timezone string for display."""
@@ -124,7 +137,7 @@ class ExcelReporter:
                     cols = [c for c in preferred if c in df_reviews.columns]
                     cols += [c for c in df_reviews.columns if c not in cols]
                     df_reviews = df_reviews.reindex(columns=cols)
-                    df_reviews.to_excel(writer, sheet_name='Manual Review', index=False)
+                    self._safe_to_excel(df_reviews, writer, sheet_name='Manual Review', index=False)
 
                 # Third Party Contacts sheet
                 self._write_third_party_contacts_sheet(
@@ -172,7 +185,7 @@ class ExcelReporter:
         if person_messages.empty:
             # Create empty sheet with header row to document absence of messages
             empty_df = pd.DataFrame(columns=['Timestamp', 'Sender', 'Recipient', 'Content', 'Source'])
-            empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
+            self._safe_to_excel(empty_df, writer, sheet_name=sheet_name, index=False)
             logger.info(f"Created empty sheet '{sheet_name}' (no messages for this contact)")
             return
         
@@ -243,8 +256,8 @@ class ExcelReporter:
                 columns={'timestamp': f'Timestamp ({tz_abbr})'}
             )
 
-        person_messages.to_excel(writer, sheet_name=sheet_name, index=False)
-        
+        self._safe_to_excel(person_messages, writer, sheet_name=sheet_name, index=False)
+
         logger.info(f"Created sheet '{sheet_name}' with {len(person_messages)} messages")
     
     @staticmethod
@@ -302,7 +315,7 @@ class ExcelReporter:
         }
         
         df_overview = pd.DataFrame(overview)
-        df_overview.to_excel(writer, sheet_name='Overview', index=False)
+        self._safe_to_excel(df_overview, writer, sheet_name='Overview', index=False)
 
     def _write_conversation_threads_sheet(self, writer, messages: list):
         """
@@ -339,9 +352,7 @@ class ExcelReporter:
                 })
 
             df_threads = pd.DataFrame(rows)
-            df_threads.to_excel(
-                writer, sheet_name='Conversation Threads', index=False
-            )
+            self._safe_to_excel(df_threads, writer, sheet_name='Conversation Threads', index=False)
             logger.info(
                 f"Created 'Conversation Threads' sheet with {len(rows)} threads"
             )
@@ -491,7 +502,7 @@ class ExcelReporter:
                              'Category', 'Severity / Confidence', 'Review Decision']
                 col_order = [c for c in col_order if c in df_summary.columns]
                 df_summary = df_summary[col_order]
-                df_summary.to_excel(writer, sheet_name='Findings Summary', index=False)
+                self._safe_to_excel(df_summary, writer, sheet_name='Findings Summary', index=False)
                 logger.info(f"Created 'Findings Summary' sheet with {len(rows)} rows")
 
         except Exception as e:
@@ -647,7 +658,7 @@ class ExcelReporter:
             col_order = ['Timestamp', 'Event Type', 'Sender', 'Content', 'Source', 'Details']
             col_order = [c for c in col_order if c in df_timeline.columns]
             df_timeline = df_timeline[col_order]
-            df_timeline.to_excel(writer, sheet_name='Timeline', index=False)
+            self._safe_to_excel(df_timeline, writer, sheet_name='Timeline', index=False)
             logger.info(f"Created 'Timeline' sheet with {len(events)} events")
 
         except Exception as e:
@@ -676,7 +687,7 @@ class ExcelReporter:
                 })
 
             df_contacts = pd.DataFrame(rows)
-            df_contacts.to_excel(writer, sheet_name='Third Party Contacts', index=False)
+            self._safe_to_excel(df_contacts, writer, sheet_name='Third Party Contacts', index=False)
             logger.info(f"Created 'Third Party Contacts' sheet with {len(rows)} contacts")
 
         except Exception as e:

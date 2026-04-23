@@ -1,7 +1,7 @@
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import logging
 import json
 import re
@@ -38,8 +38,7 @@ class ForensicReporter:
         self.config = config if config is not None else Config()
         self.forensic = forensic_recorder
         self.compliance = LegalComplianceManager(config=self.config, forensic_recorder=forensic_recorder)
-        self.output_dir = Path(self.config.output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.output_dir = self.config.reports_dir()  # deliverables go under reports/
 
     # ------------------------------------------------------------------
     # Shared helpers
@@ -80,17 +79,28 @@ class ForensicReporter:
         """Match an AI-identified quote to its source message via substring matching."""
         return match_quote_to_message(quote, messages)
 
-    def _docx_to_pdf(self, docx_path: Path) -> Path:
+    def _docx_to_pdf(self, docx_path: Path) -> Optional[Path]:
         """Convert a DOCX file to PDF using docx2pdf (MS Word / LibreOffice).
 
         On macOS, MS Word is sandboxed and may lack permission to read/write arbitrary directories. We work around this by copying the DOCX into a temporary directory under ~/Documents (which Word always has access to), converting there, then moving the PDF back to the original location.
 
-        Returns the path to the generated PDF file.
-        Raises RuntimeError if the conversion fails.
+        Returns the path to the generated PDF, or None if conversion is unavailable.
         """
         import shutil
         import tempfile
-        from docx2pdf import convert
+        try:
+            from docx2pdf import convert
+        except ModuleNotFoundError:
+            logger.warning(
+                "[!] docx2pdf not installed — PDF conversion skipped.\n"
+                "    Install:  pip install docx2pdf\n"
+                "    Also requires Microsoft Word or LibreOffice on this Mac.\n"
+                "    (DOCX files are still produced.)"
+            )
+            return None
+        except Exception as import_err:
+            logger.warning(f"[!] Could not import docx2pdf: {import_err} — PDF skipped.")
+            return None
 
         pdf_path = docx_path.with_suffix('.pdf')
 
@@ -225,10 +235,14 @@ class ForensicReporter:
         if 'methodology' in reports:
             try:
                 methodology_pdf = self._docx_to_pdf(reports['methodology'])
-                reports['methodology_pdf'] = methodology_pdf
-                logger.info(f"Generated Methodology PDF: {methodology_pdf}")
+                if methodology_pdf is not None:
+                    reports['methodology_pdf'] = methodology_pdf
+                    logger.info(f"Generated Methodology PDF: {methodology_pdf}")
             except Exception as e:
-                logger.error(f"Failed to convert methodology to PDF: {e}")
+                logger.warning(
+                    f"[!] PDF conversion failed: {e}\n"
+                    "    If the error mentions libgobject/pango, run:  brew install pango glib"
+                )
                 self.forensic.record_action(
                     "report_generation_error",
                     f"Methodology PDF conversion failed: {str(e)}"
@@ -237,10 +251,14 @@ class ForensicReporter:
         if 'word' in reports:
             try:
                 pdf_path = self._docx_to_pdf(reports['word'])
-                reports['pdf'] = pdf_path
-                logger.info(f"Generated PDF report: {pdf_path}")
+                if pdf_path is not None:
+                    reports['pdf'] = pdf_path
+                    logger.info(f"Generated PDF report: {pdf_path}")
             except Exception as e:
-                logger.error(f"Failed to convert Word report to PDF: {e}")
+                logger.warning(
+                    f"[!] PDF conversion failed: {e}\n"
+                    "    If the error mentions libgobject/pango, run:  brew install pango glib"
+                )
                 self.forensic.record_action(
                     "report_generation_error",
                     f"PDF report conversion failed: {str(e)}"
