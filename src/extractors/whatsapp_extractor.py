@@ -271,6 +271,7 @@ class WhatsAppExtractor:
 
                 # Map sender to person name using contact mappings
                 sender_name = sender.strip()
+                sender_raw_val = sender_name  # preserve before mapping
                 is_from_me = False
                 for person_name, person_handles in self.config.contact_mappings.items():
                     if sender_name in person_handles:
@@ -325,6 +326,7 @@ class WhatsAppExtractor:
                     'timestamp': timestamp,
                     'sender': sender_name,
                     'recipient': recipient,
+                    'sender_raw': None if is_from_me else sender_raw_val,
                     'content': clean_content,
                     'source': 'whatsapp',
                     'file': file_path.name,

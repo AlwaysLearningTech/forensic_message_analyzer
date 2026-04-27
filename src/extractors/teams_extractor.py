@@ -238,6 +238,7 @@ class TeamsExtractor:
         # Determine sender
         msg_from = msg.get('from')
         display_name = msg.get('displayName')
+        sender_raw_val = display_name.strip() if display_name else None
 
         if msg_from and msg_from == user_id:
             # Export owner sent this
@@ -281,11 +282,13 @@ class TeamsExtractor:
         timestamp_raw = msg.get('originalarrivaltime', '')
         timestamp = pd.to_datetime(timestamp_raw, utc=True, errors='coerce') if timestamp_raw else None
 
+        is_from_owner = (sender == owner_person or sender == 'Me')
         return {
             'message_id': f"teams_{msg.get('id', '')}",
             'timestamp': timestamp,
             'sender': sender,
             'recipient': recipient,
+            'sender_raw': None if is_from_owner else sender_raw_val,
             'content': content,
             'source': 'teams',
             'conversation_id': conv_id,

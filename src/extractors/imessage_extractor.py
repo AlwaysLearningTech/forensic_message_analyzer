@@ -672,6 +672,8 @@ class IMessageExtractor:
                         'content': content or '',
                         'sender': sender,
                         'recipient': recipient,
+                        'sender_raw': None if r['is_from_me'] == 1 else handle,
+                        'recipient_raw': (handle or chat_id) if r['is_from_me'] == 1 else None,
                         'timestamp': timestamp_dt,
                         'service': r['service'],
                         'source': 'imessage',

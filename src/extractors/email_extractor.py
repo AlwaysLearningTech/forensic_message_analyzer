@@ -193,12 +193,14 @@ class EmailExtractor:
                 message_id = f"email_{hashlib.sha256(hash_input.encode()).hexdigest()[:16]}"
 
             # Extract sender
-            sender_raw = msg.get('From', '')
-            sender = self._resolve_contact(sender_raw)
+            sender_raw_header = msg.get('From', '')
+            sender = self._resolve_contact(sender_raw_header)
+            sender_addr = email.utils.parseaddr(sender_raw_header)[1].strip().lower() or None
 
             # Extract recipient
-            recipient_raw = msg.get('To', '')
-            recipient = self._resolve_contact(recipient_raw)
+            recipient_raw_header = msg.get('To', '')
+            recipient = self._resolve_contact(recipient_raw_header)
+            recipient_addr = email.utils.parseaddr(recipient_raw_header)[1].strip().lower() or None
 
             # Extract subject
             subject = msg.get('Subject', '')
@@ -214,6 +216,8 @@ class EmailExtractor:
                 'content': content,
                 'sender': sender,
                 'recipient': recipient,
+                'sender_raw': sender_addr,
+                'recipient_raw': recipient_addr,
                 'timestamp': timestamp,
                 'source': 'email',
                 'subject': subject,

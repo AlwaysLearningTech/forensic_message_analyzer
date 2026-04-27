@@ -40,6 +40,8 @@ class Message(TypedDict, total=False):
     recipient: str
     content: str
     source: str                    # 'imessage' | 'whatsapp' | 'email' | 'teams' | 'screenshot' | 'sms' | 'call' | ...
+    sender_raw: NotRequired[Optional[str]]    # raw protocol identifier (phone, email, handle) for sender; None for PERSON1
+    recipient_raw: NotRequired[Optional[str]] # raw protocol identifier for recipient; None for PERSON1
 
     # Optional fields populated by one or more extractors
     attachment: NotRequired[str]
