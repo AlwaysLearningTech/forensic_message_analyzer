@@ -527,7 +527,14 @@ class ForensicAnalyzer:
                 analysis_results = self.run_analysis_phase(extracted_data)
 
                 # Phase 3: AI Batch Analysis (pre-review, no summary)
-                ai_batch_results = self.run_ai_batch_phase(extracted_data)
+                if self.config.skip_ai_batch:
+                    logger.info("\n" + "=" * 60)
+                    logger.info("PHASE 3: PRE-REVIEW SCREENING")
+                    logger.info("=" * 60)
+                    logger.info("    Phase 3 skipped (SKIP_AI_BATCH=true)")
+                    ai_batch_results = {}
+                else:
+                    ai_batch_results = self.run_ai_batch_phase(extracted_data)
                 analysis_results['ai_analysis'] = ai_batch_results
 
                 # Re-save analysis results now that AI batch data is included, so finalize can load the complete analysis from disk.
@@ -652,7 +659,8 @@ class ForensicAnalyzer:
     def _run_executive_summary(self, extracted_data, analysis_results):
         """Phase 6: generate AI executive summary post-review. Factored out so refresh can skip it."""
         ai_results = analysis_results.get('ai_analysis', {})
-        if not (ai_results and ai_results.get('total_messages', 0) > 0):
+        batch_was_skipped = getattr(self.config, 'skip_ai_batch', False)
+        if not batch_was_skipped and not (ai_results and ai_results.get('total_messages', 0) > 0):
             logger.info("\n[*] No pre-screening results found — skipping executive summary")
             return
 
