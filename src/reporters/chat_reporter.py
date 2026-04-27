@@ -16,6 +16,14 @@ from .report_utils import b64_img as _b64_img, IMAGE_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
+
+def _fmt(name: str, raw: Optional[str]) -> str:
+    """Return 'Name (raw_id)' when raw identifier differs from display name."""
+    if raw and raw != name:
+        return f"{name} ({raw})"
+    return name
+
+
 # Tapback type codes from iMessage
 _TAPBACK_MAP = {
     2000: '\u2764\ufe0f',   # love
@@ -340,7 +348,8 @@ class ChatReporter:
                 nested_class = 'msg reply-nested sent' if orig_sent else 'msg reply-nested received'
                 parts.append(f'<div class="{nested_class}">')
                 parts.append('<div class="reply-label">&#8617; In reply to</div>')
-                parts.append(f'<div class="bubble-meta"><strong>{escape(orig_sender)}</strong></div>')
+                orig_sender_display = _fmt(orig_sender, orig.get('sender_raw'))
+                parts.append(f'<div class="bubble-meta"><strong>{escape(orig_sender_display)}</strong></div>')
                 parts.append(f'<div class="bubble-content">{escape(orig_content)}</div>')
                 parts.append('</div>')
             else:
@@ -349,7 +358,8 @@ class ChatReporter:
         # Meta line: sender + source badge + flag badges
         source_html = self._source_badge(msg.get('source', ''))
         flags_html = self._flag_badges(msg)
-        meta_parts = [f'<strong>{escape(sender)}</strong>', source_html]
+        sender_display = _fmt(sender, msg.get('sender_raw'))
+        meta_parts = [f'<strong>{escape(sender_display)}</strong>', source_html]
         if flags_html:
             meta_parts.append(flags_html)
         parts.append(f'<div class="bubble-meta">{" ".join(meta_parts)}</div>')

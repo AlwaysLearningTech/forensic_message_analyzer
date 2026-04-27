@@ -22,6 +22,13 @@ from ..utils.legal_compliance import LegalComplianceManager
 logger = logging.getLogger(__name__)
 
 
+def _fmt(name: str, raw: Optional[str]) -> str:
+    """Return 'Name (raw_id)' when raw identifier differs from display name."""
+    if raw and raw != name:
+        return f"{name} ({raw})"
+    return name
+
+
 # ---------------------------------------------------------------------------
 # Jinja2 HTML template
 # ---------------------------------------------------------------------------
@@ -561,8 +568,8 @@ class HtmlReporter:
 
                 rows.append({
                     'timestamp': display_ts,
-                    'sender': m.get('sender', ''),
-                    'recipient': m.get('recipient', ''),
+                    'sender': _fmt(m.get('sender', ''), m.get('sender_raw')),
+                    'recipient': _fmt(m.get('recipient', ''), m.get('recipient_raw')),
                     'content': m.get('content', ''),
                     'source': m.get('source', ''),
                     'attachment_name': m.get('attachment_name'),

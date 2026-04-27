@@ -18,6 +18,14 @@ from .report_utils import match_quote_to_message
 logger = logging.getLogger(__name__)
 
 
+def _fmt(name: str, raw) -> str:
+    """Return 'Name (raw_id)' when raw identifier differs from display name."""
+    if raw and str(raw) != name:
+        return f"{name} ({raw})"
+    return name
+
+
+
 class ExcelReporter:
     """Generate Excel reports with multiple sheets for different analysis aspects."""
 
@@ -212,6 +220,16 @@ class ExcelReporter:
             person_messages['timestamp'] = pd.to_datetime(
                 person_messages['timestamp'], utc=True, errors='coerce'
             ).dt.tz_convert(tz).dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+
+        # Apply inline raw-identifier display: "Name (phone/email)" for non-PERSON1 parties
+        if 'sender_raw' in person_messages.columns:
+            person_messages['sender'] = person_messages.apply(
+                lambda r: _fmt(str(r.get('sender', '')), r.get('sender_raw')), axis=1
+            )
+        if 'recipient_raw' in person_messages.columns:
+            person_messages['recipient'] = person_messages.apply(
+                lambda r: _fmt(str(r.get('recipient', '')), r.get('recipient_raw')), axis=1
+            )
 
         column_order = ['timestamp', 'sender', 'recipient', 'content', 'edit_history_text', 'source']
 
@@ -610,7 +628,7 @@ class ExcelReporter:
                 events.append({
                     'Timestamp': self._format_local_timestamp(msg.get('timestamp')),
                     'Event Type': event_type,
-                    'Sender': sender,
+                    'Sender': _fmt(sender, msg.get('sender_raw')),
                     'Content': content_preview,
                     'Source': 'email',
                     'Details': f'Subject: {subject}' if subject else '',
