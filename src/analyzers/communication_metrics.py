@@ -320,7 +320,8 @@ class CommunicationMetricsAnalyzer:
         
         if not output_path:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_path = self.forensic.output_dir / f"communication_metrics_{timestamp}.json"
+            cfg = getattr(self.forensic, '_config', None)
+            output_path = cfg.analysis_dir() / f"communication_metrics_{timestamp}.json" if cfg else self.forensic.output_dir / f"communication_metrics_{timestamp}.json"
         
         # Add metadata for legal compliance
         report = {

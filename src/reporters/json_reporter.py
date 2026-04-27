@@ -21,7 +21,7 @@ class JSONReporter:
         """Initialize JSON reporter."""
         self.config = config if config is not None else Config()
         self.forensic = forensic_recorder
-        self.output_dir = Path(self.config.output_dir)
+        self.output_dir = self.config.reports_dir()
     
     def generate_report(self, extracted_data: Dict, analysis_results: Dict,
                        review_decisions: Dict, output_path: Path,

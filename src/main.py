@@ -172,13 +172,15 @@ class ForensicAnalyzer:
         """
         Create hash-verified working copies of all attachment files.
 
-        Copies each original attachment to output_dir/attachments/ and updates the message dicts to reference the preserved copy. Deduplicates so the same source file is only copied once even if referenced by multiple messages.
+        Copies each original attachment to sources/attachments/ and updates the message dicts to reference the preserved copy. Deduplicates within a run (same source file referenced by multiple messages) and across runs (file already preserved by a previous extraction or --refresh-attachments call). A file is re-copied only when the source has grown beyond the existing preserved copy (e.g. iCloud attachment was evicted and has since been downloaded).
         """
         messages = extracted_data.get('messages', [])
         dest_dir = self.config.sources_dir() / "attachments"
+        dest_dir.mkdir(parents=True, exist_ok=True)
 
         preserved = {}   # {original_path_str: preserved_path}
         preserved_count = 0
+        reused_count = 0
         image_count = 0
         missing_count = 0
         compressed_count = 0
@@ -188,9 +190,34 @@ class ForensicAnalyzer:
 
         logger.info("\n[*] Preserving attachment files (FRE 1002 — Best Evidence Rule)...")
 
+        def _find_existing(src: Path) -> Optional[Path]:
+            """Return an existing preserved copy of src from a prior run, or None.
+
+            For normal copies, reuses the existing file only when the source has not grown
+            beyond it (guards against iCloud-evicted placeholders being locked in). For
+            compressed copies (HEIC→JPG) any existing JPEG is reused since the source is
+            expected to be larger than the compressed output.
+            """
+            from .utils.attachment_utils import should_compress
+            if not dest_dir.exists():
+                return None
+            if should_compress(src, self.config):
+                for existing in dest_dir.glob(f"{src.stem}_*.jpg"):
+                    if existing.is_file():
+                        return existing
+            else:
+                for existing in dest_dir.glob(f"{src.stem}_*{src.suffix}"):
+                    if existing.is_file() and src.stat().st_size <= existing.stat().st_size:
+                        return existing
+            return None
+
         def _preserve_one(src: Path) -> Optional[Path]:
             """Compress (if eligible) → create_working_copy. Returns the preserved path."""
-            nonlocal compressed_count, bytes_saved
+            nonlocal compressed_count, bytes_saved, reused_count
+            existing = _find_existing(src)
+            if existing:
+                reused_count += 1
+                return existing
             from .utils.attachment_utils import should_compress, compress_image
             if should_compress(src, self.config):
                 scratch = dest_dir / "_compress_scratch"
@@ -278,8 +305,9 @@ class ForensicAnalyzer:
                 pass
 
         other_count = preserved_count - image_count
+        reuse_note = f", {reused_count} reused from prior run" if reused_count else ""
         logger.info(f"    Preserved {preserved_count} attachment files "
-              f"({image_count} images, {other_count} other)")
+              f"({image_count} images, {other_count} other{reuse_note})")
         if compressed_count:
             logger.info(
                 f"    Compressed {compressed_count} image(s), saved "

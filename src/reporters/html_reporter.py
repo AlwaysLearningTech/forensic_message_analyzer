@@ -347,7 +347,7 @@ class HtmlReporter:
     def __init__(self, forensic_recorder: ForensicRecorder, config: Config = None):
         self.config = config if config is not None else Config()
         self.forensic = forensic_recorder
-        self.output_dir = Path(self.config.output_dir)
+        self.output_dir = self.config.reports_dir()
         self.env = Environment(loader=BaseLoader(), autoescape=True)
         self.template = self.env.from_string(REPORT_TEMPLATE)
 

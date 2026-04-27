@@ -111,16 +111,8 @@ class WhatsAppExtractor:
         if not zip_files:
             return
 
-        # Guard: warn if output_dir is not inside a run subfolder (skip during validation)
-        output_dir = Path(self.config.output_dir)
-        if not re.search(r'(run|validate)_\d{8}_\d{6}', str(output_dir)):
-            logger.debug(
-                "output_dir does not look like a run subfolder: %s. "
-                "WhatsApp extracted files may be misplaced.", output_dir
-            )
-
-        # Extract to output directory, not source directory
-        wa_extract_base = output_dir / "whatsapp_extracted"
+        # Extract into sources/ so it sits beside working_copies/, not in the run root
+        wa_extract_base = self.config.sources_dir() / "whatsapp_extracted"
         wa_extract_base.mkdir(parents=True, exist_ok=True)
         self._wa_extract_dir = wa_extract_base
 

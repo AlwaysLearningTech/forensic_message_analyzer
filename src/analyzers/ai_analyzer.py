@@ -1310,7 +1310,7 @@ class AIAnalyzer:
         """
         if not output_path:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_path = Path(self.config.output_dir) / f"ai_analysis_report_{timestamp}.json"
+            output_path = self.config.analysis_dir() / f"ai_analysis_report_{timestamp}.json"
 
         # Add legal metadata
         report = {
