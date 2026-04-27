@@ -57,7 +57,7 @@ These are confirmed by reading the source — do not guess.
 ### `src/config.py`
 - **`Config`** — configuration singleton; does NOT have `SOURCE_DIR`
   - `output_dir`, `review_dir`, `contact_mappings`, `ai_api_key`, `ai_endpoint`
-  - `ai_batch_model`, `ai_summary_model` (legacy `ai_model` removed in v4.4.0)
+  - `ai_tagging_model`, `ai_summary_model` (legacy `ai_model` removed in v4.4.0)
   - `email_source_dir`, `teams_source_dir`, `messages_db_path`, `whatsapp_source_dir`, `screenshot_source_dir`
   - `case_number` (newline-joined string), `case_numbers` (list), `case_name`, `examiner_name`, `organization`, `timezone`
   - `use_batch_api` — whether to use Anthropic's async Batch API protocol (cheaper/slower); `skip_ai_tagging` — set `SKIP_AI_TAGGING=true` to skip Phase 3 per-message AI tagging entirely while still running the Phase 6 executive summary
@@ -219,7 +219,7 @@ The `.env` file lives outside the repo. The system looks for it at the path abov
 - **DataExtractor.extract_all()**: Returns a flat list of message dicts, not a dict keyed by source.
 - **Config**: Has no `SOURCE_DIR` attribute.
 - **Config._parse_json_list**: Raises `ValueError` on malformed JSON (used to silently return `[]`). Fix your env var.
-- **ai_model removed**: Use `ai_batch_model` and `ai_summary_model` (since v4.4.0).
+- **ai_model removed**: Use `ai_tagging_model` and `ai_summary_model` (since v4.4.0).
 - **ManualReviewManager.add_review**: Requires `reviewer` (falls back to `config.examiner_name`); requires `notes` when decision is `not_relevant` or `uncertain`; raises on duplicate item_ids — use `amend_review()` to change a prior decision.
 - **Working copies**: Extractors read from `run_dir/working_copies/`, NOT originals. `Config.messages_db_path` and every source directory are rewritten in place during Phase 1 to point at the verified copy.
 - **PRAGMA whitelist**: `IMessageExtractor._discover_columns` refuses any table not in `_ALLOWED_SCHEMA_TABLES`. Add to the set if you need a new table.

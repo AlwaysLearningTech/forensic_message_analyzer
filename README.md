@@ -160,7 +160,7 @@ cp .env.example .env
 # Anthropic Claude API key (optional — enables pre-review screening and AI executive summary)
 AI_API_KEY=your-api-key
 # Two-model setup (the legacy single AI_MODEL was removed in v4.4.0):
-AI_BATCH_MODEL=claude-haiku-4-5      # cheap; per-message classification
+AI_TAGGING_MODEL=claude-haiku-4-5      # cheap; per-message classification
 AI_SUMMARY_MODEL=claude-sonnet-4-6   # higher quality; executive summary
 
 # Case identification — single value OR JSON array for consolidated runs.

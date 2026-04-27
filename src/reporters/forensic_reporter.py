@@ -1228,7 +1228,7 @@ class ForensicReporter:
             )
             model = (
                 self.config.ai_summary_model
-                or self.config.ai_batch_model
+                or self.config.ai_tagging_model
                 or 'claude-sonnet-4-6'
             )
             response = client.messages.create(

@@ -109,15 +109,15 @@ class AIAnalyzer:
         _config = config if config is not None else Config()
         self.api_key = _config.ai_api_key
         self.endpoint = _config.ai_endpoint
-        # Two-model setup: AI_BATCH_MODEL drives per-message classification, AI_SUMMARY_MODEL drives the executive narrative. If only one is set it is used for both roles. The legacy single AI_MODEL env var was removed in 4.4.0; configure both batch and summary models explicitly.
+        # Two-model setup: AI_TAGGING_MODEL drives per-message classification, AI_SUMMARY_MODEL drives the executive narrative. If only one is set it is used for both roles. The legacy single AI_MODEL env var was removed in 4.4.0; configure both batch and summary models explicitly.
         self.batch_model = (
-            getattr(_config, 'ai_batch_model', None)
+            getattr(_config, 'ai_tagging_model', None)
             or getattr(_config, 'ai_summary_model', None)
             or 'claude-haiku-4-5'
         )
         self.summary_model = (
             getattr(_config, 'ai_summary_model', None)
-            or getattr(_config, 'ai_batch_model', None)
+            or getattr(_config, 'ai_tagging_model', None)
             or self.batch_model
         )
         # Used by single-message helpers and back-compat callers; defaults to summary.
@@ -156,7 +156,7 @@ class AIAnalyzer:
                     f"Anthropic Claude analyzer initialized (batch={self.batch_model}, summary={self.summary_model})",
                     {
                         "model": self.model,
-                        "batch_model": self.batch_model,
+                        "tagging_model": self.batch_model,
                         "summary_model": self.summary_model,
                         "endpoint": _sanitize_endpoint(self.endpoint),
                         "batch_api": self.use_batch_api,

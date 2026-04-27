@@ -132,7 +132,7 @@ class TestAIAnalyzerConfig:
         from src.analyzers.ai_analyzer import AIAnalyzer
         from src.forensic_utils import ForensicRecorder
         mock_config.ai_api_key = None
-        mock_config.ai_batch_model = None
+        mock_config.ai_tagging_model = None
         recorder = ForensicRecorder(output_dir=tmp_output_dir)
         analyzer = AIAnalyzer(forensic_recorder=recorder, config=mock_config)
         # When batch model is not set, falls back to summary model
@@ -142,7 +142,7 @@ class TestAIAnalyzerConfig:
         from src.analyzers.ai_analyzer import AIAnalyzer
         from src.forensic_utils import ForensicRecorder
         mock_config.ai_api_key = None
-        mock_config.ai_batch_model = "claude-haiku-4-5"
+        mock_config.ai_tagging_model = "claude-haiku-4-5"
         recorder = ForensicRecorder(output_dir=tmp_output_dir)
         analyzer = AIAnalyzer(forensic_recorder=recorder, config=mock_config)
         assert analyzer.batch_model == "claude-haiku-4-5"

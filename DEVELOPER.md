@@ -279,7 +279,7 @@ Anthropic Claude integration — batch API plus prompt caching.
 - `analyze_single_message(message)` — single-message threat assessment for
   real-time / interactive use.
 
-The two-model setup is governed by `AI_BATCH_MODEL` (per-message
+The two-model setup is governed by `AI_TAGGING_MODEL` (per-message
 classification, cheap model) and `AI_SUMMARY_MODEL` (executive narrative,
 higher quality). The legacy single `AI_MODEL` env var was removed in v4.4.0.
 

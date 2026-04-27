@@ -67,7 +67,7 @@ def build_mock_config(output_dir: str):
     config.output_dir = output_dir
     config.ai_api_key = os.getenv('AI_API_KEY')
     config.ai_endpoint = None
-    config.ai_batch_model = "claude-haiku-4-5"
+    config.ai_tagging_model = "claude-haiku-4-5"
     config.ai_summary_model = "claude-sonnet-4-5"
     config.batch_size = 50
     config.use_batch_api = True
@@ -387,7 +387,7 @@ def main():
     from src.utils.run_manifest import RunManifest
     manifest = RunManifest(recorder, config=None)
     manifest.manifest_data["config_snapshot"] = {
-        "ai": {"batch_model": config.ai_batch_model, "summary_model": config.ai_summary_model, "use_batch_api": True, "api_key": "<redacted>"},
+        "ai": {"tagging_model": config.ai_tagging_model, "summary_model": config.ai_summary_model, "use_batch_api": True, "api_key": "<redacted>"},
         "case": {"case_numbers": config.case_numbers, "case_names": [config.case_name], "examiner_name": config.examiner_name, "organization": config.organization, "timezone": config.timezone},
         "persons": {"person1_name": config.person1_name, "contact_mappings": config.contact_mappings},
         "sources": {"messages_db_path": config.messages_db_path, "email_source_dir": config.email_source_dir},

@@ -102,7 +102,7 @@ Security, legal-defensibility, and feature-breadth push.
 - **`DEVELOPER.md`**: New file holding the public Python API reference (every class, method, signature, usage example) that previously lived as code samples in `README.md`.
 
 ### Changed
-- **`AI_MODEL` env var removed**: The two-model setup (`AI_BATCH_MODEL` + `AI_SUMMARY_MODEL`) replaces it. `Config.ai_model` attribute is gone; downstream code reads `ai_summary_model` (preferred) or `ai_batch_model`. **Action required:** remove `AI_MODEL` from your `.env` and confirm both `AI_BATCH_MODEL` and `AI_SUMMARY_MODEL` are set.
+- **`AI_MODEL` env var removed**: The two-model setup (`AI_TAGGING_MODEL` + `AI_SUMMARY_MODEL`) replaces it. `Config.ai_model` attribute is gone; downstream code reads `ai_summary_model` (preferred) or `ai_tagging_model`. **Action required:** remove `AI_MODEL` from your `.env` and confirm both `AI_TAGGING_MODEL` and `AI_SUMMARY_MODEL` are set.
 - **Methodology statement greatly expanded**: `LegalComplianceManager.generate_methodology_statement()` now produces a ~9 KB plain-language walkthrough of all eight phases plus an explicit "how each FRE / Daubert factor is satisfied" section, scope limitations, and reproducibility statement. Previously was ~1 KB of generic text.
 - **Standards-compliance statement rewritten** in plain language with concrete "how each standard was satisfied" explanations.
 - **Forensic-report timestamps are now human-readable**: Word/PDF "High Priority Threats" entries and the Chain-of-Custody session-start use `compliance.convert_to_local()` (timezone-aware, no raw ISO/`isoformat()`).

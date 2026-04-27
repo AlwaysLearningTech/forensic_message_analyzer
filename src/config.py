@@ -62,12 +62,12 @@ class Config:
         """Load configuration from environment variables."""
         # AI / Anthropic Claude settings
         # Two-model setup:
-        #   AI_BATCH_MODEL   - cheaper model for per-message batch classification
+        #   AI_TAGGING_MODEL   - cheaper model for per-message batch classification
         #   AI_SUMMARY_MODEL - higher-quality model for the executive narrative summary
         # The legacy single AI_MODEL setting has been removed; both models above are configured independently. If only one is set, it is used for both roles.
         self.ai_endpoint = os.getenv('AI_ENDPOINT')
         self.ai_api_key = os.getenv('AI_API_KEY')
-        self.ai_batch_model = os.getenv('AI_BATCH_MODEL')      # cheaper model for batch extraction
+        self.ai_tagging_model = os.getenv('AI_TAGGING_MODEL')      # cheaper model for batch extraction
         self.ai_summary_model = os.getenv('AI_SUMMARY_MODEL')  # model for executive summary
         
         # Contact mappings - flexible system that allows custom names
@@ -238,7 +238,7 @@ class Config:
             "ai": {
                 "endpoint": self.ai_endpoint,
                 "api_key": _redact(self.ai_api_key),
-                "batch_model": self.ai_batch_model,
+                "tagging_model": self.ai_tagging_model,
                 "summary_model": self.ai_summary_model,
                 "use_batch_api": self.use_batch_api,
                 "skip_ai_tagging": self.skip_ai_tagging,
