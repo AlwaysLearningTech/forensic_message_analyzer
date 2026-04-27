@@ -1,9 +1,25 @@
 # Changelog
 
+<!-- markdownlint-disable MD024 -->
+
 All notable changes to the Forensic Message Analyzer will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [4.7.0] - 2026-04-27
+
+Forensic identifier display and AI tagging control.
+
+### Added
+
+- **`SKIP_AI_TAGGING` flag**: Set `SKIP_AI_TAGGING=true` in `.env` to skip Phase 3 per-message AI tagging (threat and coercive-control classification) while still running the Phase 6 executive summary after review. Distinct from `USE_BATCH_API`, which controls the Anthropic async Batch API submission protocol.
+- **Raw protocol identifiers on all messages**: Every message dict now carries `sender_raw` and `recipient_raw` — the actual phone number, email address, or iMessage handle from the source data, preserved before contact mapping. `None` for PERSON1's own messages. Populated by iMessage, email, WhatsApp, SMS, and Teams extractors.
+- **Inline `"Name (identifier)"` display in all reporters**: Chat-bubble HTML, HTML table report, and Excel per-person sheets now display sender and recipient as `"PERSON2_NAME (+12065551234)"` (or email) when a raw identifier is available. Display name alone is shown when the identifier matches the name or is absent.
+
+### Changed
+
+- **`src/schema.py` `Message` TypedDict**: Added `sender_raw: NotRequired[Optional[str]]` and `recipient_raw: NotRequired[Optional[str]]` fields.
 
 ## [4.6.0] - 2026-04-19
 

@@ -283,6 +283,8 @@ The two-model setup is governed by `AI_BATCH_MODEL` (per-message
 classification, cheap model) and `AI_SUMMARY_MODEL` (executive narrative,
 higher quality). The legacy single `AI_MODEL` env var was removed in v4.4.0.
 
+Set `SKIP_AI_TAGGING=true` in `.env` to skip Phase 3 per-message tagging entirely while still running the Phase 6 executive summary. This is distinct from `USE_BATCH_API`, which controls whether the Anthropic async Batch API protocol is used for submissions.
+
 ### `ScreenshotAnalyzer(forensic, third_party_registry=None)`
 - `analyze_screenshots()` — OCRs every screenshot in the configured
   directory; takes no arguments.
@@ -298,17 +300,20 @@ higher quality). The legacy single `AI_MODEL` env var was removed in v4.4.0.
 - `generate_report(extracted_data, analysis_results, review_decisions, output_path)` —
   multi-sheet Excel: Overview, Findings Summary, Timeline,
   per-person sheets, Conversation Threads, Manual Review, Third Party Contacts.
+- Sender and recipient columns display as `"Name (phone/email)"` when `sender_raw` / `recipient_raw` are present on a message.
 
 ### `HtmlReporter(forensic_recorder, config=None)`
 - `generate_report(..., pdf=True)` — HTML with inline base64 attachments,
   per-person tables, conversation threads, risk indicators, and three
   legal appendices (Methodology, Completeness Validation, Limitations).
   Optionally renders PDF via WeasyPrint.
+- Sender and recipient columns display as `"Name (identifier)"` when raw identifiers are present.
 
 ### `ChatReporter(forensic_recorder, config=None)`
 - `generate_report(...)` — iMessage-style chat-bubble HTML with edit
   history, deleted-message badges, URL preview blocks, and shared
   location blocks.
+- Bubble meta line displays `"Name (phone/email)"` when `sender_raw` is present on the message.
 
 ### `ForensicReporter(forensic_recorder, config=None)`
 - `generate_comprehensive_report(extracted_data, analysis_results, review_decisions)` —
@@ -411,6 +416,7 @@ TypedDicts documenting the contract between extractors, analyzers, review, and r
 - `Message`, `Finding`, `ReviewRecord`, `ThreatDetails`, `SentimentDetails`, `AnalysisResults`.
 - `FindingSource` Literal: `"pattern_matched" | "ai_screened" | "extracted" | "derived" | "unknown"`.
 - `ReviewDecision` Literal: `"relevant" | "not_relevant" | "uncertain"`.
+- `Message` includes `sender_raw` (`NotRequired[Optional[str]]`) and `recipient_raw` (`NotRequired[Optional[str]]`) — the raw protocol identifier (phone number, email address, iMessage handle) for each party before contact mapping. `None` for PERSON1's own messages. All extractors (iMessage, email, WhatsApp, SMS, Teams) populate these. Reporters render `"Name (identifier)"` inline when `sender_raw` is present.
 - Documentation + type-checker hints; runtime code still uses `dict.get()` with defaults.
 
 ### `LegalComplianceManager(config)`

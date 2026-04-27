@@ -77,6 +77,8 @@ The analyzer can optionally use Anthropic Claude (configurable via `.env`) to:
 
 AI is one tool in the workflow; nothing reaches a final report without human confirmation. The methodology document distributed with each run describes exactly how AI was used (model, phase, inputs, reviewer override). To run the pipeline without AI, leave `AI_API_KEY` unset — the local analyzers, manual review, and reporting all run without it.
 
+To skip per-message AI tagging (Phase 3) while keeping the executive summary (Phase 6), set `SKIP_AI_TAGGING=true` in your `.env`. This is useful when per-message classification cost is not warranted but a narrative summary is still desired after review.
+
 ### Legal Compliance
 - **Chain of Custody**: Complete audit trail with SHA-256 hashing; forensic JSONL log is HMAC-chained (`seq` + `prev_hmac` + `hmac` on every record) so edits, deletions, or reorders break the chain. Per-session HMAC key written to a `0600` sidecar file for independent verification.
 - **Evidence Integrity**: Every source is SHA-256 hashed, archived into `preserved_sources.zip`, and copied to `run_dir/working_copies/` with hash verification — all before any extractor reads a file. Extractors only open the working copies; originals are never touched during analysis.
@@ -324,7 +326,7 @@ This executes Phases 1-4 (extraction through review):
    - **Communication metrics** — message volume, frequency, time-of-day distribution, and inter-message gap statistics by participant
 
    These analyzers are intentionally tuned for high recall (over-flagging). False positives are expected and removed in the manual-review phase; the goal is to surface candidates a human can review in minutes rather than reading every message.
-3. **Optional AI Pre-Screening**: If configured, submits messages to Claude to surface additional review candidates
+3. **Optional AI Pre-Screening**: If configured, submits messages to Claude to surface additional review candidates. Set `SKIP_AI_TAGGING=true` to skip this phase while still generating the Phase 6 executive summary after review.
 4. **Manual Review**: Examiner reviews and confirms every flagged item before it can appear in the final reports
 
 Then run `python3 run.py --env /path/to/.env --finalize` for Phases 5-8 (post-review):
@@ -382,6 +384,7 @@ Note: Person 1 does not get a separate tab because every other person's tab alre
 
 Each person tab includes:
 - Message details (timestamp, sender, recipient, content, source)
+  - Sender and recipient display as `"Name (phone/email)"` — the raw protocol identifier (phone number, email address, iMessage handle) is shown alongside the mapped display name for forensic traceability
 - Threat information (threat_detected, threat_categories, threat_confidence)
 - Sentiment data (sentiment_score, sentiment_polarity, sentiment_subjectivity)
 
