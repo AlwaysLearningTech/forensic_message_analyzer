@@ -527,11 +527,11 @@ class ForensicAnalyzer:
                 analysis_results = self.run_analysis_phase(extracted_data)
 
                 # Phase 3: AI Batch Analysis (pre-review, no summary)
-                if self.config.skip_ai_batch:
+                if self.config.skip_ai_tagging:
                     logger.info("\n" + "=" * 60)
                     logger.info("PHASE 3: PRE-REVIEW SCREENING")
                     logger.info("=" * 60)
-                    logger.info("    Phase 3 skipped (SKIP_AI_BATCH=true)")
+                    logger.info("    Phase 3 skipped (SKIP_AI_TAGGING=true)")
                     ai_batch_results = {}
                 else:
                     ai_batch_results = self.run_ai_batch_phase(extracted_data)
@@ -659,7 +659,7 @@ class ForensicAnalyzer:
     def _run_executive_summary(self, extracted_data, analysis_results):
         """Phase 6: generate AI executive summary post-review. Factored out so refresh can skip it."""
         ai_results = analysis_results.get('ai_analysis', {})
-        batch_was_skipped = getattr(self.config, 'skip_ai_batch', False)
+        batch_was_skipped = getattr(self.config, 'skip_ai_tagging', False)
         if not batch_was_skipped and not (ai_results and ai_results.get('total_messages', 0) > 0):
             logger.info("\n[*] No pre-screening results found — skipping executive summary")
             return

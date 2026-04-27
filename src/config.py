@@ -156,7 +156,7 @@ class Config:
 
         # AI processing mode
         self.use_batch_api = os.getenv('USE_BATCH_API', 'true').lower() == 'true'
-        self.skip_ai_batch = os.getenv('SKIP_AI_BATCH', 'false').lower() == 'true'
+        self.skip_ai_tagging = os.getenv('SKIP_AI_TAGGING', 'false').lower() == 'true'
 
         # Rate limiting (used in synchronous mode only; batch API handles its own limits)
         self.max_requests_per_minute = int(os.getenv('MAX_REQUESTS_PER_MINUTE', '40'))
@@ -241,7 +241,7 @@ class Config:
                 "batch_model": self.ai_batch_model,
                 "summary_model": self.ai_summary_model,
                 "use_batch_api": self.use_batch_api,
-                "skip_ai_batch": self.skip_ai_batch,
+                "skip_ai_tagging": self.skip_ai_tagging,
                 "max_requests_per_minute": self.max_requests_per_minute,
                 "tokens_per_minute": self.tokens_per_minute,
                 "request_delay_ms": self.request_delay_ms,
