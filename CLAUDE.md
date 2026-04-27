@@ -60,7 +60,8 @@ These are confirmed by reading the source — do not guess.
   - `ai_batch_model`, `ai_summary_model` (legacy `ai_model` removed in v4.4.0)
   - `email_source_dir`, `teams_source_dir`, `messages_db_path`, `whatsapp_source_dir`, `screenshot_source_dir`
   - `case_number` (newline-joined string), `case_numbers` (list), `case_name`, `examiner_name`, `organization`, `timezone`
-  - `use_batch_api`, `tokens_per_minute`, `request_delay_ms`, `max_tokens_per_request`
+  - `use_batch_api` — whether to use Anthropic's async Batch API protocol (cheaper/slower); `skip_ai_tagging` — set `SKIP_AI_TAGGING=true` to skip Phase 3 per-message AI tagging entirely while still running the Phase 6 executive summary
+  - `tokens_per_minute`, `request_delay_ms`, `max_tokens_per_request`
   - `ai_contacts` (expanded set), `ai_contacts_specified` (raw set or None)
   - `contacts_vcard_dir` (optional; vCard auto-mapping source)
   - `examiner_signing_key` (optional; PEM path to long-lived Ed25519 key; per-run ephemeral key generated when absent)
@@ -180,6 +181,7 @@ These are confirmed by reading the source — do not guess.
 - `Message`, `Finding`, `ReviewRecord`, `ThreatDetails`, `SentimentDetails`, `AnalysisResults`
 - `FindingSource` Literal: `"pattern_matched" | "ai_screened" | "extracted" | "derived" | "unknown"`
 - `ReviewDecision` Literal: `"relevant" | "not_relevant" | "uncertain"`
+- `Message` key fields: `sender` (mapped display name), `sender_raw` (raw protocol identifier — phone/email/handle — for the sender; `None` for PERSON1), `recipient_raw` (same for recipient). All extractors populate these; reporters render `"Name (identifier)"` inline when `sender_raw` is present.
 - These are documentation + type-checker hints; runtime code still uses `dict.get()` with defaults
 
 ## Developer Workflows
@@ -222,6 +224,8 @@ The `.env` file lives outside the repo. The system looks for it at the path abov
 - **Working copies**: Extractors read from `run_dir/working_copies/`, NOT originals. `Config.messages_db_path` and every source directory are rewritten in place during Phase 1 to point at the verified copy.
 - **PRAGMA whitelist**: `IMessageExtractor._discover_columns` refuses any table not in `_ALLOWED_SCHEMA_TABLES`. Add to the set if you need a new table.
 - **Signed outputs**: Manifest, chain of custody, and every report get sibling `.sig` + `.sig.pub`. Tampering with the file breaks the signature even if the hash is recomputed.
+- **SKIP_AI_TAGGING vs USE_BATCH_API**: These are different flags. `USE_BATCH_API` controls whether the Anthropic async Batch API protocol is used (cheaper/slower submissions). `SKIP_AI_TAGGING=true` skips Phase 3 per-message AI tagging entirely (threat/coercive-control classification) while still running the Phase 6 executive summary after review.
+- **sender_raw / recipient_raw**: Raw protocol identifiers (phone number, email address, iMessage handle) stored on every message dict by each extractor. `None` for PERSON1's own messages. Reporters display `"Name (identifier)"` inline. Never use `sender` alone in court-facing displays — always show the raw identifier alongside the mapped name.
 
 ## Legal Defensibility
 
